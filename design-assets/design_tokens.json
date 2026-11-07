@@ -1,0 +1,75 @@
+{
+  "status": "Implementation targets sampled/estimated from visual references; not original design-source specifications. Codex must refine by screenshot comparison.",
+  "colors": {
+    "background": "#101114",
+    "surface": "#1B1B1F",
+    "surfaceRaised": "#232327",
+    "cardBorder": "#3B3B40",
+    "textPrimary": "#F7F7F7",
+    "textSecondary": "#A4A4AC",
+    "textMuted": "#777982",
+    "amber": "#FFB347",
+    "amberBright": "#FFC16A",
+    "amberDark": "#8A5B23",
+    "blue": "#56BDF4",
+    "green": "#4BDD91",
+    "danger": "#FF666B",
+    "divider": "#37373D"
+  },
+  "gradients": {
+    "background": [
+      "#16171B",
+      "#0D0E11"
+    ],
+    "card": [
+      "#232327",
+      "#17181B"
+    ],
+    "amberGlow": [
+      "#FFB34766",
+      "#FFB34700"
+    ]
+  },
+  "radiiDp": {
+    "card": 24,
+    "chip": 20,
+    "bottomNav": 30,
+    "sensorRow": 22,
+    "button": 18
+  },
+  "strokesDp": {
+    "card": 1,
+    "ring": 9,
+    "icon": 1.8
+  },
+  "spacingDp": [
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32
+  ],
+  "typographySp": {
+    "primaryTemperature": 64,
+    "majorMetric": 34,
+    "section": 22,
+    "body": 18,
+    "label": 16,
+    "secondary": 14,
+    "caption": 12
+  },
+  "touchTargetMinDp": 48,
+  "layout": {
+    "orientation": "landscape",
+    "navigation": "bottom only",
+    "reference": "approved_landscape_dashboard.png",
+    "columns": "left outdoor and 2x2 metrics, center radial readout and controls, right camera preview and sensor rows; trend chart below left+center"
+  },
+  "display": {
+    "temperature": "round nearest integer with unit",
+    "humidity": "round nearest integer with %",
+    "internalPrecision": "retain original raw values"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "library": "Lucide SVG or lucide-android; use a consistent 24x24 viewport and round caps/joins. Material Symbols may be used only when visual equivalence is checked.",
+  "defaultDp": 24,
+  "strokeWidth": 1.8,
+  "mapping": {
+    "Dashboard": "house",
+    "Zones": "layers-3",
+    "History": "chart-no-axes-column-increasing",
+    "Cameras": "camera",
+    "Settings": "settings",
+    "Outdoor": "cloud-sun",
+    "Temperature": "thermometer",
+    "Humidity": "droplet",
+    "VPD": "gauge",
+    "Dew point": "droplets",
+    "Heat": "flame",
+    "Cool": "snowflake",
+    "Fan": "fan",
+    "Sensor online": "radio-tower",
+    "Wi-Fi": "wifi",
+    "Refresh": "refresh-cw",
+    "Expand": "maximize",
+    "Notifications": "bell",
+    "Mute": "bell-off",
+    "Edit placement": "move",
+    "ZIP code": "map-pin",
+    "Warning": "triangle-alert",
+    "Back": "chevron-left"
+  },
+  "rules": [
+    "Use SVG vector drawables, not emoji, rasterized icons, or font files.",
+    "Inactive icon: #A4A4AC; selected amber: #FFB347; live green: #4BDD91; humidity blue: #56BDF4.",
+    "Icon-only controls require accessible labels.",
+    "No generic leaves beside branding; no branding anywhere on approved app."
+  ]
+}

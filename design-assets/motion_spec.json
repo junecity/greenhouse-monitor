@@ -1,0 +1,34 @@
+{
+  "principles": "No continuous decorative motion; reduce-motion support; animations must never obscure critical readings; no false LIVE status.",
+  "timingsMs": {
+    "tapDown": 90,
+    "tapUp": 140,
+    "cardEntrance": 260,
+    "screenCrossfade": 220,
+    "contentSlide": 260,
+    "numberChange": 220,
+    "sensorSelect": 180,
+    "ringSweep": 700,
+    "statusPulse": 1200,
+    "cameraConnect": 250,
+    "chartReveal": 420,
+    "modalOpen": 280,
+    "modalClose": 200
+  },
+  "easing": {
+    "standard": "cubic-bezier(0.2,0,0,1)",
+    "emphasized": "cubic-bezier(0.2,0,0,1)",
+    "exit": "cubic-bezier(0.4,0,1,1)"
+  },
+  "behaviors": {
+    "navigation": "Crossfade outgoing 0\u21921 and translate incoming 12dp\u21920; keep bottom bar fixed; no whole-page zoom.",
+    "cards": "Fade alpha 0\u21921, translateY 8dp\u21920 on first appearance only, stagger 35ms maximum.",
+    "metricUpdates": "Crossfade numerical glyphs in place; use tabular figures; no counting animation that suggests measurements that were never received.",
+    "gauge": "Animate arc sweep from previous measured proportion to next over 700ms; avoid uncontrolled continuous rotation; arc does not imply heater control.",
+    "sensorRows": "Selected background/outline transition 180ms; offline state turns muted gray with timestamp.",
+    "camera": "Loading shimmer only while connecting, then fade into verified live video; show explicit disconnected state.",
+    "chart": "Line reveal on initial history load 420ms; thereafter update without restarting animation.",
+    "alerts": "Critical changes immediate, noncritical toast only if enabled; no repeated 5-minute interruptions.",
+    "reducedMotion": "Disable slides, pulses and sweep; immediate state change or <=100ms fade."
+  }
+}
