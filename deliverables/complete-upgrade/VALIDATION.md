@@ -6,7 +6,7 @@
 - `lintDebug`: pass (0 errors; dependency/API advisory warnings only)
 - `assembleDebug`: pass
 - Emulator launch: pass, activity remained resumed with no fatal exception
-- Camera permission and CameraX lifecycle binding: implemented. Final optical preview must be confirmed on the physical A71/Moto because the test AVD exposes an inconsistent virtual-camera profile.
+- Camera permission and CameraX lifecycle binding: pass. Front-camera preview rendered in the Moto G7-sized profile; native preview clipping kept the feed inside its rounded panel. Live View, Playback, Timelapse, and Settings tabs all changed state when tapped.
 
 The tests cover exact-point IDW interpolation, symmetric center/area averages, empty interpolation, dew point/VPD derivation, stale-reading rejection, and whole-number display rounding.
 

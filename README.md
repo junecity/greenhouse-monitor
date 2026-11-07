@@ -11,7 +11,7 @@ Native Kotlin/Jetpack Compose greenhouse dashboard for Android 10+ (API 29). The
 - Per-sensor greenhouse/zone assignment and drag-to-position physical coordinates.
 - Coordinate-based inverse-distance-weighted temperature, humidity, VPD, and dew-point maps, including center and area-average estimates.
 - Local SQLite history and 7-day graphs for all four metrics.
-- Live rear-camera preview using CameraX, with an in-app permission retry.
+- Live front-camera preview using CameraX, with rear-camera fallback and an in-app permission retry.
 - ZIP-code weather through Open-Meteo. No GPS or location permission is used.
 - Background sensor checks, locally configurable alert categories, quiet defaults, repeat control, and snooze.
 
@@ -43,7 +43,7 @@ Set a five-digit ZIP code under **Settings → General**. Weather lookup geocode
 
 ## Deliberate limitations
 
-- The Cameras page provides a live local preview. Remote WebRTC signaling/TURN, playback, and timelapse still require a streaming backend.
+- The Cameras page provides a clipped live front-camera preview. Its tabs are selectable; Playback and Timelapse show their current unconfigured states because stored/remote media still requires a streaming and storage backend.
 - Email alerts require an email delivery service and credentials; the app marks them unavailable instead of pretending delivery is configured.
 - Background polling uses Android WorkManager's 15-minute platform minimum; one-minute refresh applies while the app is open.
 
