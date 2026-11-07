@@ -7,6 +7,7 @@
 - `assembleDebug`: pass
 - Emulator launch: pass, activity remained resumed with no fatal exception
 - Camera permission and CameraX lifecycle binding: pass. Front-camera preview rendered in the Moto G7-sized profile; native preview clipping kept the feed inside its rounded panel. Live View, Playback, Timelapse, and Settings tabs all changed state when tapped.
+- Professional Dashboard front-camera card: pass at 2270×1080/420 dpi after CameraX initialization; feed remained inside the upper-right rounded card and the window filled both display ends.
 
 The tests cover exact-point IDW interpolation, symmetric center/area averages, empty interpolation, dew point/VPD derivation, stale-reading rejection, and whole-number display rounding.
 

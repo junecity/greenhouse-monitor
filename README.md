@@ -4,14 +4,14 @@ Native Kotlin/Jetpack Compose greenhouse dashboard for Android 10+ (API 29). The
 
 ## Included
 
-- Dashboard matching the approved dark neon visual language, with whole-number display values.
+- Professional charcoal-and-amber dashboard with a circular climate gauge, environmental cards, 24-hour trend, compact sensor list, whole-number display values, and a live front-camera card.
 - Govee H5179 discovery and readings through Govee's authenticated cloud API.
 - Encrypted API-key storage backed by Android Keystore.
 - Multiple greenhouses with editable names and physical dimensions.
 - Per-sensor greenhouse/zone assignment and drag-to-position physical coordinates.
 - Coordinate-based inverse-distance-weighted temperature, humidity, VPD, and dew-point maps, including center and area-average estimates.
 - Local SQLite history and 7-day graphs for all four metrics.
-- Live front-camera preview using CameraX, with rear-camera fallback and an in-app permission retry.
+- Live front-camera preview on both Dashboard and Cameras using CameraX, with rear-camera fallback and an in-app permission retry.
 - ZIP-code weather through Open-Meteo. No GPS or location permission is used.
 - Background sensor checks, locally configurable alert categories, quiet defaults, repeat control, and snooze.
 
