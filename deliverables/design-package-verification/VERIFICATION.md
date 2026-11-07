@@ -28,6 +28,9 @@
 - ZIP-code outdoor weather through Open-Meteo
 - Notification preferences and alert worker
 - Front-camera-first selection with rear-camera fallback
+- Persistent Greenhouse Server / Viewer Client camera role selection
+- Viewer Client mode never requests camera permission or publishes the local camera
+- Greenhouse Server mode is explicitly reserved for a short-lived publish-only token
 
 ## Requires real credentials or infrastructure
 

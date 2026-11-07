@@ -18,7 +18,7 @@ class AppPreferencesStore(context:Context){
             greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",g.lengthFeet).put("width",g.widthFeet).put("height",g.heightFeet).put("positions",positions))
         }
         val assignments=JSONObject();p.sensorGreenhouseIds.forEach{(sensor,greenhouse)->assignments.put(sensor,greenhouse)}
-        return JSONObject().put("zip",p.zipCode).put("fahrenheit",p.temperatureFahrenheit).put("refresh",p.refreshMinutes).put("retention",p.historyRetentionDays).put("screen",p.keepScreenOn).put("boot",p.autoStart).put("active",p.activeGreenhouseId).put("notifications",notifications).put("greenhouses",greenhouses).put("sensorGreenhouses",assignments)
+        return JSONObject().put("zip",p.zipCode).put("fahrenheit",p.temperatureFahrenheit).put("refresh",p.refreshMinutes).put("retention",p.historyRetentionDays).put("screen",p.keepScreenOn).put("boot",p.autoStart).put("active",p.activeGreenhouseId).put("cameraMode",p.cameraMode.name).put("notifications",notifications).put("greenhouses",greenhouses).put("sensorGreenhouses",assignments)
     }
     private fun decode(o:JSONObject):AppPreferences{
         val array=o.optJSONArray("greenhouses")?:JSONArray();val greenhouses=mutableListOf<GreenhouseConfig>()
@@ -30,6 +30,7 @@ class AppPreferencesStore(context:Context){
         if(greenhouses.isEmpty())greenhouses+=GreenhouseConfig()
         val n=o.optJSONObject("notifications")?:JSONObject()
         val assignmentsJson=o.optJSONObject("sensorGreenhouses")?:JSONObject();val assignments=mutableMapOf<String,String>();assignmentsJson.keys().forEach{id->assignments[id]=assignmentsJson.optString(id)}
-        return AppPreferences(zipCode=o.optString("zip","06382"),temperatureFahrenheit=o.optBoolean("fahrenheit",true),refreshMinutes=o.optInt("refresh",1),historyRetentionDays=o.optInt("retention",30),keepScreenOn=o.optBoolean("screen",true),autoStart=o.optBoolean("boot",false),greenhouses=greenhouses,activeGreenhouseId=o.optString("active",greenhouses.first().id),notifications=NotificationPreferences(n.optBoolean("master",true),n.optBoolean("popups",false),n.optBoolean("sound",false),n.optBoolean("vibration",false),n.optBoolean("repeat",false),n.optInt("repeatMinutes",30),n.optLong("snooze",0),n.optBoolean("temp",true),n.optBoolean("humidity",true),n.optBoolean("offline",true),n.optBoolean("connection",false),n.optDouble("lowT",45.0),n.optDouble("highT",95.0),n.optDouble("lowH",30.0),n.optDouble("highH",85.0)),sensorGreenhouseIds=assignments)
+        val cameraMode=runCatching{CameraMode.valueOf(o.optString("cameraMode",CameraMode.CameraServer.name))}.getOrDefault(CameraMode.CameraServer)
+        return AppPreferences(zipCode=o.optString("zip","06382"),temperatureFahrenheit=o.optBoolean("fahrenheit",true),refreshMinutes=o.optInt("refresh",1),historyRetentionDays=o.optInt("retention",30),keepScreenOn=o.optBoolean("screen",true),autoStart=o.optBoolean("boot",false),greenhouses=greenhouses,activeGreenhouseId=o.optString("active",greenhouses.first().id),notifications=NotificationPreferences(n.optBoolean("master",true),n.optBoolean("popups",false),n.optBoolean("sound",false),n.optBoolean("vibration",false),n.optBoolean("repeat",false),n.optInt("repeatMinutes",30),n.optLong("snooze",0),n.optBoolean("temp",true),n.optBoolean("humidity",true),n.optBoolean("offline",true),n.optBoolean("connection",false),n.optDouble("lowT",45.0),n.optDouble("highT",95.0),n.optDouble("lowH",30.0),n.optDouble("highH",85.0)),sensorGreenhouseIds=assignments,cameraMode=cameraMode)
     }
 }

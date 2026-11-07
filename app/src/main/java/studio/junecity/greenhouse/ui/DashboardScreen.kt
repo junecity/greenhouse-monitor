@@ -58,7 +58,7 @@ private val ProEdge=DashboardTokens.PanelEdge
     val contentAlpha by animateFloatAsState(if(entered)1f else 0f,tween(AppMotion.CardEntranceMs,easing=FastOutSlowInEasing),label="dashboard cards")
     var cameraPermission by remember{mutableStateOf(ContextCompat.checkSelfPermission(context,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)}
     val cameraPermissionLauncher=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){cameraPermission=it}
-    LaunchedEffect(Unit){if(!cameraPermission)cameraPermissionLauncher.launch(Manifest.permission.CAMERA)}
+    LaunchedEffect(state.preferences.cameraMode){if(state.preferences.cameraMode==CameraMode.CameraServer&&!cameraPermission)cameraPermissionLauncher.launch(Manifest.permission.CAMERA)}
     ApprovedFrame(AppScreen.Dashboard,status,now,onNavigate,modifier,showTitle=false){d,t->
         val greenhouse=state.preferences.activeGreenhouse
         val fresh=state.sensors.filter{it.greenhouseId==greenhouse.id&&it.isFresh()}
@@ -80,7 +80,8 @@ private val ProEdge=DashboardTokens.PanelEdge
             }
             Column(Modifier.weight(.41f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(d(14f))){
                 ProPanel(Modifier.weight(.49f).fillMaxWidth()){
-                    if(cameraPermission)FrontCameraFeed(d,t,Modifier.fillMaxSize())
+                    if(state.preferences.cameraMode==CameraMode.ViewerClient)Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){DashboardIconView(DashboardIcon.Camera,ProAmber,Modifier.size(d(54f)));Text("Viewer mode",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.ExtraBold);Text("Remote camera endpoint not configured",color=DashboardTokens.Muted,fontSize=t(11f))}}
+                    else if(cameraPermission)FrontCameraFeed(d,t,Modifier.fillMaxSize())
                     else Box(Modifier.fillMaxSize().clickable{cameraPermissionLauncher.launch(Manifest.permission.CAMERA)},contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){DashboardIconView(DashboardIcon.Camera,ProAmber,Modifier.size(d(54f)));Text("Enable front camera",color=Color.White,fontSize=t(16f));Text("Tap to allow camera access",color=DashboardTokens.Muted,fontSize=t(11f))}}
                 }
                 SensorCard(fresh,d,t,Modifier.weight(.51f).fillMaxWidth())
