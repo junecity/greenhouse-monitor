@@ -9,16 +9,7 @@ import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import studio.junecity.greenhouse.model.*
 
-interface GreenhouseSensorDataProvider { fun current(): GreenhouseReading }
-interface WeatherDataProvider { fun current(): WeatherReading }
 interface DeviceStatusProvider { fun current(): DeviceStatus }
-
-class DemoGreenhouseSensorDataProvider : GreenhouseSensorDataProvider {
-    override fun current() = GreenhouseReading(72.4, 58, isDemo = true)
-}
-class DemoWeatherDataProvider : WeatherDataProvider {
-    override fun current() = WeatherReading("Waterbury, CT", 46, "Partly Cloudy", 34, 10, isDemo = true)
-}
 
 class AndroidDeviceStatusProvider(private val context: Context) : DeviceStatusProvider {
     override fun current(): DeviceStatus {

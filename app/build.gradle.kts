@@ -12,8 +12,8 @@ android {
         applicationId = "studio.junecity.greenhouse"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0-stage1"
+        versionCode = 2
+        versionName = "2.0.0"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
@@ -37,4 +37,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.work:work-runtime-ktx:2.11.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

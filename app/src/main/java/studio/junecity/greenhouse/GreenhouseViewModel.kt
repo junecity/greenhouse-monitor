@@ -6,53 +6,29 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import studio.junecity.greenhouse.data.*
 import studio.junecity.greenhouse.model.*
-import studio.junecity.greenhouse.settings.SecureSettingsStore
-import studio.junecity.greenhouse.settings.ZoneAssignmentStore
+import studio.junecity.greenhouse.settings.*
 
-class GreenhouseViewModel(application:Application):AndroidViewModel(application){
-    private val settings=SecureSettingsStore(application)
-    private val govee=GoveeApiClient()
-    private val weatherProvider=LiveWeatherProvider()
-    private val historyStore=HistoryStore(application)
-    private val notifier=AlertNotifier(application)
-    private val zones=ZoneAssignmentStore(application)
-    private val _state=MutableStateFlow(GreenhouseUiState(goveeConnected=settings.goveeApiKey()!=null))
-    val state:StateFlow<GreenhouseUiState> = _state.asStateFlow()
-
-    init {
-        SensorSyncWorker.schedule(application)
-        settings.location()?.let{refreshWeather(it.first,it.second)}
-        if(settings.goveeApiKey()!=null) refreshSensors()
-        viewModelScope.launch { while(true){ delay(120_000); refreshSensors(silent=true); settings.location()?.let{refreshWeather(it.first,it.second,true)} } }
-    }
-
-    fun navigate(screen:AppScreen){_state.value=_state.value.copy(screen=screen,message=null);if(screen==AppScreen.History)loadHistory()}
-    fun saveApiKey(key:String){
-        settings.saveGoveeApiKey(key);_state.value=_state.value.copy(goveeConnected=key.isNotBlank(),message=if(key.isBlank())"Govee disconnected" else "API key saved securely")
-        if(key.isNotBlank())refreshSensors()
-    }
-    fun updateLocation(latitude:Double,longitude:Double){settings.saveLocation(latitude,longitude);refreshWeather(latitude,longitude)}
-
-    fun refreshSensors(silent:Boolean=false){
-        val key=settings.goveeApiKey() ?: return
-        viewModelScope.launch {
-            if(!silent)_state.value=_state.value.copy(refreshing=true,message=null)
-            runCatching{
-                val discovered=govee.discoverH5179(key)
-                discovered.map{govee.state(key,it).copy(zone=zones.zone(it.id))}
-            }.onSuccess{sensors->
-                withContext(Dispatchers.IO){sensors.filter{it.online}.forEach{historyStore.insert(it);notifier.evaluate(it)}}
-                _state.value=_state.value.copy(sensors=sensors,goveeConnected=true,refreshing=false,message=if(sensors.isEmpty())"No H5179 sensors were found in this Govee account" else "Updated ${sensors.size} sensor${if(sensors.size==1)"" else "s"}")
-            }.onFailure{_state.value=_state.value.copy(refreshing=false,message=it.message ?: "Govee refresh failed")}
-        }
-    }
-    fun assignSensor(sensorId:String,zone:String){zones.assign(sensorId,zone);_state.value=_state.value.copy(sensors=_state.value.sensors.map{if(it.id==sensorId)it.copy(zone=zone) else it},message="Sensor assigned to $zone")}
-    private fun refreshWeather(latitude:Double,longitude:Double,silent:Boolean=false){viewModelScope.launch{runCatching{weatherProvider.current(latitude,longitude)}.onSuccess{_state.value=_state.value.copy(weather=it)}.onFailure{if(!silent)_state.value=_state.value.copy(message="Local weather: ${it.message}")}}}
-    private fun loadHistory(){viewModelScope.launch{val records=withContext(Dispatchers.IO){historyStore.recent()};_state.value=_state.value.copy(history=records)}}
+class GreenhouseViewModel(app:Application):AndroidViewModel(app){
+    private val secure=SecureSettingsStore(app);private val preferences=AppPreferencesStore(app);private val legacyZones=ZoneAssignmentStore(app);private val govee=GoveeApiClient();private val weather=LiveWeatherProvider();private val history=HistoryStore(app);private val notifier=AlertNotifier(app)
+    private val _state=MutableStateFlow(GreenhouseUiState(preferences=preferences.load(),goveeConnected=secure.goveeApiKey()!=null));val state=_state.asStateFlow()
+    init{SensorSyncWorker.schedule(app);refreshWeather(true);if(secure.goveeApiKey()!=null)refreshSensors();viewModelScope.launch{while(true){delay(_state.value.preferences.refreshMinutes.coerceIn(1,30)*60_000L);refreshSensors(true)}};viewModelScope.launch{while(true){delay(15*60_000L);refreshWeather(true)}}}
+    fun navigate(s:AppScreen){_state.value=_state.value.copy(screen=s,message=null);if(s==AppScreen.History)loadHistory()}
+    fun selectMetric(m:Metric){_state.value=_state.value.copy(metric=m)}
+    fun saveApiKey(key:String){secure.saveGoveeApiKey(key);_state.value=_state.value.copy(goveeConnected=key.isNotBlank(),message=if(key.isBlank())"Govee disconnected" else "API key saved securely");if(key.isNotBlank())refreshSensors()}
+    fun testConnection()=refreshSensors()
+    fun refreshSensors(silent:Boolean=false){val key=secure.goveeApiKey()?:return;viewModelScope.launch{if(!silent)_state.value=_state.value.copy(refreshing=true,message=null);runCatching{val discovered=govee.discoverH5179(key);val prefs=_state.value.preferences;discovered.map{s->val old=_state.value.sensors.firstOrNull{it.id==s.id};val zone=old?.zone?:legacyZones.zone(s.id);govee.state(key,s).copy(greenhouseId=prefs.sensorGreenhouseIds[s.id]?:old?.greenhouseId?:prefs.activeGreenhouse.id,zone=zone)}}.onSuccess{sensors->withContext(Dispatchers.IO){sensors.forEach{if(it.isFresh())history.insert(it);notifier.evaluate(it)}};ensurePositions(sensors);_state.value=_state.value.copy(sensors=sensors,goveeConnected=true,refreshing=false,message="Updated ${sensors.size} sensors")}.onFailure{_state.value=_state.value.copy(refreshing=false,message=it.message?:"Govee refresh failed")}}}
+    private fun ensurePositions(sensors:List<GoveeSensor>){val p=_state.value.preferences;val g=p.activeGreenhouse;var positions=g.sensorPositions;sensors.filter{it.greenhouseId==g.id&&it.id !in positions}.forEachIndexed{i,s->val defaults=listOf(.2 to .25,.8 to .25,.2 to .75,.8 to .75);val n=defaults[i%defaults.size];positions=positions+(s.id to SensorPosition(n.first*g.lengthFeet,n.second*g.widthFeet))};if(positions!=g.sensorPositions)savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=positions)else it}))}
+    fun moveSensor(id:String,nx:Double,ny:Double){val p=_state.value.preferences;val g=p.activeGreenhouse;val pos=SensorPosition(nx.coerceIn(.03,.97)*g.lengthFeet,ny.coerceIn(.05,.95)*g.widthFeet,g.sensorPositions[id]?.heightFeet?:0.0);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
+    fun assignZone(sensorId:String,zone:String){legacyZones.assign(sensorId,zone);val p=_state.value.preferences;val active=p.activeGreenhouse;savePreferences(p.copy(sensorGreenhouseIds=p.sensorGreenhouseIds+(sensorId to active.id)));_state.value=_state.value.copy(sensors=_state.value.sensors.map{if(it.id==sensorId)it.copy(zone=zone,greenhouseId=active.id)else it});ensurePositions(_state.value.sensors)}
+    fun updateGreenhouse(name:String,length:Double,width:Double){if(length<=0||width<=0)return;val p=_state.value.preferences;val old=p.activeGreenhouse;val updated=old.copy(name=name.ifBlank{old.name},lengthFeet=length,widthFeet=width,sensorPositions=old.sensorPositions.mapValues{(_,v)->SensorPosition(v.xFeet.coerceAtMost(length),v.yFeet.coerceAtMost(width),v.heightFeet)});savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==old.id)updated else it}))}
+    fun updatePreferences(transform:(AppPreferences)->AppPreferences)=savePreferences(transform(_state.value.preferences))
+    private fun savePreferences(p:AppPreferences){preferences.save(p);_state.value=_state.value.copy(preferences=p)}
+    fun saveZip(zip:String){if(!Regex("\\d{5}").matches(zip)){_state.value=_state.value.copy(message="Enter a valid five-digit ZIP code");return};savePreferences(_state.value.preferences.copy(zipCode=zip));refreshWeather()}
+    fun refreshWeather(silent:Boolean=false){val zip=_state.value.preferences.zipCode;viewModelScope.launch{runCatching{weather.current(zip)}.onSuccess{_state.value=_state.value.copy(weather=it)}.onFailure{if(!silent)_state.value=_state.value.copy(message=it.message);_state.value=_state.value.copy(weather=_state.value.weather.copy(stale=true))}}}
+    private fun loadHistory(){viewModelScope.launch{val rows=withContext(Dispatchers.IO){history.recent(2000)};_state.value=_state.value.copy(history=rows)}}
 }
