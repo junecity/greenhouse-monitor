@@ -6,6 +6,7 @@
 - `lintDebug`: pass (0 errors; dependency/API advisory warnings only)
 - `assembleDebug`: pass
 - Emulator launch: pass, activity remained resumed with no fatal exception
+- Camera permission and CameraX lifecycle binding: implemented. Final optical preview must be confirmed on the physical A71/Moto because the test AVD exposes an inconsistent virtual-camera profile.
 
 The tests cover exact-point IDW interpolation, symmetric center/area averages, empty interpolation, dew point/VPD derivation, stale-reading rejection, and whole-number display rounding.
 
@@ -27,6 +28,6 @@ Both sizes retain all five navigation items, the top status area, and the comple
 
 ## Not represented as complete
 
-- Secure remote camera streaming, playback, and timelapse need CameraX plus a WebRTC signaling/TURN backend.
+- Secure remote camera streaming, playback, and timelapse need a WebRTC signaling/TURN backend. Local CameraX preview is implemented.
 - Email delivery needs an external email provider.
 - A live Govee verification requires the user's API key and physical H5179 devices; no credential is stored in this repository.
