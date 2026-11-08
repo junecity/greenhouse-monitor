@@ -6,6 +6,6 @@ resolve_s3 = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 fail_on_empty_changeset = false
-parameter_overrides = "EnvironmentName=dev OfflineTimeoutSeconds=180"
+parameter_overrides = "EnvironmentName=dev OfflineTimeoutSeconds=180 UserPoolDeletionProtection=ACTIVE"
 tags = "Project=GreenhouseMonitor Environment=dev ManagedBy=SAM"
 

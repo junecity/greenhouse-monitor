@@ -35,7 +35,11 @@ jobs:
       - name: Backend syntax validation
         run: python -m py_compile backend/src/*.py
       - name: AWS SAM template lint
-        run: cfn-lint infrastructure/template.yaml
+        run: |
+          cfn-lint infrastructure/template.yaml
+          # AWS reports apigateway:TagResource/UntagResource during live HTTP API deployment,
+          # but cfn-lint's IAM catalog currently lags those authorization events.
+          cfn-lint -i W3037 -- infrastructure/deployment-bootstrap.yaml
       - name: APK checksum
         run: sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/outputs/apk/debug/app-debug.apk.sha256
       - uses: actions/upload-artifact@v7

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "Usage: $0 <cloudformation-stack-name> <aws-region>" >&2
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "Usage: $0 <cloudformation-stack-name> <aws-region> [aws-profile]" >&2
   exit 2
 fi
 
@@ -11,13 +11,19 @@ command -v java >/dev/null || { echo "JDK 17 is required" >&2; exit 2; }
 
 stack_name="$1"
 aws_region="$2"
+aws_profile="${3:-${AWS_PROFILE:-}}"
 project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+aws_args=(--region "$aws_region")
+if [[ -n "$aws_profile" ]]; then
+  aws_args+=(--profile "$aws_profile")
+fi
 
 stack_output() {
   local output_key="$1"
   aws cloudformation describe-stacks \
     --stack-name "$stack_name" \
-    --region "$aws_region" \
+    "${aws_args[@]}" \
     --query "Stacks[0].Outputs[?OutputKey=='${output_key}'].OutputValue | [0]" \
     --output text
 }

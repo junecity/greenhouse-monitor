@@ -2,6 +2,17 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS development deployment
+
+- Deployed the dedicated `greenhouse-monitor-deployment-bootstrap` and `greenhouse-monitor-dev` CloudFormation stacks in `us-east-1`; no junecity.studio resources were touched.
+- Added a private encrypted artifact bucket, restricted deployment caller and CloudFormation service roles, Cognito Plus with active deletion protection, API Gateway, Lambda, DynamoDB, Scheduler, SNS, SQS, logs, and alarms.
+- Added configurable Cognito deletion protection so failed first-time development deployments can roll back safely before protection is enabled, plus the live-required Cognito, API Gateway tag, and CloudWatch log-delivery permissions.
+- Extended the AWS APK helper with an optional profile argument and added bootstrap-template linting to CI.
+- Recovered four pre-activation least-privilege failures without customer data: missing SAM transform, Cognito MFA, API Gateway tagging, and log-delivery permissions were corrected; partial pools/tables/log groups were verified empty and removed before clean redeployment.
+- Live AWS validation: stack `CREATE_COMPLETE`; Cognito Plus deletion protection active; unauthenticated API returned 401; DynamoDB encryption/PITR/TTL enabled; Lambdas active on Python 3.13 arm64; one-minute schedule enabled; heartbeat monitor invoked successfully with zero Lambda errors; both stacks report `IN_SYNC` drift status.
+- Android/backend validation: 57 JVM tests, lint, configured assembly, 29 Python tests, Python 3.13 compilation, SAM validate/build, both CloudFormation lints, APK checksum/signature/config/key scan, and emulator cold launch passed. Configured APK SHA-256: `58544165e4fb0c4c389c72e6bc6e2ef389a78d369a9fecf6a0e2fcb9e675c585`.
+- Remaining: create/confirm the owner Cognito account before complimentary entitlement can be granted; add an approved operations-topic destination; verify onboarding, pairing, direct/TURN video, handoff, alerts, reboot, and network transitions on physical phones; configure release signing and Play subscriptions if commercial billing is enabled.
+
 ## 2026-11-08 — AWS-configured APK build handoff
 
 - Added a credential-safe build helper that reads the deployed stack's non-secret API/Cognito outputs through the operator's AWS CLI session and supplies all four required Android build values together.

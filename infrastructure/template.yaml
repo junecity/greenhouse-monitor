@@ -12,6 +12,10 @@ Parameters:
     Default: 180
     MinValue: 120
     MaxValue: 900
+  UserPoolDeletionProtection:
+    Type: String
+    Default: ACTIVE
+    AllowedValues: [ACTIVE, INACTIVE]
 
 Globals:
   Function:
@@ -32,7 +36,7 @@ Resources:
     Properties:
       UserPoolName: !Sub greenhouse-monitor-${EnvironmentName}-users
       UserPoolTier: PLUS
-      DeletionProtection: ACTIVE
+      DeletionProtection: !Ref UserPoolDeletionProtection
       AutoVerifiedAttributes: [email]
       UsernameAttributes: [email]
       MfaConfiguration: OPTIONAL
@@ -127,7 +131,7 @@ Resources:
               issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
               audience: [!Ref AndroidUserPoolClient]
       AccessLogSettings:
-        DestinationArn: !GetAtt ApiAccessLogs.Arn
+        DestinationArn: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/greenhouse-monitor/${EnvironmentName}/api
         Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLength":"$context.responseLength"}'
 
   ApiAccessLogs:

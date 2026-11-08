@@ -45,7 +45,7 @@ An all-blank AWS configuration produces the local-only rollback build. After an 
 
 Partial AWS configuration fails the app closed. Never put AWS access keys, IAM credentials, or entitlement-administration permission in the APK.
 
-After the CloudFormation stack is deployed, `scripts/build-aws-debug-apk.sh <stack-name> <aws-region>` reads its non-secret outputs and writes the configured debug APK and checksum to `build-out/`.
+After the CloudFormation stack is deployed, `scripts/build-aws-debug-apk.sh <stack-name> <aws-region> [aws-profile]` reads its non-secret outputs and writes the configured debug APK and checksum to `build-out/`. The deployed development build is `build-out/Greenhouse-Monitor-AWS-debug.apk`.
 
 ## Connect Govee H5179 sensors
 
@@ -76,13 +76,13 @@ AWS remote video uses authenticated Kinesis signaling and encrypted WebRTC media
 - Remote camera capture is on demand; playback and Timelapse remain unconfigured because the app does not continuously record or upload video.
 - AWS heartbeat and alert services use foreground-service notifications. Android/OEM background limits and Do Not Disturb can still affect delivery; physical A71/Pixel testing is required before making alarm guarantees.
 - Customer SMS/email/voice escalation is not configured. The Android app polls its Cognito-authorized AWS alert inbox about once per minute and uses local high-priority notifications without Firebase.
-- The AWS stack, release signing, Google Play products, and physical cross-network camera matrix have not been deployed or validated from this repository.
+- The AWS development stack is deployed in `us-east-1`. Release signing, Google Play products, complimentary owner activation, and the physical cross-network camera matrix remain unconfigured or unverified.
 
 ## Rollback and deliverables
 
 - Working Stage 3 rollback tag: `codex-stage3-baseline`
 - Upgrade branch: `codex/greenhouse-complete-upgrade`
-- Latest locally verified APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, local-only until rebuilt with deployed AWS outputs).
+- Latest AWS-configured APK: `build-out/Greenhouse-Monitor-AWS-debug.apk` (debug-signed; real development-stack outputs, no AWS credentials).
 - Version 2.6.1 renders the Zones footprint at a uniform feet-to-pixels scale, so equally sized attached greenhouse sections remain visually proportional, and uses a minimalist summary-first Settings layout with advanced editing hidden until requested.
 - Version 2.6 makes Settings typography larger, derives the Zones footprint directly from the saved greenhouse plan, calculates section area and bounding dimensions accurately, and safely reprojects sensor positions when geometry changes.
 - Version 2.6 Moto G7 screenshots and validation: `deliverables/geometry-settings-v2.6/`

@@ -121,15 +121,17 @@
 
 ## Deployment status
 
-- `docs/AWS_DEPLOYMENT.md` is the approval-gated deployment, cost, rollback, and physical-test checklist.
+- `docs/AWS_DEPLOYMENT.md` is the deployment, cost, rollback, and physical-test checklist.
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
-- Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
-- Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
-- AWS device-security checkpoint: 57 Android JVM tests, lint, debug assembly, 26 Python tests, and Python compilation passed. Cognito, QR pairing, inventory/revocation, Kinesis signaling, TURN/direct ICE, camera handoff, alert delivery, boot recovery, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
+- The dedicated `greenhouse-monitor-dev` application stack and `greenhouse-monitor-deployment-bootstrap` least-privilege role/artifact stack are deployed in `us-east-1`. The application stack is `CREATE_COMPLETE`; Cognito Plus deletion protection is active.
+- Live AWS checks passed for unauthenticated API denial, DynamoDB encryption/PITR/TTL, active Python 3.13 arm64 Lambdas, the enabled one-minute heartbeat schedule, a zero-error heartbeat-monitor invocation, and `IN_SYNC` drift status for both stacks. Kinesis resources remain on-demand and have not yet been exercised by two phones.
+- Latest AWS-configured APK: `build-out/Greenhouse-Monitor-AWS-debug.apk`, SHA-256 `58544165e4fb0c4c389c72e6bc6e2ef389a78d369a9fecf6a0e2fcb9e675c585`. It is debug-signed, contains the real non-secret stack outputs, passed an access-key-pattern scan, and cold-launched to Cognito onboarding on the Android emulator.
+- AWS deployment checkpoint: 57 Android JVM tests, lint, assembly, 29 Python tests, Python 3.13 compilation, SAM validation/build, CloudFormation lint, APK verification, live AWS smoke checks, and emulator launch passed. Cognito account confirmation, QR pairing, inventory/revocation, direct/TURN WebRTC, camera handoff, alert delivery, boot recovery, and network transitions remain unverified on the physical A71/Pixel phones.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 - GitHub Actions runs `42488729170` and `42489260140` passed all Android, backend, AWS template-lint, checksum, and artifact steps. The workflow now uses official Node 24-compatible action majors (including `upload-artifact@v7`) and cancels superseded runs on the same ref to limit CI waste.
-- `cfn-lint` 1.46.0 validates the SAM template locally and in CI. The undeployed template now includes bounded HTTP API throttling, explicit 30-day API/Lambda log retention, encrypted operations SNS and heartbeat DLQ resources, scheduled retry limits, and alarms for API/Lambda/heartbeat failures. SAM CLI/account-aware validation is still pending.
-- AWS-only owner activation is prepared through the undeployed IAM-restricted entitlement Lambda. Its complimentary grant/revoke/reset state machine has backend tests, but IAM invocation, CloudTrail audit, and lease revocation require a deployed development stack.
+- Both the SAM template and deployment bootstrap are linted locally and in CI; the bootstrap suppresses only cfn-lint `W3037` because live API Gateway deployment requires newer `TagResource/UntagResource` actions missing from the linter catalog.
+- AWS-only owner activation is deployed through the IAM-restricted entitlement Lambda. Granting complimentary access still waits for the owner to create the Cognito account so its opaque subject exists.
+- The operations SNS topic has no subscriber; Google Play verification, release signing, physical-network testing, and an owner-controlled non-root deployer remain external gates.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory

@@ -1,6 +1,8 @@
 # AWS deployment handoff
 
-No AWS resources have been deployed from this repository. The SAM template is a dedicated Greenhouse Monitor foundation and has no dependency on junecity.studio.
+The dedicated `greenhouse-monitor-dev` stack is deployed in `us-east-1`; it has no dependency on junecity.studio. Production and staging stacks have not been created.
+
+The separate `greenhouse-monitor-deployment-bootstrap` stack owns a private encrypted artifact bucket, a restricted CloudFormation service role, and a restricted deployment-caller role. The application stack was created through the service role. The temporary root browser session used only to bootstrap the roles must be logged out after handoff and is never embedded in the app or CI.
 
 ## Prepared resources
 
@@ -12,15 +14,23 @@ No AWS resources have been deployed from this repository. The SAM template is a 
 - Thirty-day API/Lambda log retention, API throttling, and CloudWatch alarms for API errors/throttling/5xx responses, heartbeat-monitor errors, and dead-lettered checks.
 - A non-HTTP entitlement administrator with least-privilege DynamoDB access, 90-day audit logs, request-ID stamping, and an error alarm. It grants complimentary remote video, revokes it, or resets an account to Free without hardcoding an email address.
 
-The Android WebRTC peer, signaling client, HTTPS cloud gateway, encrypted token/config store, Cognito onboarding/token refresh, account-scoped QR pairing, device inventory/revocation gateway, AWS alert polling, local high-priority notification, and alert acknowledgement paths are present. The backend contains authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, session termination, device revocation, alert persistence, and acknowledgement with the corresponding undeployed IAM actions. Google Play subscription verification, placement of account-administration controls outside the frozen monitoring screens, and live AWS/device validation remain incomplete. Keep the legacy local camera path available until the AWS path passes development and physical-device tests.
+The Android WebRTC peer, signaling client, HTTPS cloud gateway, encrypted token/config store, Cognito onboarding/token refresh, account-scoped QR pairing, device inventory/revocation gateway, AWS alert polling, local high-priority notification, and alert acknowledgement paths are present. The backend contains authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, session termination, device revocation, alert persistence, and acknowledgement. Google Play subscription verification, placement of account-administration controls outside the frozen monitoring screens, and live two-phone WebRTC validation remain incomplete. Keep the legacy local camera path available until the AWS path passes physical-device tests.
 
-## Approval checklist before deployment
+## Completed development deployment
 
-1. Select an AWS account and a Kinesis WebRTC-supported Region dedicated to Greenhouse Monitor.
+- Stack status: `CREATE_COMPLETE`; Cognito Plus deletion protection is `ACTIVE`; both stacks report `IN_SYNC` drift status.
+- Live checks passed for the JWT rejection path, DynamoDB encryption/PITR/TTL, Python 3.13 arm64 Lambdas, the one-minute Scheduler rule, and a direct heartbeat-monitor invocation.
+- The configured APK passed signature, checksum, stack-output presence, long-lived access-key-pattern, unit/lint, and emulator cold-launch checks.
+- The operations SNS topic has no human subscription. Add an approved AWS-native destination before relying on operational alarms.
+- No Kinesis signaling channel is created until an authorized viewer requests an on-demand session.
+
+## Remaining production checklist
+
+1. Create separate staging and production stacks only after the development device matrix passes.
 2. Review Cognito Plus pricing. Threat protection requires Plus; change this only through a documented security decision.
 3. Establish separate `dev`, `staging`, and `production` stacks, budgets, cost-anomaly alerts, and resource tags.
-4. Create a least-privilege deployment role; do not use an administrator credential in CI or the Android app.
-5. Run `cfn-lint infrastructure/template.yaml` and install AWS SAM CLI to run `sam validate --lint -t infrastructure/template.yaml` with the intended account and Region. `cfn-lint` 1.46.0 passes locally; SAM CLI remains unavailable in the current environment.
+4. Replace root-assisted bootstrap access with an owner-controlled IAM/Identity Center deployer that can assume `greenhouse-monitor-dev-deployer`; do not use root, administrator credentials, or access keys in CI or Android.
+5. Continue running both CloudFormation lints and account-aware SAM validation before every update.
 6. Add backend integration tests against an isolated local/emulated or dev table, including conditional writes, pagination, throttling, and tenant denial.
 7. Validate server-side Kinesis allocation, endpoint signing, ICE retrieval, and termination; then add production quotas, metrics, and audit retention.
 8. Validate the implemented single-use hashed pairing and device inventory/revocation flows. Decide where account administration appears without changing the approved monitoring screens.
@@ -53,14 +63,22 @@ aws lambda invoke \
 
 Never expose this invocation permission to the Android application, and never use an email address as the grant key. The next remote-stream request or one-minute renewable lease check reads the authoritative entitlement from DynamoDB.
 
-## Deployment commands after approval
+## Reproducible deployment/update commands
 
-Copy `infrastructure/samconfig.example.toml` to an environment-specific file and review every value. Then:
+Bootstrap the restricted roles once, review the application change set, and deploy through the emitted CloudFormation service-role ARN. Keep `UserPoolDeletionProtection=INACTIVE` only while creating a new development stack, then immediately update it to `ACTIVE` after `CREATE_COMPLETE`.
 
 ```text
-sam validate --lint -t infrastructure/template.yaml
+cfn-lint -i W3037 -- infrastructure/deployment-bootstrap.yaml
+cfn-lint infrastructure/template.yaml
+sam validate --lint -t infrastructure/template.yaml --region us-east-1 --profile <profile>
 sam build -t infrastructure/template.yaml
-sam deploy --guided --config-file infrastructure/samconfig.<environment>.toml
+sam deploy --template-file .aws-sam/build/template.yaml \
+  --stack-name greenhouse-monitor-dev \
+  --s3-bucket <ArtifactBucketName-output> \
+  --capabilities CAPABILITY_IAM \
+  --role-arn <CloudFormationServiceRoleArn-output> \
+  --region us-east-1 --profile <profile> \
+  --parameter-overrides EnvironmentName=dev OfflineTimeoutSeconds=180 UserPoolDeletionProtection=ACTIVE
 ```
 
 After deployment, record stack outputs in an encrypted CI secret/configuration system. The Android build may receive non-secret identifiers such as Region, API base URL, user-pool ID, and app-client ID. It must never receive AWS access keys, Play service-account credentials, or customer tokens at build time.
@@ -68,7 +86,7 @@ After deployment, record stack outputs in an encrypted CI secret/configuration s
 For a local debug handoff after the stack exists and the operator has read-only CloudFormation access, use:
 
 ```text
-scripts/build-aws-debug-apk.sh <stack-name> <aws-region>
+scripts/build-aws-debug-apk.sh <stack-name> <aws-region> [aws-profile]
 ```
 
 The script reads only `ApiUrl`, `UserPoolId`, and `AndroidClientId`, supplies the selected Region to Gradle, and writes the APK plus SHA-256 checksum under ignored `build-out/`. It does not read, print, or embed AWS credentials. A Play-distributed release still requires the owner-controlled release keystore and Play configuration.
