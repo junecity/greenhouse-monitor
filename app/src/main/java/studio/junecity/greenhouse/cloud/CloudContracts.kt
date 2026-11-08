@@ -102,7 +102,9 @@ data class RemoteStreamingSession(
     val signalingChannelArn: String,
     val region: String,
     val iceServers: List<IceServer>,
-    val expiresAtEpochMs: Long
+    val expiresAtEpochMs: Long,
+    val signalingWebSocketUrl: String? = null,
+    val peerClientId: String? = null
 )
 
 data class GreenhouseHeartbeat(

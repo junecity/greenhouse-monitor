@@ -72,10 +72,18 @@
 - `infrastructure/template.yaml` defines isolated Cognito, HTTP API, DynamoDB, Lambda, SNS, and scheduled heartbeat-monitor resources. It has not been deployed.
 - Stage 2 verification: Android unit/lint/build passed with 19 JVM tests; 6 Python authorization tests and Python byte-compilation passed. SAM CLI was unavailable, so SAM template validation is pending.
 
+## WebRTC migration implementation
+
+- `streaming/StreamingLifecycle.kt` enforces authorization-before-connect, bounded exponential reconnect, network-loss waiting, and session termination when the viewer hides, the client locks, the lease expires, or retries are exhausted.
+- `LibWebRtcPeer` uses pinned `io.github.webrtc-sdk:android:150.7871.04`, front-camera capture for the master only, unified-plan peer connections, continual ICE gathering, backend-provided ICE servers, and deterministic resource release.
+- `KinesisWebSocketSignaling` implements the Kinesis SDP/ICE message envelope over a backend-issued WSS URL. It contains no AWS access key.
+- These components compile but are not connected to the approved camera UI because the backend does not yet issue signed Kinesis URLs and no AWS stack is deployed. Existing encrypted JPEG viewing remains active.
+- Stage 3/4 verification: Android unit/lint/build passed with 28 JVM tests. Codec and lifecycle behavior are unit-tested; physical A71/Pixel, H.264, direct ICE, TURN, handoff, and AWS signaling remain unverified.
+
 ## Next implementation steps
 
-1. Complete one-time pairing persistence and short-lived Kinesis session credential issuance in the backend.
-2. Add Android signaling/media integration only with a pinned, reproducible WebRTC binary and live-device validation plan.
+1. Complete one-time pairing persistence and signed Kinesis WSS/ICE issuance in the backend.
+2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
 3. Add heartbeat/emergency Android worker and provider-neutral sensor interfaces.
 
 ## Project memory / handoff log

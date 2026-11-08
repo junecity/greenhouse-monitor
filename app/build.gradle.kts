@@ -41,6 +41,8 @@ dependencies {
     implementation("androidx.camera:camera-view:1.6.2")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.4")
+    implementation("io.github.webrtc-sdk:android:150.7871.04")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")

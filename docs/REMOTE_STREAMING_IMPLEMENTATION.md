@@ -69,7 +69,16 @@ UPnP must be disabled by default after WebRTC verification and removed only afte
 - Identity, tenant/device authorization, backend entitlement, pairing, heartbeat, and WebRTC session contracts: implemented as credential-free foundations.
 - Backend authorization denies Free, expired, revoked, disabled-device, wrong-role, unverified-source, and cross-tenant requests. Live AWS integration is not yet verified.
 - AWS Cognito/API Gateway/DynamoDB/Lambda/SNS/scheduled-monitor resources: defined in SAM but not created or deployed.
-- Kinesis WebRTC media: not implemented; requires a pinned WebRTC AAR and live AWS/device testing.
+- Kinesis-compatible WebRTC media peer, SDP/ICE signaling codec, secure WebSocket transport, and on-demand lifecycle: implemented and build-tested behind interfaces.
+- Activation remains intentionally disabled: the backend does not yet issue signed WSS endpoints/ICE payloads, and no AWS or physical-device validation has occurred.
+
+## Streaming lifecycle invariants
+
+- No camera peer is created until the backend grants a streaming session.
+- Only the master creates a local camera track; viewers receive remote video only.
+- Reconnect uses bounded exponential backoff and waits for network availability after handoff.
+- Viewer close/background/lock, lease expiry, and retry exhaustion close signaling, peer connection, camera capturer, video source, texture thread, factory, and EGL resources, then end the backend session.
+- The server sensor-monitoring path does not depend on a viewing session.
 
 ## Phase 1 delivered
 - `RemoteCameraAccessPolicy.kt`: pure entitlement decision logic for future UI/service integration.
