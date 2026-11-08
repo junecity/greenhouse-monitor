@@ -22,6 +22,8 @@ import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
 import studio.junecity.greenhouse.cloud.RemoteStreamingSession
+import studio.junecity.greenhouse.camera.CameraStreamProfile
+import studio.junecity.greenhouse.model.CameraStreamQuality
 import java.util.concurrent.atomic.AtomicBoolean
 
 enum class WebRtcRole { Master, Viewer }
@@ -58,7 +60,8 @@ class LibWebRtcPeer(
     context: Context,
     private val role: WebRtcRole,
     private val signaling: KinesisSignalingTransport,
-    private val events: WebRtcPeerEvents
+    private val events: WebRtcPeerEvents,
+    private val captureProfile: CameraStreamProfile = CameraStreamProfile.from(CameraStreamQuality.Balanced)
 ) : WebRtcPeer, KinesisSignalingTransport.Listener {
     private val appContext = context.applicationContext
     private val egl = EglBase.create()
@@ -135,7 +138,7 @@ class LibWebRtcPeer(
         textureHelper = SurfaceTextureHelper.create("GreenhouseWebRtcCapture", egl.eglBaseContext)
         videoSource = factory.createVideoSource(false).also { source ->
             capturer?.initialize(textureHelper, appContext, source.capturerObserver)
-            capturer?.startCapture(640, 360, 15)
+            capturer?.startCapture(captureProfile.width, captureProfile.height, captureProfile.framesPerSecond)
         }
         localTrack = factory.createVideoTrack("greenhouse-video", videoSource).also { track ->
             peer?.addTrack(track, listOf("greenhouse-stream"))

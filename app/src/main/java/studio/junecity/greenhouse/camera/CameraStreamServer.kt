@@ -12,6 +12,7 @@ import java.net.Socket
 import java.net.URLDecoder
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import studio.junecity.greenhouse.cloud.CloudRuntime
 
 object CameraStreamServer {
     const val DEFAULT_PORT = 45891
@@ -33,7 +34,7 @@ object CameraStreamServer {
         .firstOrNull { !it.isLoopbackAddress && it is Inet4Address && it.isSiteLocalAddress }
         ?.hostAddress ?: "127.0.0.1"
 
-    @Synchronized fun start(context: Context): CameraPairing {
+    @Synchronized fun start(context: Context, allowPublicMapping: Boolean = runCatching { CloudRuntime.configurationOrNull() == null }.getOrDefault(false)): CameraPairing {
         appContext = context.applicationContext
         val host = localIpv4()
         val stored = CameraPairingStore(context).getOrCreateServer(host)
@@ -47,13 +48,20 @@ object CameraStreamServer {
                         pool.execute { handle(client) }
                     }
                 }
-                pool.execute {
-                    val result = UpnpPortMapper.open(context.applicationContext, DEFAULT_PORT, "Greenhouse camera")
-                    val current = pairing ?: return@execute
-                    val updated = current.copy(publicHost = result.publicAddress)
+                if (allowPublicMapping) {
+                    pool.execute {
+                        val result = UpnpPortMapper.open(context.applicationContext, DEFAULT_PORT, "Greenhouse camera")
+                        val current = pairing ?: return@execute
+                        val updated = current.copy(publicHost = result.publicAddress)
+                        pairing = updated
+                        CameraPairingStore(context).save(updated)
+                        status = Status(true, host, result.publicAddress, result.message)
+                    }
+                } else {
+                    val updated = stored.copy(publicHost = null)
                     pairing = updated
                     CameraPairingStore(context).save(updated)
-                    status = Status(true, host, result.publicAddress, result.message)
+                    status = Status(true, host, null, "Available on local Wi-Fi · AWS remote access")
                 }
             }
         }

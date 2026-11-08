@@ -31,11 +31,31 @@ import kotlinx.coroutines.withContext
 import studio.junecity.greenhouse.camera.CameraCrypto
 import studio.junecity.greenhouse.camera.CameraPairing
 import studio.junecity.greenhouse.camera.CameraPairingStore
+import studio.junecity.greenhouse.cloud.CloudDeviceRole
+import studio.junecity.greenhouse.cloud.CloudRuntime
+import studio.junecity.greenhouse.settings.SecureSettingsStore
 import java.net.HttpURLConnection
 import java.net.URL
 
 @Composable
 fun RemoteCameraFeed(
+    d: (Float) -> androidx.compose.ui.unit.Dp,
+    t: (Float) -> androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier = Modifier,
+    onStatus: (Boolean, String?) -> Unit = { _, _ -> }
+) {
+    val context = LocalContext.current
+    val enrollment = remember { SecureSettingsStore(context).cloudEnrollment() }
+    val configuration = remember { runCatching { CloudRuntime.configurationOrNull() }.getOrNull() }
+    if (enrollment?.role == CloudDeviceRole.ViewerClient && configuration != null) {
+        CloudWebRtcFeed(enrollment, configuration, d, t, modifier, onStatus)
+    } else {
+        LegacyRemoteCameraFeed(d, t, modifier, onStatus)
+    }
+}
+
+@Composable
+private fun LegacyRemoteCameraFeed(
     d: (Float) -> androidx.compose.ui.unit.Dp,
     t: (Float) -> androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,

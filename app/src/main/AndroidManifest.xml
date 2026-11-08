@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application
         android:allowBackup="true"
@@ -23,6 +24,14 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Maintains the greenhouse server health heartbeat while unattended" />
+        </service>
+        <service
+            android:name=".cloud.CloudCameraServerService"
+            android:exported="false"
+            android:foregroundServiceType="camera|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Waits for authenticated on-demand remote camera sessions without opening the camera" />
         </service>
         <activity
             android:name=".MainActivity"

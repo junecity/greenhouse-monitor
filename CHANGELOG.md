@@ -2,6 +2,15 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — On-demand AWS WebRTC camera activation
+
+- Connected enrolled Viewer camera panels to backend-authorized Kinesis WebRTC while retaining the existing local encrypted-JPEG fallback.
+- Added a non-exported Server foreground service that waits without opening the camera, captures only for an authorized live session, applies the selected stream resolution/rate, performs bounded reconnects, and releases camera/network resources afterward.
+- Added lifecycle-scoped WebRTC rendering with the existing pinch-zoom/pan interaction and non-cancellable backend session termination when the viewer leaves or locks the phone.
+- Added a camera lease so CameraX and libwebrtc cannot contend for the front camera.
+- Disabled UPnP/public router mapping in AWS-configured builds; the legacy server remains LAN-only for rollback.
+- Tests: 54 Android JVM tests, Android lint, and debug assembly passed. Live Cognito/Kinesis signaling, direct ICE, TURN fallback, camera handoff, Wi-Fi/cellular transitions, and physical video remain unverified without AWS deployment and devices. Initial backend session lifetime is still finite and renewable connection leases are the next reliability task.
+
 ## 2026-11-08 — In-app AWS onboarding and QR device pairing
 
 - Added a separate responsive landscape onboarding flow for Cognito sign-up, email confirmation, sign-in, restored-session validation, and Server/Client selection without modifying the approved five monitoring screens.

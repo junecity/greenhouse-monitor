@@ -30,6 +30,7 @@ import studio.junecity.greenhouse.ui.accessibleMotionDuration
 import studio.junecity.greenhouse.camera.CameraStreamServer
 import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
+import studio.junecity.greenhouse.cloud.CloudCameraServerService
 import studio.junecity.greenhouse.cloud.CloudHeartbeatService
 import studio.junecity.greenhouse.cloud.CloudOnboardingGate
 import studio.junecity.greenhouse.cloud.CloudRuntime
@@ -39,6 +40,11 @@ import java.time.LocalDateTime
 class MainActivity : ComponentActivity() {
     private val viewModel: GreenhouseViewModel by viewModels()
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
+        val configured = runCatching { CloudRuntime.configurationOrNull() != null }.getOrDefault(false)
+        CloudCameraServerService.sync(applicationContext, granted && configured && enrollment?.role == CloudDeviceRole.GreenhouseServer)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,6 +66,10 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        val existingEnrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
+        if (existingEnrollment?.role == CloudDeviceRole.GreenhouseServer && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
         val device = AndroidDeviceStatusProvider(this)
 
         setContent {
@@ -78,12 +88,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(state.preferences.cameraMode, cloudEnrollmentRevision) {
-                if (state.preferences.cameraMode == CameraMode.CameraServer) CameraStreamServer.start(applicationContext)
+                if (state.preferences.cameraMode == CameraMode.CameraServer) {
+                    CameraStreamServer.start(applicationContext, allowPublicMapping = cloudConfiguration.getOrNull() == null)
+                }
                 else CameraStreamServer.stop()
                 val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
                 CloudHeartbeatService.sync(
                     applicationContext,
                     state.preferences.cameraMode == CameraMode.CameraServer && enrollment?.role == CloudDeviceRole.GreenhouseServer
+                )
+                CloudCameraServerService.sync(
+                    applicationContext,
+                    state.preferences.cameraMode == CameraMode.CameraServer && enrollment?.role == CloudDeviceRole.GreenhouseServer &&
+                        ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
                 )
             }
             SideEffect {
@@ -97,6 +114,9 @@ class MainActivity : ComponentActivity() {
                 onEnrolled = { role ->
                     viewModel.updatePreferences { preferences ->
                         preferences.copy(cameraMode = if (role == CloudDeviceRole.GreenhouseServer) CameraMode.CameraServer else CameraMode.ViewerClient)
+                    }
+                    if (role == CloudDeviceRole.GreenhouseServer && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                        cameraPermission.launch(Manifest.permission.CAMERA)
                     }
                     cloudEnrollmentRevision++
                 }

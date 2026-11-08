@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.alpha
 import studio.junecity.greenhouse.camera.CameraFrameHub
 import studio.junecity.greenhouse.camera.CameraStreamProfile
 import studio.junecity.greenhouse.model.CameraStreamQuality
+import studio.junecity.greenhouse.streaming.CloudCameraLease
 import java.util.concurrent.Executors
 import android.util.Size
 
@@ -35,11 +36,14 @@ import android.util.Size
     val lifecycleOwner=LocalLifecycleOwner.current
     val previewView=remember{PreviewView(context).apply{scaleType=PreviewView.ScaleType.FILL_CENTER;implementationMode=PreviewView.ImplementationMode.COMPATIBLE;clipToOutline=true}}
     val profile=remember(streamQuality){CameraStreamProfile.from(streamQuality)}
-    val analysisExecutor=remember(streamQuality){Executors.newSingleThreadExecutor()}
+    val remoteActive by CloudCameraLease.remoteActive.collectAsState()
+    val analysisExecutor=remember(streamQuality,remoteActive){Executors.newSingleThreadExecutor()}
     var active by remember{mutableStateOf(false)}
     var message by remember{mutableStateOf("Starting front camera…")}
     val previewAlpha by animateFloatAsState(if(active)1f else .25f,tween(accessibleMotionDuration(AppMotion.CameraConnectionFadeMs)),label="camera connection")
-    DisposableEffect(lifecycleOwner,streamQuality){
+    DisposableEffect(lifecycleOwner,streamQuality,remoteActive){
+        if(remoteActive){active=false;message="Secure remote stream active";onStatus(true,null);onDispose{analysisExecutor.shutdown()}}
+        else{
         val future=ProcessCameraProvider.getInstance(context)
         var provider:ProcessCameraProvider?=null
         val listener=Runnable{
@@ -54,6 +58,7 @@ import android.util.Size
         }
         future.addListener(listener,ContextCompat.getMainExecutor(context))
         onDispose{provider?.unbindAll();analysisExecutor.shutdown();onStatus(false,null)}
+        }
     }
     Box(modifier.clip(RoundedCornerShape(22.dp))){
         AndroidView(factory={previewView},modifier=Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).alpha(previewAlpha))

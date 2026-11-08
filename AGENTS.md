@@ -73,7 +73,7 @@
 - Stage 2 verification: Android unit/lint/build passed with 19 JVM tests; 6 Python authorization tests and Python byte-compilation passed. SAM CLI was unavailable, so SAM template validation is pending.
 - Backend pairing now issues 256-bit, five-minute challenges, stores only their SHA-256 digest, restricts claims to the authenticated account/tenant and requested viewer device, and atomically rejects reuse/expiry. It does not replace the legacy local QR until account onboarding is connected.
 - `AuthenticatedCloudGateway` now covers entitlement, cloud pairing, heartbeat, viewer-session creation, server polling, and session termination over HTTPS bearer authentication. Cloud API/device/token state is encrypted with Android Keystore.
-- `CognitoAuthManager` configures Amplify Auth programmatically from AWS deployment outputs, supports SRP sign-up/confirmation/sign-in/sign-out, obtains automatically refreshed Cognito access tokens, and creates the authenticated gateway without embedding AWS credentials. The separate onboarding UI still needs to call it.
+- `CognitoAuthManager` configures Amplify Auth programmatically from AWS deployment outputs, supports SRP sign-up/confirmation/sign-in/sign-out, obtains automatically refreshed Cognito access tokens, and creates the authenticated gateway without embedding AWS credentials. The onboarding gate calls it for new and restored sessions.
 - `POST /v1/bootstrap` now idempotently and atomically creates an isolated account, tenant, and active Free entitlement from the validated Cognito subject. `POST /v1/devices` atomically registers the authenticated phone as a greenhouse server plus its initial greenhouse. Viewer devices are still created only by the same-account one-use pairing claim.
 - AWS deployment outputs can now be injected at build time through four `GREENHOUSE_*` Gradle properties/environment variables. An all-blank local build preserves existing local operation; partial configuration fails closed.
 - Encrypted `CloudEnrollment` persists only the stable device ID, cloud greenhouse ID, and backend role. The heartbeat service now obtains automatically refreshed Cognito tokens at report time instead of relying on a copied access token, and reports the backend greenhouse ID.
@@ -84,10 +84,12 @@
 - `streaming/StreamingLifecycle.kt` enforces authorization-before-connect, bounded exponential reconnect, network-loss waiting, and session termination when the viewer hides, the client locks, the lease expires, or retries are exhausted.
 - `LibWebRtcPeer` uses pinned `io.github.webrtc-sdk:android:150.7871.04`, front-camera capture for the master only, unified-plan peer connections, continual ICE gathering, backend-provided ICE servers, and deterministic resource release.
 - `KinesisWebSocketSignaling` implements the Kinesis SDP/ICE message envelope over a backend-issued WSS URL. It contains no AWS access key.
-- These components compile but are not connected to the approved camera UI because the backend does not yet issue signed Kinesis URLs and no AWS stack is deployed. Existing encrypted JPEG viewing remains active.
+- The approved camera panels now select AWS WebRTC for an enrolled Viewer and retain encrypted JPEG viewing as the unconfigured/local rollback. `CloudCameraServerService` polls for authorized pending sessions without opening the camera, activates the front camera only during a session, respects Data Saver/Balanced/High capture profiles, and releases it afterward.
 - Stage 3/4 verification: Android unit/lint/build passed with 28 JVM tests. Codec and lifecycle behavior are unit-tested; physical A71/Pixel, H.264, direct ICE, TURN, handoff, and AWS signaling remain unverified.
 - The backend now creates/reuses deterministic single-master Kinesis channels only after entitlement/tenant authorization, returns 299-second SigV4 WSS URLs and AWS ICE/TURN configuration, lets the authenticated server poll pending sessions, and lets either participating device terminate a session. No live AWS call has been made.
 - Kinesis single-master negotiation is viewer-initiated. Incoming sender IDs are retained so master answers/ICE target only the requesting viewer; backend session payloads now assign peer IDs by role.
+- Viewer rendering uses `SurfaceViewRenderer` with the existing pinch-zoom/pan interaction, is scoped to the visible lifecycle, retries peer/network failures up to five times, and ends the backend session in a non-cancellable cleanup. A process-wide camera lease prevents CameraX and libwebrtc from opening the front camera simultaneously.
+- Configured AWS builds keep the legacy encrypted JPEG server available only on the LAN and disable UPnP/public router mapping. Unconfigured local-only builds retain the previous migration behavior.
 
 ## Sensor provider boundary
 
@@ -106,7 +108,7 @@
 
 ## Next implementation steps
 
-1. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
+1. Add renewable streaming leases/connection URLs so long viewing sessions and late reconnects remain authorized beyond the initial signed URL lifetime.
 2. Add tenant-aware AWS alert delivery/acknowledgement and approved reboot recovery.
 3. Add backend-verified subscription lifecycle handling after Google Play product/service-account configuration is approved.
 
@@ -116,7 +118,7 @@
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
-- AWS onboarding checkpoint: 53 Android JVM tests, lint, debug assembly, build-output injection/blank restoration checks, 18 Python tests, and Python compilation passed. Cognito, QR camera scanning, and pairing remain unverified on physical devices because no stack is deployed and ADB is unavailable.
+- AWS camera activation checkpoint: 54 Android JVM tests, lint, and debug assembly passed. Cognito, QR pairing, Kinesis signaling, TURN/direct ICE, camera handoff, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 
 ## Project memory / handoff log
