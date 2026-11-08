@@ -34,6 +34,14 @@
 7. Keep camera UI unchanged. Implement behind existing interfaces with migrations, feature flags/rollback, automated tests, and real-device LAN/WAN/IP-change/CGNAT/offline tests.
 8. Never deploy AWS infrastructure, create billable resources, or change live routing without explicit authorization and cost/security review.
 
+## Premium camera product decision (2026-11-08)
+- User selected maximum reliability: AWS Kinesis Video Streams WebRTC signaling and managed TURN fallback, not a public-IP registry as the primary remote transport.
+- Remote live camera is Premium-only for customers, with explicit backend-granted complimentary developer access. Local monitoring and local camera remain free.
+- Stream starts only when a client explicitly opens live view and ends when viewer exits/locks; preserve approved UI.
+- Implement server-side subscription authorization before issuing signaling/TURN access. Never treat client entitlement as authoritative.
+- Phase 1 created `RemoteCameraAccessPolicy.kt`, unit tests, and `docs/REMOTE_STREAMING_IMPLEMENTATION.md`. These are scaffolding only, NOT deployed WebRTC.
+- Next steps: backend customer identity, Google Play entitlement verification, signaling/TURN authorization, Android WebRTC media transport, network and hardware tests. No AWS deployment without separate cost/security review and deployment approval.
+
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).
