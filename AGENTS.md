@@ -72,6 +72,7 @@
 - `infrastructure/template.yaml` defines isolated Cognito, HTTP API, DynamoDB, Lambda, SNS, and scheduled heartbeat-monitor resources. It has not been deployed.
 - Stage 2 verification: Android unit/lint/build passed with 19 JVM tests; 6 Python authorization tests and Python byte-compilation passed. SAM CLI was unavailable, so SAM template validation is pending.
 - Backend pairing now issues 256-bit, five-minute challenges, stores only their SHA-256 digest, restricts claims to the authenticated account/tenant and requested viewer device, and atomically rejects reuse/expiry. It does not replace the legacy local QR until account onboarding is connected.
+- `AuthenticatedCloudGateway` now covers entitlement, cloud pairing, heartbeat, viewer-session creation, server polling, and session termination over HTTPS bearer authentication. Cloud API/device/token state is encrypted with Android Keystore; Cognito sign-in/refresh still must populate it.
 
 ## WebRTC migration implementation
 
@@ -98,7 +99,7 @@
 
 ## Next implementation steps
 
-1. Add the customer-authenticated Android HTTP gateway and token storage.
+1. Add Cognito in-app sign-up/sign-in/refresh and use it to populate the encrypted cloud session.
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
 3. Add the foreground heartbeat service and tenant-aware push/acknowledgement worker.
 

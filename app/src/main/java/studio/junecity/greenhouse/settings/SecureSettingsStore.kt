@@ -9,6 +9,19 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import org.json.JSONObject
+
+data class CloudSession(
+    val apiBaseUrl: String,
+    val deviceId: String,
+    val accessToken: String,
+    val accessTokenExpiresAtEpochMs: Long,
+    val refreshToken: String? = null
+) {
+    fun toJson() = JSONObject().put("apiBaseUrl", apiBaseUrl).put("deviceId", deviceId).put("accessToken", accessToken)
+        .put("accessTokenExpiresAtEpochMs", accessTokenExpiresAtEpochMs).put("refreshToken", refreshToken).toString()
+    companion object { fun parse(value: String) = JSONObject(value).let { CloudSession(it.getString("apiBaseUrl"), it.getString("deviceId"), it.getString("accessToken"), it.getLong("accessTokenExpiresAtEpochMs"), if(it.has("refreshToken")&&!it.isNull("refreshToken"))it.getString("refreshToken").ifBlank { null }else null) } }
+}
 
 class SecureSettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("secure_greenhouse_settings", Context.MODE_PRIVATE)
@@ -21,6 +34,9 @@ class SecureSettingsStore(context: Context) {
     fun saveCameraPairing(value: String) = saveEncrypted("camera_pairing", value)
     fun cameraPairing(): String? = loadEncrypted("camera_pairing")
     fun clearCameraPairing() = prefs.edit().remove("camera_pairing").apply()
+    fun saveCloudSession(value: CloudSession) = saveEncrypted("cloud_session", value.toJson())
+    fun cloudSession(): CloudSession? = loadEncrypted("cloud_session")?.let { runCatching { CloudSession.parse(it) }.getOrNull() }
+    fun clearCloudSession() = prefs.edit().remove("cloud_session").apply()
 
     private fun saveEncrypted(preferenceKey: String, value: String) {
         if (value.isBlank()) { prefs.edit().remove(preferenceKey).apply(); return }

@@ -10,7 +10,7 @@ No AWS resources have been deployed from this repository. The SAM template is a 
 - Encrypted, point-in-time-recoverable, on-demand DynamoDB table with TTL and a sharded heartbeat index.
 - Encrypted SNS internal critical-alert topic and one-minute EventBridge schedule.
 
-The Android WebRTC peer and signaling client are present. The backend now contains account-scoped pairing plus authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, and session termination, with the corresponding undeployed IAM actions. Subscription verification, end-user push delivery, and alert acknowledgement remain incomplete. Do not connect the approved camera screen to this backend until the stack is validated in development and physical-device tests pass.
+The Android WebRTC peer, signaling client, HTTPS cloud gateway, and encrypted token/config store are present. The backend contains account-scoped pairing plus authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, and session termination, with the corresponding undeployed IAM actions. Cognito onboarding/token refresh, subscription verification, end-user push delivery, and alert acknowledgement remain incomplete. Do not connect the approved camera screen to this backend until the stack is validated in development and physical-device tests pass.
 
 ## Approval checklist before deployment
 

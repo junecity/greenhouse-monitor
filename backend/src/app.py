@@ -2,6 +2,7 @@ import json
 import os
 import secrets
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -15,7 +16,7 @@ table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 
 
 def response(status: int, body: dict):
-    return {"statusCode": status, "headers": {"content-type": "application/json", "cache-control": "no-store"}, "body": json.dumps(body)}
+    return {"statusCode": status, "headers": {"content-type": "application/json", "cache-control": "no-store"}, "body": json.dumps(body, default=lambda value: int(value) if isinstance(value, Decimal) else str(value))}
 
 
 def principal_from(event) -> Principal:
@@ -89,7 +90,7 @@ def claim_pairing_challenge(event, principal: Principal):
         ExpressionAttributeNames={"#role": "role"},
         ExpressionAttributeValues={":tenant": principal.tenant_id, ":account": principal.account_id, ":viewerRole": "VIEWER_CLIENT"},
     )
-    return response(201, {"id": viewer_device_id, "role": "VIEWER_CLIENT", "enabled": True})
+    return response(201, {"id": viewer_device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "enabled": True})
 
 
 def create_stream_session(event, principal: Principal, greenhouse_id: str):
@@ -166,6 +167,17 @@ def end_stream_session(principal: Principal, session_id: str):
     return response(204, {})
 
 
+def entitlement(principal: Principal):
+    item = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {})
+    if item.get("accountId") != principal.account_id:
+        raise AccessDenied("entitlement_missing")
+    return response(200, {
+        "accountId": principal.account_id, "plan": item.get("plan", "FREE"), "state": item.get("state", "EXPIRED"),
+        "source": item.get("source", "NONE"), "features": item.get("features", []),
+        "expiresAt": item.get("expiresAt"), "verifiedAt": item.get("verifiedAt", 0),
+    })
+
+
 def heartbeat(event, principal: Principal, device_id: str):
     if principal.device_id != device_id:
         raise AccessDenied("device_mismatch")
@@ -200,6 +212,8 @@ def handler(event, _context):
             return pending_stream_session(principal, parts[2])
         if method == "DELETE" and len(parts) == 3 and parts[:2] == ["v1", "stream-sessions"]:
             return end_stream_session(principal, parts[2])
+        if method == "GET" and parts == ["v1", "entitlement"]:
+            return entitlement(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":
             return heartbeat(event, principal, parts[2])
         return response(404, {"error": "not_found"})
