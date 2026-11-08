@@ -104,14 +104,17 @@
 - `cloud/MonitoringAlerts.kt` keeps critical-temperature and server-offline events separate from ordinary informational notification preferences and defines an authenticated heartbeat reporter boundary.
 - The scheduled backend scans sharded heartbeat records, paginates results, atomically deduplicates an offline incident, and publishes one internal SNS event. A fresh authenticated server heartbeat clears the incident marker.
 - `CloudHeartbeatService` is a non-exported, user-visible special-use foreground service. In server mode with a valid encrypted cloud session it reports cached sensor/critical health every minute and applies bounded retries; it stops when the token expires or the phone changes to viewer mode.
-- This is not an end-user alarm guarantee. Cognito refresh, reboot start, customer push delivery, acknowledgement synchronization, Play special-use review, Do Not Disturb behavior, and physical Android background testing remain incomplete.
+- Account-scoped alert records now live in DynamoDB for server-offline, sensor-communication, and critical-temperature incidents. Heartbeat state changes and their alert records are written atomically; the scheduled offline monitor atomically claims the incident and creates its alert before publishing the internal SNS event.
+- Enrolled Android devices poll the Cognito-authorized alert API approximately once per minute, create high-priority local notifications, and acknowledge alerts back to the account/tenant-conditioned API. This intentionally uses AWS plus Android notifications only; Firebase/FCM is not used.
+- When Auto Start is enabled, `CloudBootReceiver` restores AWS heartbeat reporting on Server devices and alert polling on enrolled devices after boot. It never starts camera capture from the boot broadcast because modern Android prohibits background camera foreground-service startup.
+- This is not an end-user alarm guarantee. Polling can add roughly one minute of latency, Android/OEM background limits and Do Not Disturb can suppress presentation, and SNS has no customer SMS/email subscription configured. Play special-use review and physical Android background/reboot testing remain incomplete.
 - Stage 6 verification: 8 Python policy tests and Python compilation passed. After rebasing the pre-existing premium-access scaffold, Android unit/lint/build passed with 37 JVM tests.
 
 ## Next implementation steps
 
-1. Add tenant-aware AWS alert delivery/acknowledgement and approved reboot recovery.
-2. Add backend-verified subscription lifecycle handling after Google Play product/service-account configuration is approved.
-3. Validate the deployed stack and physical A71/Pixel camera/network/background matrix.
+1. Add backend-verified subscription lifecycle handling after Google Play product/service-account configuration is approved.
+2. Validate the AWS SAM template offline and tighten production alarms/cost controls where possible.
+3. Validate the deployed stack and physical A71/Pixel camera/network/background/reboot matrix.
 
 ## Deployment status
 
@@ -119,7 +122,7 @@
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
-- Renewable streaming checkpoint: 54 Android JVM tests, lint, debug assembly, 20 Python tests, and Python compilation passed. Cognito, QR pairing, Kinesis signaling, TURN/direct ICE, camera handoff, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
+- AWS alert/recovery checkpoint: 56 Android JVM tests, lint, debug assembly, 25 Python tests, and Python compilation passed. Cognito, QR pairing, Kinesis signaling, TURN/direct ICE, camera handoff, alert delivery, boot recovery, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 
 ## Project memory / handoff log

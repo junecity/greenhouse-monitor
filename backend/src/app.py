@@ -12,6 +12,7 @@ from boto3.dynamodb.conditions import Key
 from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
+from alerts import new_alert
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
 
@@ -21,6 +22,7 @@ serializer = TypeSerializer()
 PENDING_SESSION_SECONDS = 300
 AUTHORIZATION_LEASE_SECONDS = 120
 MAXIMUM_SESSION_SECONDS = 4 * 60 * 60
+MAX_ALERT_QUERY_PAGES = 5
 
 
 def response(status: int, body: dict):
@@ -321,6 +323,56 @@ def entitlement(principal: Principal):
     })
 
 
+def pending_alerts(principal: Principal):
+    device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
+    if not device.get("enabled") or device.get("accountId") != principal.account_id:
+        raise AccessDenied("device_disabled")
+    alerts = []
+    exclusive_start_key = None
+    for _ in range(MAX_ALERT_QUERY_PAGES):
+        query = {
+            "KeyConditionExpression": Key("pk").eq(f"ACCOUNT#{principal.account_id}") & Key("sk").begins_with("ALERT#"),
+            "ScanIndexForward": False,
+            "Limit": 50,
+        }
+        if exclusive_start_key:
+            query["ExclusiveStartKey"] = exclusive_start_key
+        result = table.query(**query)
+        for item in result.get("Items", []):
+            if item.get("tenantId") == principal.tenant_id and "acknowledgedAt" not in item:
+                alerts.append({
+                    "id": item["id"], "greenhouseId": item.get("greenhouseId"),
+                    "deviceId": item.get("deviceId"), "type": item["type"],
+                    "priority": item["priority"], "message": item["message"],
+                    "createdAtEpochMs": int(item["createdAt"]) * 1000,
+                    "requiresAcknowledgement": bool(item.get("requiresAcknowledgement")),
+                })
+                if len(alerts) >= 50:
+                    return response(200, {"alerts": alerts})
+        exclusive_start_key = result.get("LastEvaluatedKey")
+        if not exclusive_start_key:
+            break
+    return response(200, {"alerts": alerts})
+
+
+def acknowledge_alert(principal: Principal, alert_id: str):
+    require_resource_id(alert_id)
+    device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
+    if not device.get("enabled") or device.get("accountId") != principal.account_id:
+        raise AccessDenied("device_disabled")
+    now = int(datetime.now(timezone.utc).timestamp())
+    table.update_item(
+        Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": f"ALERT#{alert_id}"},
+        UpdateExpression="SET acknowledgedAt=:now, acknowledgedBy=:device",
+        ConditionExpression="tenantId=:tenant AND accountId=:account AND attribute_exists(id)",
+        ExpressionAttributeValues={
+            ":now": now, ":device": principal.device_id,
+            ":tenant": principal.tenant_id, ":account": principal.account_id,
+        },
+    )
+    return response(204, {})
+
+
 def heartbeat(event, principal: Principal, device_id: str):
     if principal.device_id != device_id:
         raise AccessDenied("device_mismatch")
@@ -330,12 +382,52 @@ def heartbeat(event, principal: Principal, device_id: str):
     body = json.loads(event.get("body") or "{}")
     now = int(datetime.now(timezone.utc).timestamp())
     shard = sum(device_id.encode()) % 16
-    table.update_item(
-        Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
-        UpdateExpression="SET lastHeartbeat=:now, heartbeatShard=:shard, sensorConnectionHealthy=:sensor, criticalTemperature=:critical REMOVE offlineAlertedAt",
-        ExpressionAttributeValues={":now": now, ":shard": shard, ":sensor": bool(body.get("sensorConnectionHealthy")), ":critical": bool(body.get("criticalTemperature")), ":tenant": principal.tenant_id},
-        ConditionExpression="tenantId=:tenant",
-    )
+    sensor_healthy = bool(body.get("sensorConnectionHealthy"))
+    critical_temperature = bool(body.get("criticalTemperature"))
+    set_parts = [
+        "lastHeartbeat=:now", "heartbeatShard=:shard", "sensorConnectionHealthy=:sensor",
+        "criticalTemperature=:critical",
+    ]
+    remove_parts = ["offlineAlertedAt"]
+    if sensor_healthy:
+        remove_parts.append("sensorAlertedAt")
+    else:
+        set_parts.append("sensorAlertedAt=:now")
+    if critical_temperature:
+        set_parts.append("criticalAlertedAt=:now")
+    else:
+        remove_parts.append("criticalAlertedAt")
+    alert_records = []
+    marker_conditions = []
+    if not sensor_healthy and "sensorAlertedAt" not in device:
+        marker_conditions.append("attribute_not_exists(sensorAlertedAt)")
+        alert_records.append(new_alert(
+            account_id=principal.account_id, tenant_id=principal.tenant_id,
+            greenhouse_id=device.get("greenhouseId"), device_id=device_id,
+            alert_type="SENSOR_COMMUNICATION_FAILURE", created_at=now,
+        ))
+    if critical_temperature and "criticalAlertedAt" not in device:
+        marker_conditions.append("attribute_not_exists(criticalAlertedAt)")
+        alert_records.append(new_alert(
+            account_id=principal.account_id, tenant_id=principal.tenant_id,
+            greenhouse_id=device.get("greenhouseId"), device_id=device_id,
+            alert_type="CRITICAL_TEMPERATURE", created_at=now,
+        ))
+    condition = "tenantId=:tenant"
+    if marker_conditions:
+        condition += " AND " + " AND ".join(marker_conditions)
+    transaction = [{"Update": {
+        "TableName": table.name,
+        "Key": _serialized({"pk": f"DEVICE#{device_id}", "sk": "METADATA"}),
+        "UpdateExpression": f"SET {', '.join(set_parts)} REMOVE {', '.join(remove_parts)}",
+        "ExpressionAttributeValues": _serialized({":now": now, ":shard": shard, ":sensor": sensor_healthy, ":critical": critical_temperature, ":tenant": principal.tenant_id}),
+        "ConditionExpression": condition,
+    }}]
+    transaction.extend({"Put": {
+        "TableName": table.name, "Item": _serialized(alert),
+        "ConditionExpression": "attribute_not_exists(pk)",
+    }} for alert in alert_records)
+    table.meta.client.transact_write_items(TransactItems=transaction)
     return response(204, {})
 
 
@@ -365,6 +457,10 @@ def handler(event, _context):
             return refresh_stream_connection(principal, parts[2])
         if method == "GET" and parts == ["v1", "entitlement"]:
             return entitlement(principal)
+        if method == "GET" and parts == ["v1", "alerts"]:
+            return pending_alerts(principal)
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge":
+            return acknowledge_alert(principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":
             return heartbeat(event, principal, parts[2])
         return response(404, {"error": "not_found"})

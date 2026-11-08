@@ -45,10 +45,19 @@ class FakeTable:
         self.items = items or {}
         self.client = FakeClient()
         self.meta = SimpleNamespace(client=self.client)
+        self.query_items = []
+        self.updates = []
 
     def get_item(self, Key, **_kwargs):
         value = self.items.get((Key["pk"], Key["sk"]))
         return {"Item": value} if value else {}
+
+    def query(self, **_kwargs):
+        return {"Items": self.query_items}
+
+    def update_item(self, **kwargs):
+        self.updates.append(kwargs)
+        return {}
 
 
 class BootstrapApiTests(unittest.TestCase):
@@ -85,6 +94,73 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual(200, result["statusCode"])
         self.assertEqual({"accountId": "account-existing", "tenantId": "tenant-existing"}, json.loads(result["body"]))
         self.assertEqual([], fake.client.transactions)
+
+    def test_heartbeat_atomically_records_safety_incidents(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("DEVICE#server-12345678", "METADATA"): {
+                "deviceId": "server-12345678", "greenhouseId": "greenhouse-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "GREENHOUSE_SERVER", "enabled": True,
+            },
+        })
+        app.table = fake
+        result = app.handler(event(
+            "/v1/devices/server-12345678/heartbeat",
+            device_id="server-12345678",
+            body={"sensorConnectionHealthy": False, "criticalTemperature": True},
+        ), None)
+
+        self.assertEqual(204, result["statusCode"])
+        transaction = fake.client.transactions[0]
+        self.assertEqual(3, len(transaction))
+        alert_types = {item["Put"]["Item"]["type"]["S"] for item in transaction[1:]}
+        self.assertEqual({"SENSOR_COMMUNICATION_FAILURE", "CRITICAL_TEMPERATURE"}, alert_types)
+
+    def test_pending_alerts_are_account_scoped_and_hide_acknowledged(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("DEVICE#viewer-12345678", "METADATA"): {
+                "deviceId": "viewer-12345678", "accountId": "account-existing",
+                "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True,
+            },
+        })
+        fake.query_items = [
+            {"id": "1700000000-aaaaaaaa", "tenantId": "tenant-existing", "type": "SERVER_OFFLINE", "priority": "HIGH", "message": "offline", "createdAt": 1700000000, "requiresAcknowledgement": True},
+            {"id": "1700000001-bbbbbbbb", "tenantId": "tenant-existing", "type": "CRITICAL_TEMPERATURE", "priority": "CRITICAL", "message": "hot", "createdAt": 1700000001, "requiresAcknowledgement": True, "acknowledgedAt": 1700000010},
+            {"id": "1700000002-cccccccc", "tenantId": "tenant-other", "type": "SERVER_OFFLINE", "priority": "HIGH", "message": "other", "createdAt": 1700000002, "requiresAcknowledgement": True},
+        ]
+        app.table = fake
+        result = app.handler(event("/v1/alerts", method="GET", device_id="viewer-12345678"), None)
+        body = json.loads(result["body"])
+
+        self.assertEqual(200, result["statusCode"])
+        self.assertEqual(["1700000000-aaaaaaaa"], [item["id"] for item in body["alerts"]])
+
+    def test_acknowledgement_is_conditioned_on_account_and_tenant(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("DEVICE#viewer-12345678", "METADATA"): {
+                "deviceId": "viewer-12345678", "accountId": "account-existing",
+                "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True,
+            },
+        })
+        app.table = fake
+        result = app.handler(event(
+            "/v1/alerts/1700000000-aaaaaaaa/acknowledge",
+            device_id="viewer-12345678",
+        ), None)
+
+        self.assertEqual(204, result["statusCode"])
+        update = fake.updates[0]
+        self.assertEqual({"pk": "ACCOUNT#account-existing", "sk": "ALERT#1700000000-aaaaaaaa"}, update["Key"])
+        self.assertEqual("tenant-existing", update["ExpressionAttributeValues"][":tenant"])
 
     def test_server_registration_binds_device_and_greenhouse_to_account(self):
         fake = FakeTable({

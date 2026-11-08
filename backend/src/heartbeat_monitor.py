@@ -4,13 +4,20 @@ import time
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
+from alerts import new_alert
 from domain import is_missing_heartbeat
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 sns = boto3.client("sns")
+serializer = TypeSerializer()
+
+
+def _serialized(item: dict) -> dict:
+    return {key: serializer.serialize(value) for key, value in item.items() if value is not None}
 
 
 def handler(_event, _context):
@@ -22,7 +29,7 @@ def handler(_event, _context):
             query = {
                 "IndexName": "heartbeats",
                 "KeyConditionExpression": Key("heartbeatShard").eq(shard) & Key("lastHeartbeat").lt(cutoff),
-                "ProjectionExpression": "pk, sk, deviceId, greenhouseId, tenantId, lastHeartbeat, enabled",
+                "ProjectionExpression": "pk, sk, accountId, deviceId, greenhouseId, tenantId, lastHeartbeat, enabled",
             }
             if exclusive_start_key:
                 query["ExclusiveStartKey"] = exclusive_start_key
@@ -30,17 +37,31 @@ def handler(_event, _context):
             for device in result.get("Items", []):
                 if not is_missing_heartbeat(device, cutoff):
                     continue
+                now = int(time.time())
+                alert = new_alert(
+                    account_id=device["accountId"], tenant_id=device["tenantId"],
+                    greenhouse_id=device.get("greenhouseId"), device_id=device["deviceId"],
+                    alert_type="SERVER_OFFLINE", created_at=now,
+                )
                 try:
                     # Atomically claim the incident so a one-minute schedule does not
                     # repeatedly notify until a new heartbeat clears offlineAlertedAt.
-                    table.update_item(
-                        Key={"pk": device["pk"], "sk": device["sk"]},
-                        UpdateExpression="SET offlineAlertedAt=:now",
-                        ConditionExpression="attribute_not_exists(offlineAlertedAt) AND lastHeartbeat < :cutoff",
-                        ExpressionAttributeValues={":now": int(time.time()), ":cutoff": cutoff},
-                    )
+                    table.meta.client.transact_write_items(TransactItems=[
+                        {"Update": {
+                            "TableName": table.name,
+                            "Key": _serialized({"pk": device["pk"], "sk": device["sk"]}),
+                            "UpdateExpression": "SET offlineAlertedAt=:now",
+                            "ConditionExpression": "attribute_not_exists(offlineAlertedAt) AND lastHeartbeat < :cutoff",
+                            "ExpressionAttributeValues": _serialized({":now": now, ":cutoff": cutoff}),
+                        }},
+                        {"Put": {
+                            "TableName": table.name,
+                            "Item": _serialized(alert),
+                            "ConditionExpression": "attribute_not_exists(pk)",
+                        }},
+                    ])
                 except ClientError as error:
-                    if error.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                    if error.response.get("Error", {}).get("Code") in {"ConditionalCheckFailedException", "TransactionCanceledException"}:
                         continue
                     raise
                 # The topic is an internal event destination. Customer delivery routing and
@@ -48,7 +69,7 @@ def handler(_event, _context):
                 sns.publish(
                     TopicArn=os.environ["ALERT_TOPIC_ARN"],
                     Subject="Greenhouse server heartbeat missing",
-                    Message=json.dumps({"type": "SERVER_OFFLINE", "tenantId": device["tenantId"], "greenhouseId": device.get("greenhouseId"), "deviceId": device["deviceId"], "lastHeartbeat": int(device["lastHeartbeat"])}),
+                    Message=json.dumps({"alertId": alert["id"], "type": "SERVER_OFFLINE", "tenantId": device["tenantId"], "greenhouseId": device.get("greenhouseId"), "deviceId": device["deviceId"], "lastHeartbeat": int(device["lastHeartbeat"])}),
                     MessageAttributes={"alertType": {"DataType": "String", "StringValue": "SERVER_OFFLINE"}},
                 )
                 alerts += 1

@@ -31,6 +31,7 @@ import studio.junecity.greenhouse.camera.CameraStreamServer
 import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.cloud.CloudCameraServerService
+import studio.junecity.greenhouse.cloud.CloudAlertService
 import studio.junecity.greenhouse.cloud.CloudHeartbeatService
 import studio.junecity.greenhouse.cloud.CloudOnboardingGate
 import studio.junecity.greenhouse.cloud.CloudRuntime
@@ -93,6 +94,7 @@ class MainActivity : ComponentActivity() {
                 }
                 else CameraStreamServer.stop()
                 val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
+                CloudAlertService.sync(applicationContext, enrollment != null && cloudConfiguration.getOrNull() != null)
                 CloudHeartbeatService.sync(
                     applicationContext,
                     state.preferences.cameraMode == CameraMode.CameraServer && enrollment?.role == CloudDeviceRole.GreenhouseServer

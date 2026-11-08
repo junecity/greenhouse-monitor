@@ -102,7 +102,7 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: INCLUDE
-            NonKeyAttributes: [tenantId, deviceId, greenhouseId, enabled]
+            NonKeyAttributes: [accountId, tenantId, deviceId, greenhouseId, enabled]
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true

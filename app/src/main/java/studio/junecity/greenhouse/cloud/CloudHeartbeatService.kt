@@ -93,7 +93,9 @@ class CloudHeartbeatService : Service() {
         private const val NOTIFICATION_ID = 4172
         fun sync(context: Context, enabled: Boolean) {
             val intent = Intent(context, CloudHeartbeatService::class.java)
-            if (enabled) context.startForegroundService(intent) else context.stopService(intent)
+            runCatching {
+                if (enabled) context.startForegroundService(intent) else context.stopService(intent)
+            }
         }
     }
 }

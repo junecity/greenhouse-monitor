@@ -2,6 +2,15 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS-only alert delivery and reboot recovery
+
+- Added account/tenant-isolated DynamoDB alerts for server-offline, sensor-communication, and critical-temperature incidents with 90-day TTL retention.
+- Added Cognito-authorized alert retrieval and acknowledgement APIs; disabled or cross-account devices cannot retrieve or acknowledge another account's alerts.
+- Added Android AWS alert polling, high-priority local notifications, and an authenticated Acknowledge action without Firebase/FCM or another cloud platform.
+- Added opt-in boot recovery for cloud heartbeat and alert services. Camera capture intentionally waits for an app launch because Android restricts starting camera foreground services from boot receivers.
+- Extended the heartbeat GSI projection with account identity and kept SNS as an internal event destination for future AWS-native escalation.
+- Tests: 56 Android JVM tests, Android lint, debug assembly, 25 Python tests, and Python byte-compilation passed. Live notification timing, reboot/OEM restrictions, Do Not Disturb behavior, Cognito refresh after long idle, and SNS escalation remain unverified until AWS deployment and physical-device testing.
+
 ## 2026-11-08 — Renewable, revocation-aware streaming sessions
 
 - Extended authorized viewing sessions to a four-hour absolute cap while adding a two-minute backend authorization lease.

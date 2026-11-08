@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.cloud
 
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,6 +24,30 @@ class MonitoringAlertsTest {
         val gateway = RecordingGateway()
         HeartbeatReporter(gateway) { 42L }.report(MonitoringHealth("server-1", "greenhouse-1", false, true))
         assertEquals(GreenhouseHeartbeat("server-1", "greenhouse-1", 42L, false, true), gateway.heartbeat)
+    }
+
+    @Test fun cloudAlertCodecPreservesSafetyFields() {
+        val alert = CloudJsonCodec.alert(JSONObject("""{
+            "id":"1700000000-aaaaaaaa",
+            "greenhouseId":"greenhouse-1",
+            "type":"SERVER_OFFLINE",
+            "priority":"HIGH",
+            "message":"Greenhouse server is offline",
+            "createdAtEpochMs":1700000000000,
+            "requiresAcknowledgement":true
+        }"""))
+
+        assertEquals(MonitoringAlertType.ServerOffline, alert.type)
+        assertEquals(MonitoringAlertPriority.High, alert.priority)
+        assertEquals(1_700_000_000_000L, alert.occurredAtEpochMs)
+        assertTrue(alert.requiresAcknowledgement)
+    }
+
+    @Test fun alertPollingBacksOffButReturnsToOneMinute() {
+        assertEquals(60_000L, CloudAlertPollingPolicy.delayMs(0))
+        assertEquals(30_000L, CloudAlertPollingPolicy.delayMs(1))
+        assertEquals(60_000L, CloudAlertPollingPolicy.delayMs(2))
+        assertEquals(120_000L, CloudAlertPollingPolicy.delayMs(9))
     }
 
     private class RecordingGateway : GreenhouseCloudGateway {

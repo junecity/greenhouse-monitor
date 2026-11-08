@@ -74,6 +74,16 @@ class AuthenticatedCloudGateway(
         )
     }
 
+    suspend fun pendingAlerts(): List<MonitoringAlert> {
+        val json = request("GET", "/v1/alerts")
+        val values = json.optJSONArray("alerts") ?: JSONArray()
+        return (0 until values.length()).map { CloudJsonCodec.alert(values.getJSONObject(it)) }
+    }
+
+    suspend fun acknowledgeAlert(alertId: String) {
+        requestOrNull("POST", "/v1/alerts/${segment(alertId)}/acknowledge")
+    }
+
     private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject =
         requestOrNull(method, path, body) ?: JSONObject()
 
@@ -112,6 +122,25 @@ class AuthenticatedCloudGateway(
 }
 
 object CloudJsonCodec {
+    fun alert(json: JSONObject) = MonitoringAlert(
+        id = json.getString("id"),
+        greenhouseId = json.optString("greenhouseId"),
+        type = when (json.getString("type")) {
+            "CRITICAL_TEMPERATURE" -> MonitoringAlertType.CriticalTemperature
+            "SERVER_OFFLINE" -> MonitoringAlertType.ServerOffline
+            "SENSOR_COMMUNICATION_FAILURE" -> MonitoringAlertType.SensorCommunicationFailure
+            else -> MonitoringAlertType.Information
+        },
+        priority = when (json.getString("priority")) {
+            "CRITICAL" -> MonitoringAlertPriority.Critical
+            "HIGH" -> MonitoringAlertPriority.High
+            else -> MonitoringAlertPriority.Normal
+        },
+        message = json.getString("message"),
+        occurredAtEpochMs = json.getLong("createdAtEpochMs"),
+        requiresAcknowledgement = json.optBoolean("requiresAcknowledgement"),
+    )
+
     fun pairing(json: JSONObject) = PairingChallenge(
         json.getString("challengeId"), json.getString("displayCode"), json.getString("serverDeviceId"),
         json.getLong("expiresAt") * 1000
