@@ -63,6 +63,13 @@ class CognitoAuthManager(private val context: Context, private val configuration
         Amplify.Auth.signOut { continuation.resume(Unit) }
     }
 
+    suspend fun isSignedIn(): Boolean {
+        val session: AWSCognitoAuthSession = callback { success, failure ->
+            Amplify.Auth.fetchAuthSession({ success(it as AWSCognitoAuthSession) }, failure)
+        }
+        return session.isSignedIn
+    }
+
     override suspend fun accessToken(): String {
         val session: AWSCognitoAuthSession = callback { success, failure ->
             Amplify.Auth.fetchAuthSession({ success(it as AWSCognitoAuthSession) }, failure)

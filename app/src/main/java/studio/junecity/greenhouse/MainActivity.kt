@@ -29,16 +29,111 @@ import studio.junecity.greenhouse.ui.AppMotion
 import studio.junecity.greenhouse.ui.accessibleMotionDuration
 import studio.junecity.greenhouse.camera.CameraStreamServer
 import studio.junecity.greenhouse.model.CameraMode
+import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.cloud.CloudHeartbeatService
+import studio.junecity.greenhouse.cloud.CloudOnboardingGate
+import studio.junecity.greenhouse.cloud.CloudRuntime
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import java.time.LocalDateTime
 
-class MainActivity:ComponentActivity(){
-    private val viewModel:GreenhouseViewModel by viewModels();private val notificationPermission=registerForActivityResult(ActivityResultContracts.RequestPermission()){}
-    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);WindowCompat.setDecorFitsSystemWindows(window,false);window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);window.statusBarColor=android.graphics.Color.TRANSPARENT;window.navigationBarColor=android.graphics.Color.TRANSPARENT;if(Build.VERSION.SDK_INT>=29){window.isStatusBarContrastEnforced=false;window.isNavigationBarContrastEnforced=false};window.attributes=window.attributes.apply{layoutInDisplayCutoutMode=if(Build.VERSION.SDK_INT>=30)WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES};window.setLayout(WindowManager.LayoutParams.MATCH_PARENT,WindowManager.LayoutParams.MATCH_PARENT);enterImmersiveMode();if(Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(this,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS);val device=AndroidDeviceStatusProvider(this)
-        setContent{val state by viewModel.state.collectAsStateWithLifecycle();val navigationDuration=accessibleMotionDuration(AppMotion.NavigationFadeMs);var now by remember{mutableStateOf(LocalDateTime.now())};var status by remember{mutableStateOf(device.current())};LaunchedEffect(Unit){while(true){delay(30_000);now=LocalDateTime.now();status=device.current()}};LaunchedEffect(state.preferences.cameraMode){if(state.preferences.cameraMode==CameraMode.CameraServer)CameraStreamServer.start(applicationContext)else CameraStreamServer.stop();CloudHeartbeatService.sync(applicationContext,state.preferences.cameraMode==CameraMode.CameraServer&&SecureSettingsStore(applicationContext).cloudSession()!=null)};SideEffect{if(state.preferences.keepScreenOn)window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)};Crossfade(state.screen,animationSpec=tween(navigationDuration),label="screen navigation"){screen->if(screen==AppScreen.Dashboard)DashboardScreen(state,status,now,viewModel::navigate,Modifier.fillMaxSize())else StageScreen(state.copy(screen=screen),status,now,viewModel::navigate,viewModel::selectMetric,viewModel::refreshSensors,viewModel::saveApiKey,viewModel::moveSensor,viewModel::assignZone,viewModel::saveZip,viewModel::refreshWeather,viewModel::updateGreenhouse,viewModel::updatePreferences,Modifier.fillMaxSize())}} }
-    override fun onDestroy(){if(isFinishing)CameraStreamServer.stop();super.onDestroy()}
-    override fun onResume(){super.onResume();enterImmersiveMode()}
+class MainActivity : ComponentActivity() {
+    private val viewModel: GreenhouseViewModel by viewModels()
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+        enterImmersiveMode()
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val device = AndroidDeviceStatusProvider(this)
+
+        setContent {
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            val navigationDuration = accessibleMotionDuration(AppMotion.NavigationFadeMs)
+            val cloudConfiguration = remember { runCatching { CloudRuntime.configurationOrNull() } }
+            var cloudEnrollmentRevision by remember { mutableIntStateOf(0) }
+            var now by remember { mutableStateOf(LocalDateTime.now()) }
+            var status by remember { mutableStateOf(device.current()) }
+
+            LaunchedEffect(Unit) {
+                while (true) {
+                    delay(30_000)
+                    now = LocalDateTime.now()
+                    status = device.current()
+                }
+            }
+            LaunchedEffect(state.preferences.cameraMode, cloudEnrollmentRevision) {
+                if (state.preferences.cameraMode == CameraMode.CameraServer) CameraStreamServer.start(applicationContext)
+                else CameraStreamServer.stop()
+                val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
+                CloudHeartbeatService.sync(
+                    applicationContext,
+                    state.preferences.cameraMode == CameraMode.CameraServer && enrollment?.role == CloudDeviceRole.GreenhouseServer
+                )
+            }
+            SideEffect {
+                if (state.preferences.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+
+            CloudOnboardingGate(
+                configuration = cloudConfiguration.getOrNull(),
+                configurationError = cloudConfiguration.exceptionOrNull()?.message,
+                onEnrolled = { role ->
+                    viewModel.updatePreferences { preferences ->
+                        preferences.copy(cameraMode = if (role == CloudDeviceRole.GreenhouseServer) CameraMode.CameraServer else CameraMode.ViewerClient)
+                    }
+                    cloudEnrollmentRevision++
+                }
+            ) {
+                Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->
+                    if (screen == AppScreen.Dashboard) {
+                        DashboardScreen(state, status, now, viewModel::navigate, Modifier.fillMaxSize())
+                    } else {
+                        StageScreen(
+                            state.copy(screen = screen), status, now, viewModel::navigate, viewModel::selectMetric,
+                            viewModel::refreshSensors, viewModel::saveApiKey, viewModel::moveSensor, viewModel::assignZone,
+                            viewModel::saveZip, viewModel::refreshWeather, viewModel::updateGreenhouse,
+                            viewModel::updatePreferences, Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) CameraStreamServer.stop()
+        super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        enterImmersiveMode()
+    }
+
     @Suppress("DEPRECATION")
-    private fun enterImmersiveMode(){WindowInsetsControllerCompat(window,window.decorView).apply{hide(WindowInsetsCompat.Type.systemBars());systemBarsBehavior=WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE};window.decorView.systemUiVisibility=View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE}
+    private fun enterImmersiveMode() {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+    }
 }

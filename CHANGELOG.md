@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — In-app AWS onboarding and QR device pairing
+
+- Added a separate responsive landscape onboarding flow for Cognito sign-up, email confirmation, sign-in, restored-session validation, and Server/Client selection without modifying the approved five monitoring screens.
+- Added atomic account bootstrap and Server registration calls, five-minute one-use QR generation, client QR scanning/manual entry, same-account claim, and encrypted role/resource enrollment.
+- Existing enrollments now require a valid automatically refreshed Cognito session before the monitoring interface opens.
+- Standardized onboarding controls on the existing charcoal/amber/white/green palette and retained large landscape typography.
+- Tests: 53 Android JVM tests, Android lint, and debug assembly passed; configured BuildConfig generation was checked with placeholder AWS outputs and then restored to a blank local build. Live Cognito, QR camera scanning, backend pairing, and physical layout remain unverified until AWS deployment and device access.
+
 ## 2026-11-08 — AWS runtime configuration and durable device enrollment
 
 - Added all-or-nothing build-time injection for the AWS region, Cognito user pool/client, and API Gateway URL while keeping unconfigured local builds operational.

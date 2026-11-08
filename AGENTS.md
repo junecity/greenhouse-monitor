@@ -77,6 +77,7 @@
 - `POST /v1/bootstrap` now idempotently and atomically creates an isolated account, tenant, and active Free entitlement from the validated Cognito subject. `POST /v1/devices` atomically registers the authenticated phone as a greenhouse server plus its initial greenhouse. Viewer devices are still created only by the same-account one-use pairing claim.
 - AWS deployment outputs can now be injected at build time through four `GREENHOUSE_*` Gradle properties/environment variables. An all-blank local build preserves existing local operation; partial configuration fails closed.
 - Encrypted `CloudEnrollment` persists only the stable device ID, cloud greenhouse ID, and backend role. The heartbeat service now obtains automatically refreshed Cognito tokens at report time instead of relying on a copied access token, and reports the backend greenhouse ID.
+- A separate landscape `CloudOnboardingGate` now handles Cognito sign-up, email confirmation, sign-in/session validation, Server/Client role selection, atomic bootstrap, QR generation/scanning, one-use pairing, and encrypted enrollment before entering the unchanged five-screen monitor. Existing enrollments still require a valid Cognito session after process start.
 
 ## WebRTC migration implementation
 
@@ -105,9 +106,9 @@
 
 ## Next implementation steps
 
-1. Add a separate in-app Cognito onboarding screen that calls the completed auth/enrollment APIs and supports QR pairing.
-2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
-3. Add tenant-aware AWS alert delivery/acknowledgement and approved reboot recovery.
+1. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
+2. Add tenant-aware AWS alert delivery/acknowledgement and approved reboot recovery.
+3. Add backend-verified subscription lifecycle handling after Google Play product/service-account configuration is approved.
 
 ## Deployment status
 
@@ -115,7 +116,7 @@
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
-- AWS enrollment plumbing checkpoint: 49 Android JVM tests, lint, debug assembly, 18 Python tests, and Python compilation passed. AWS account outputs and live behavior remain unverified because no stack is deployed.
+- AWS onboarding checkpoint: 53 Android JVM tests, lint, debug assembly, build-output injection/blank restoration checks, 18 Python tests, and Python compilation passed. Cognito, QR camera scanning, and pairing remain unverified on physical devices because no stack is deployed and ADB is unavailable.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 
 ## Project memory / handoff log
