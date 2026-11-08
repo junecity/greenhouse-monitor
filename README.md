@@ -45,6 +45,8 @@ An all-blank AWS configuration produces the local-only rollback build. After an 
 
 Partial AWS configuration fails the app closed. Never put AWS access keys, IAM credentials, or entitlement-administration permission in the APK.
 
+After the CloudFormation stack is deployed, `scripts/build-aws-debug-apk.sh <stack-name> <aws-region>` reads its non-secret outputs and writes the configured debug APK and checksum to `build-out/`.
+
 ## Connect Govee H5179 sensors
 
 1. Add every H5179 in Govee Home and connect it to Wi-Fi.

@@ -366,6 +366,8 @@ Resources:
       AlarmActions: [!Ref OperationsAlertTopic]
 
 Outputs:
+  AwsRegion:
+    Value: !Ref AWS::Region
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${EnvironmentName}
   UserPoolId:

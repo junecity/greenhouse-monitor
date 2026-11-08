@@ -65,6 +65,14 @@ sam deploy --guided --config-file infrastructure/samconfig.<environment>.toml
 
 After deployment, record stack outputs in an encrypted CI secret/configuration system. The Android build may receive non-secret identifiers such as Region, API base URL, user-pool ID, and app-client ID. It must never receive AWS access keys, Play service-account credentials, or customer tokens at build time.
 
+For a local debug handoff after the stack exists and the operator has read-only CloudFormation access, use:
+
+```text
+scripts/build-aws-debug-apk.sh <stack-name> <aws-region>
+```
+
+The script reads only `ApiUrl`, `UserPoolId`, and `AndroidClientId`, supplies the selected Region to Gradle, and writes the APK plus SHA-256 checksum under ignored `build-out/`. It does not read, print, or embed AWS credentials. A Play-distributed release still requires the owner-controlled release keystore and Play configuration.
+
 ## Cost model (US East reference, verify for the deployment Region)
 
 The design is usage-based, but it is not zero-cost:

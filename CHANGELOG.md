@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS-configured APK build handoff
+
+- Added a credential-safe build helper that reads the deployed stack's non-secret API/Cognito outputs through the operator's AWS CLI session and supplies all four required Android build values together.
+- Added an AWS Region stack output and an ignored `build-out/` destination containing the configured debug APK and SHA-256 checksum.
+- Documented that release signing still requires the owner-controlled keystore and Play configuration.
+- Validation: shell syntax and fail-closed argument/dependency handling passed; `cfn-lint` passed. Live output retrieval and a configured build remain deployment-gated because no AWS stack or AWS CLI identity is available.
+
 ## 2026-11-08 — Current AWS architecture documentation
 
 - Replaced the README's obsolete public-IP/UPnP remote-camera instructions with the implemented Cognito, one-use cloud pairing, Premium authorization, Kinesis WebRTC, direct ICE/TURN fallback, and on-demand lifecycle.
