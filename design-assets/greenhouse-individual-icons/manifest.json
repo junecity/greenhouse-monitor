@@ -1,0 +1,1641 @@
+{
+  "version": "1.0",
+  "format": "individual editable SVG plus 128px PNG previews",
+  "viewport": "24x24",
+  "strokeWidth": 1.8,
+  "colors": {
+    "default": "#F5F5F6",
+    "active": "#FFB347",
+    "info": "#56BDF4",
+    "success": "#4BDD91",
+    "warning": "#FFB347",
+    "danger": "#FF666B",
+    "disabled": "#777982"
+  },
+  "icons": [
+    {
+      "name": "house",
+      "variant": "default",
+      "group": "navigation",
+      "svg": "svg/house__default.svg",
+      "png": "png_128/house__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "house",
+      "variant": "active",
+      "group": "navigation",
+      "svg": "svg/house__active.svg",
+      "png": "png_128/house__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "layers",
+      "variant": "default",
+      "group": "navigation",
+      "svg": "svg/layers__default.svg",
+      "png": "png_128/layers__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "layers",
+      "variant": "active",
+      "group": "navigation",
+      "svg": "svg/layers__active.svg",
+      "png": "png_128/layers__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "chart-bars",
+      "variant": "default",
+      "group": "navigation",
+      "svg": "svg/chart-bars__default.svg",
+      "png": "png_128/chart-bars__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "chart-bars",
+      "variant": "active",
+      "group": "navigation",
+      "svg": "svg/chart-bars__active.svg",
+      "png": "png_128/chart-bars__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "camera",
+      "variant": "default",
+      "group": "navigation",
+      "svg": "svg/camera__default.svg",
+      "png": "png_128/camera__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "camera",
+      "variant": "active",
+      "group": "navigation",
+      "svg": "svg/camera__active.svg",
+      "png": "png_128/camera__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "settings",
+      "variant": "default",
+      "group": "navigation",
+      "svg": "svg/settings__default.svg",
+      "png": "png_128/settings__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "settings",
+      "variant": "active",
+      "group": "navigation",
+      "svg": "svg/settings__active.svg",
+      "png": "png_128/settings__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "thermometer",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/thermometer__default.svg",
+      "png": "png_128/thermometer__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "thermometer",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/thermometer__active.svg",
+      "png": "png_128/thermometer__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "droplet",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/droplet__default.svg",
+      "png": "png_128/droplet__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "droplet",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/droplet__active.svg",
+      "png": "png_128/droplet__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "droplet",
+      "variant": "info",
+      "group": "sensors",
+      "svg": "svg/droplet__info.svg",
+      "png": "png_128/droplet__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "droplet",
+      "variant": "success",
+      "group": "sensors",
+      "svg": "svg/droplet__success.svg",
+      "png": "png_128/droplet__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "droplet",
+      "variant": "warning",
+      "group": "sensors",
+      "svg": "svg/droplet__warning.svg",
+      "png": "png_128/droplet__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "droplet",
+      "variant": "danger",
+      "group": "sensors",
+      "svg": "svg/droplet__danger.svg",
+      "png": "png_128/droplet__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "gauge",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/gauge__default.svg",
+      "png": "png_128/gauge__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "gauge",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/gauge__active.svg",
+      "png": "png_128/gauge__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "wind",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/wind__default.svg",
+      "png": "png_128/wind__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "wind",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/wind__active.svg",
+      "png": "png_128/wind__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "thermometer-up",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/thermometer-up__default.svg",
+      "png": "png_128/thermometer-up__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "thermometer-up",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/thermometer-up__active.svg",
+      "png": "png_128/thermometer-up__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "thermometer-up",
+      "variant": "info",
+      "group": "sensors",
+      "svg": "svg/thermometer-up__info.svg",
+      "png": "png_128/thermometer-up__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "thermometer-up",
+      "variant": "success",
+      "group": "sensors",
+      "svg": "svg/thermometer-up__success.svg",
+      "png": "png_128/thermometer-up__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "thermometer-up",
+      "variant": "warning",
+      "group": "sensors",
+      "svg": "svg/thermometer-up__warning.svg",
+      "png": "png_128/thermometer-up__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "thermometer-up",
+      "variant": "danger",
+      "group": "sensors",
+      "svg": "svg/thermometer-up__danger.svg",
+      "png": "png_128/thermometer-up__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "thermometer-down",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/thermometer-down__default.svg",
+      "png": "png_128/thermometer-down__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "thermometer-down",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/thermometer-down__active.svg",
+      "png": "png_128/thermometer-down__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "thermometer-down",
+      "variant": "info",
+      "group": "sensors",
+      "svg": "svg/thermometer-down__info.svg",
+      "png": "png_128/thermometer-down__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "thermometer-down",
+      "variant": "success",
+      "group": "sensors",
+      "svg": "svg/thermometer-down__success.svg",
+      "png": "png_128/thermometer-down__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "thermometer-down",
+      "variant": "warning",
+      "group": "sensors",
+      "svg": "svg/thermometer-down__warning.svg",
+      "png": "png_128/thermometer-down__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "thermometer-down",
+      "variant": "danger",
+      "group": "sensors",
+      "svg": "svg/thermometer-down__danger.svg",
+      "png": "png_128/thermometer-down__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "wifi",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/wifi__default.svg",
+      "png": "png_128/wifi__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "wifi",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/wifi__active.svg",
+      "png": "png_128/wifi__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "wifi",
+      "variant": "info",
+      "group": "sensors",
+      "svg": "svg/wifi__info.svg",
+      "png": "png_128/wifi__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "wifi",
+      "variant": "success",
+      "group": "sensors",
+      "svg": "svg/wifi__success.svg",
+      "png": "png_128/wifi__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "wifi",
+      "variant": "warning",
+      "group": "sensors",
+      "svg": "svg/wifi__warning.svg",
+      "png": "png_128/wifi__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "wifi",
+      "variant": "danger",
+      "group": "sensors",
+      "svg": "svg/wifi__danger.svg",
+      "png": "png_128/wifi__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "wifi",
+      "variant": "disabled",
+      "group": "sensors",
+      "svg": "svg/wifi__disabled.svg",
+      "png": "png_128/wifi__disabled.png",
+      "color": "#777982"
+    },
+    {
+      "name": "wifi-off",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/wifi-off__default.svg",
+      "png": "png_128/wifi-off__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "wifi-off",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/wifi-off__active.svg",
+      "png": "png_128/wifi-off__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "wifi-off",
+      "variant": "info",
+      "group": "sensors",
+      "svg": "svg/wifi-off__info.svg",
+      "png": "png_128/wifi-off__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "wifi-off",
+      "variant": "success",
+      "group": "sensors",
+      "svg": "svg/wifi-off__success.svg",
+      "png": "png_128/wifi-off__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "wifi-off",
+      "variant": "warning",
+      "group": "sensors",
+      "svg": "svg/wifi-off__warning.svg",
+      "png": "png_128/wifi-off__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "wifi-off",
+      "variant": "danger",
+      "group": "sensors",
+      "svg": "svg/wifi-off__danger.svg",
+      "png": "png_128/wifi-off__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "signal",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/signal__default.svg",
+      "png": "png_128/signal__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "signal",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/signal__active.svg",
+      "png": "png_128/signal__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "signal",
+      "variant": "info",
+      "group": "sensors",
+      "svg": "svg/signal__info.svg",
+      "png": "png_128/signal__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "signal",
+      "variant": "success",
+      "group": "sensors",
+      "svg": "svg/signal__success.svg",
+      "png": "png_128/signal__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "signal",
+      "variant": "warning",
+      "group": "sensors",
+      "svg": "svg/signal__warning.svg",
+      "png": "png_128/signal__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "signal",
+      "variant": "danger",
+      "group": "sensors",
+      "svg": "svg/signal__danger.svg",
+      "png": "png_128/signal__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "refresh",
+      "variant": "default",
+      "group": "sensors",
+      "svg": "svg/refresh__default.svg",
+      "png": "png_128/refresh__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "refresh",
+      "variant": "active",
+      "group": "sensors",
+      "svg": "svg/refresh__active.svg",
+      "png": "png_128/refresh__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "flame",
+      "variant": "default",
+      "group": "climate",
+      "svg": "svg/flame__default.svg",
+      "png": "png_128/flame__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "flame",
+      "variant": "active",
+      "group": "climate",
+      "svg": "svg/flame__active.svg",
+      "png": "png_128/flame__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "flame",
+      "variant": "info",
+      "group": "climate",
+      "svg": "svg/flame__info.svg",
+      "png": "png_128/flame__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "flame",
+      "variant": "success",
+      "group": "climate",
+      "svg": "svg/flame__success.svg",
+      "png": "png_128/flame__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "flame",
+      "variant": "warning",
+      "group": "climate",
+      "svg": "svg/flame__warning.svg",
+      "png": "png_128/flame__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "flame",
+      "variant": "danger",
+      "group": "climate",
+      "svg": "svg/flame__danger.svg",
+      "png": "png_128/flame__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "snowflake",
+      "variant": "default",
+      "group": "climate",
+      "svg": "svg/snowflake__default.svg",
+      "png": "png_128/snowflake__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "snowflake",
+      "variant": "active",
+      "group": "climate",
+      "svg": "svg/snowflake__active.svg",
+      "png": "png_128/snowflake__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "snowflake",
+      "variant": "info",
+      "group": "climate",
+      "svg": "svg/snowflake__info.svg",
+      "png": "png_128/snowflake__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "snowflake",
+      "variant": "success",
+      "group": "climate",
+      "svg": "svg/snowflake__success.svg",
+      "png": "png_128/snowflake__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "snowflake",
+      "variant": "warning",
+      "group": "climate",
+      "svg": "svg/snowflake__warning.svg",
+      "png": "png_128/snowflake__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "snowflake",
+      "variant": "danger",
+      "group": "climate",
+      "svg": "svg/snowflake__danger.svg",
+      "png": "png_128/snowflake__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "fan",
+      "variant": "default",
+      "group": "climate",
+      "svg": "svg/fan__default.svg",
+      "png": "png_128/fan__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "fan",
+      "variant": "active",
+      "group": "climate",
+      "svg": "svg/fan__active.svg",
+      "png": "png_128/fan__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "fan",
+      "variant": "info",
+      "group": "climate",
+      "svg": "svg/fan__info.svg",
+      "png": "png_128/fan__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "fan",
+      "variant": "success",
+      "group": "climate",
+      "svg": "svg/fan__success.svg",
+      "png": "png_128/fan__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "fan",
+      "variant": "warning",
+      "group": "climate",
+      "svg": "svg/fan__warning.svg",
+      "png": "png_128/fan__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "fan",
+      "variant": "danger",
+      "group": "climate",
+      "svg": "svg/fan__danger.svg",
+      "png": "png_128/fan__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "power",
+      "variant": "default",
+      "group": "climate",
+      "svg": "svg/power__default.svg",
+      "png": "png_128/power__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "power",
+      "variant": "active",
+      "group": "climate",
+      "svg": "svg/power__active.svg",
+      "png": "png_128/power__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "auto",
+      "variant": "default",
+      "group": "climate",
+      "svg": "svg/auto__default.svg",
+      "png": "png_128/auto__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "auto",
+      "variant": "active",
+      "group": "climate",
+      "svg": "svg/auto__active.svg",
+      "png": "png_128/auto__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "sun",
+      "variant": "default",
+      "group": "weather",
+      "svg": "svg/sun__default.svg",
+      "png": "png_128/sun__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "sun",
+      "variant": "active",
+      "group": "weather",
+      "svg": "svg/sun__active.svg",
+      "png": "png_128/sun__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "cloud",
+      "variant": "default",
+      "group": "weather",
+      "svg": "svg/cloud__default.svg",
+      "png": "png_128/cloud__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "cloud",
+      "variant": "active",
+      "group": "weather",
+      "svg": "svg/cloud__active.svg",
+      "png": "png_128/cloud__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "cloud-sun",
+      "variant": "default",
+      "group": "weather",
+      "svg": "svg/cloud-sun__default.svg",
+      "png": "png_128/cloud-sun__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "cloud-sun",
+      "variant": "active",
+      "group": "weather",
+      "svg": "svg/cloud-sun__active.svg",
+      "png": "png_128/cloud-sun__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "rain",
+      "variant": "default",
+      "group": "weather",
+      "svg": "svg/rain__default.svg",
+      "png": "png_128/rain__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "rain",
+      "variant": "active",
+      "group": "weather",
+      "svg": "svg/rain__active.svg",
+      "png": "png_128/rain__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "storm",
+      "variant": "default",
+      "group": "weather",
+      "svg": "svg/storm__default.svg",
+      "png": "png_128/storm__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "storm",
+      "variant": "active",
+      "group": "weather",
+      "svg": "svg/storm__active.svg",
+      "png": "png_128/storm__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "snow",
+      "variant": "default",
+      "group": "weather",
+      "svg": "svg/snow__default.svg",
+      "png": "png_128/snow__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "snow",
+      "variant": "active",
+      "group": "weather",
+      "svg": "svg/snow__active.svg",
+      "png": "png_128/snow__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "map-pin",
+      "variant": "default",
+      "group": "weather",
+      "svg": "svg/map-pin__default.svg",
+      "png": "png_128/map-pin__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "map-pin",
+      "variant": "active",
+      "group": "weather",
+      "svg": "svg/map-pin__active.svg",
+      "png": "png_128/map-pin__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "map-pin",
+      "variant": "info",
+      "group": "weather",
+      "svg": "svg/map-pin__info.svg",
+      "png": "png_128/map-pin__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "map-pin",
+      "variant": "success",
+      "group": "weather",
+      "svg": "svg/map-pin__success.svg",
+      "png": "png_128/map-pin__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "map-pin",
+      "variant": "warning",
+      "group": "weather",
+      "svg": "svg/map-pin__warning.svg",
+      "png": "png_128/map-pin__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "map-pin",
+      "variant": "danger",
+      "group": "weather",
+      "svg": "svg/map-pin__danger.svg",
+      "png": "png_128/map-pin__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "target",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/target__default.svg",
+      "png": "png_128/target__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "target",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/target__active.svg",
+      "png": "png_128/target__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "move",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/move__default.svg",
+      "png": "png_128/move__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "move",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/move__active.svg",
+      "png": "png_128/move__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "resize",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/resize__default.svg",
+      "png": "png_128/resize__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "resize",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/resize__active.svg",
+      "png": "png_128/resize__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "grid",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/grid__default.svg",
+      "png": "png_128/grid__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "grid",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/grid__active.svg",
+      "png": "png_128/grid__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "ruler",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/ruler__default.svg",
+      "png": "png_128/ruler__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "ruler",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/ruler__active.svg",
+      "png": "png_128/ruler__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "square-foot",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/square-foot__default.svg",
+      "png": "png_128/square-foot__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "square-foot",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/square-foot__active.svg",
+      "png": "png_128/square-foot__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "overlap",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/overlap__default.svg",
+      "png": "png_128/overlap__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "overlap",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/overlap__active.svg",
+      "png": "png_128/overlap__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "heat-map",
+      "variant": "default",
+      "group": "zones",
+      "svg": "svg/heat-map__default.svg",
+      "png": "png_128/heat-map__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "heat-map",
+      "variant": "active",
+      "group": "zones",
+      "svg": "svg/heat-map__active.svg",
+      "png": "png_128/heat-map__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "heat-map",
+      "variant": "info",
+      "group": "zones",
+      "svg": "svg/heat-map__info.svg",
+      "png": "png_128/heat-map__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "heat-map",
+      "variant": "success",
+      "group": "zones",
+      "svg": "svg/heat-map__success.svg",
+      "png": "png_128/heat-map__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "heat-map",
+      "variant": "warning",
+      "group": "zones",
+      "svg": "svg/heat-map__warning.svg",
+      "png": "png_128/heat-map__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "heat-map",
+      "variant": "danger",
+      "group": "zones",
+      "svg": "svg/heat-map__danger.svg",
+      "png": "png_128/heat-map__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "chart-line",
+      "variant": "default",
+      "group": "history",
+      "svg": "svg/chart-line__default.svg",
+      "png": "png_128/chart-line__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "chart-line",
+      "variant": "active",
+      "group": "history",
+      "svg": "svg/chart-line__active.svg",
+      "png": "png_128/chart-line__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "trend",
+      "variant": "default",
+      "group": "history",
+      "svg": "svg/trend__default.svg",
+      "png": "png_128/trend__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "trend",
+      "variant": "active",
+      "group": "history",
+      "svg": "svg/trend__active.svg",
+      "png": "png_128/trend__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "calendar",
+      "variant": "default",
+      "group": "history",
+      "svg": "svg/calendar__default.svg",
+      "png": "png_128/calendar__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "calendar",
+      "variant": "active",
+      "group": "history",
+      "svg": "svg/calendar__active.svg",
+      "png": "png_128/calendar__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "clock",
+      "variant": "default",
+      "group": "history",
+      "svg": "svg/clock__default.svg",
+      "png": "png_128/clock__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "clock",
+      "variant": "active",
+      "group": "history",
+      "svg": "svg/clock__active.svg",
+      "png": "png_128/clock__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "calendar-plus",
+      "variant": "default",
+      "group": "history",
+      "svg": "svg/calendar-plus__default.svg",
+      "png": "png_128/calendar-plus__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "calendar-plus",
+      "variant": "active",
+      "group": "history",
+      "svg": "svg/calendar-plus__active.svg",
+      "png": "png_128/calendar-plus__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "calendar-30",
+      "variant": "default",
+      "group": "history",
+      "svg": "svg/calendar-30__default.svg",
+      "png": "png_128/calendar-30__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "calendar-30",
+      "variant": "active",
+      "group": "history",
+      "svg": "svg/calendar-30__active.svg",
+      "png": "png_128/calendar-30__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "download",
+      "variant": "default",
+      "group": "history",
+      "svg": "svg/download__default.svg",
+      "png": "png_128/download__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "download",
+      "variant": "active",
+      "group": "history",
+      "svg": "svg/download__active.svg",
+      "png": "png_128/download__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "video",
+      "variant": "default",
+      "group": "camera",
+      "svg": "svg/video__default.svg",
+      "png": "png_128/video__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "video",
+      "variant": "active",
+      "group": "camera",
+      "svg": "svg/video__active.svg",
+      "png": "png_128/video__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "video",
+      "variant": "info",
+      "group": "camera",
+      "svg": "svg/video__info.svg",
+      "png": "png_128/video__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "video",
+      "variant": "success",
+      "group": "camera",
+      "svg": "svg/video__success.svg",
+      "png": "png_128/video__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "video",
+      "variant": "warning",
+      "group": "camera",
+      "svg": "svg/video__warning.svg",
+      "png": "png_128/video__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "video",
+      "variant": "danger",
+      "group": "camera",
+      "svg": "svg/video__danger.svg",
+      "png": "png_128/video__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "video",
+      "variant": "disabled",
+      "group": "camera",
+      "svg": "svg/video__disabled.svg",
+      "png": "png_128/video__disabled.png",
+      "color": "#777982"
+    },
+    {
+      "name": "play",
+      "variant": "default",
+      "group": "camera",
+      "svg": "svg/play__default.svg",
+      "png": "png_128/play__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "play",
+      "variant": "active",
+      "group": "camera",
+      "svg": "svg/play__active.svg",
+      "png": "png_128/play__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "record",
+      "variant": "default",
+      "group": "camera",
+      "svg": "svg/record__default.svg",
+      "png": "png_128/record__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "record",
+      "variant": "active",
+      "group": "camera",
+      "svg": "svg/record__active.svg",
+      "png": "png_128/record__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "record",
+      "variant": "info",
+      "group": "camera",
+      "svg": "svg/record__info.svg",
+      "png": "png_128/record__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "record",
+      "variant": "success",
+      "group": "camera",
+      "svg": "svg/record__success.svg",
+      "png": "png_128/record__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "record",
+      "variant": "warning",
+      "group": "camera",
+      "svg": "svg/record__warning.svg",
+      "png": "png_128/record__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "record",
+      "variant": "danger",
+      "group": "camera",
+      "svg": "svg/record__danger.svg",
+      "png": "png_128/record__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "maximize",
+      "variant": "default",
+      "group": "camera",
+      "svg": "svg/maximize__default.svg",
+      "png": "png_128/maximize__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "maximize",
+      "variant": "active",
+      "group": "camera",
+      "svg": "svg/maximize__active.svg",
+      "png": "png_128/maximize__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "mic-off",
+      "variant": "default",
+      "group": "camera",
+      "svg": "svg/mic-off__default.svg",
+      "png": "png_128/mic-off__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "mic-off",
+      "variant": "active",
+      "group": "camera",
+      "svg": "svg/mic-off__active.svg",
+      "png": "png_128/mic-off__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "volume",
+      "variant": "default",
+      "group": "camera",
+      "svg": "svg/volume__default.svg",
+      "png": "png_128/volume__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "volume",
+      "variant": "active",
+      "group": "camera",
+      "svg": "svg/volume__active.svg",
+      "png": "png_128/volume__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "bell",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/bell__default.svg",
+      "png": "png_128/bell__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "bell",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/bell__active.svg",
+      "png": "png_128/bell__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "bell",
+      "variant": "info",
+      "group": "alerts",
+      "svg": "svg/bell__info.svg",
+      "png": "png_128/bell__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "bell",
+      "variant": "success",
+      "group": "alerts",
+      "svg": "svg/bell__success.svg",
+      "png": "png_128/bell__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "bell",
+      "variant": "warning",
+      "group": "alerts",
+      "svg": "svg/bell__warning.svg",
+      "png": "png_128/bell__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "bell",
+      "variant": "danger",
+      "group": "alerts",
+      "svg": "svg/bell__danger.svg",
+      "png": "png_128/bell__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "bell",
+      "variant": "disabled",
+      "group": "alerts",
+      "svg": "svg/bell__disabled.svg",
+      "png": "png_128/bell__disabled.png",
+      "color": "#777982"
+    },
+    {
+      "name": "bell-off",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/bell-off__default.svg",
+      "png": "png_128/bell-off__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "bell-off",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/bell-off__active.svg",
+      "png": "png_128/bell-off__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "bell-off",
+      "variant": "info",
+      "group": "alerts",
+      "svg": "svg/bell-off__info.svg",
+      "png": "png_128/bell-off__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "bell-off",
+      "variant": "success",
+      "group": "alerts",
+      "svg": "svg/bell-off__success.svg",
+      "png": "png_128/bell-off__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "bell-off",
+      "variant": "warning",
+      "group": "alerts",
+      "svg": "svg/bell-off__warning.svg",
+      "png": "png_128/bell-off__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "bell-off",
+      "variant": "danger",
+      "group": "alerts",
+      "svg": "svg/bell-off__danger.svg",
+      "png": "png_128/bell-off__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "mail",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/mail__default.svg",
+      "png": "png_128/mail__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "mail",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/mail__active.svg",
+      "png": "png_128/mail__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "phone",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/phone__default.svg",
+      "png": "png_128/phone__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "phone",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/phone__active.svg",
+      "png": "png_128/phone__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "vibrate",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/vibrate__default.svg",
+      "png": "png_128/vibrate__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "vibrate",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/vibrate__active.svg",
+      "png": "png_128/vibrate__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "snooze",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/snooze__default.svg",
+      "png": "png_128/snooze__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "snooze",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/snooze__active.svg",
+      "png": "png_128/snooze__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "repeat",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/repeat__default.svg",
+      "png": "png_128/repeat__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "repeat",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/repeat__active.svg",
+      "png": "png_128/repeat__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "warning",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/warning__default.svg",
+      "png": "png_128/warning__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "warning",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/warning__active.svg",
+      "png": "png_128/warning__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "warning",
+      "variant": "info",
+      "group": "alerts",
+      "svg": "svg/warning__info.svg",
+      "png": "png_128/warning__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "warning",
+      "variant": "success",
+      "group": "alerts",
+      "svg": "svg/warning__success.svg",
+      "png": "png_128/warning__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "warning",
+      "variant": "warning",
+      "group": "alerts",
+      "svg": "svg/warning__warning.svg",
+      "png": "png_128/warning__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "warning",
+      "variant": "danger",
+      "group": "alerts",
+      "svg": "svg/warning__danger.svg",
+      "png": "png_128/warning__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "info",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/info__default.svg",
+      "png": "png_128/info__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "info",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/info__active.svg",
+      "png": "png_128/info__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "check",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/check__default.svg",
+      "png": "png_128/check__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "check",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/check__active.svg",
+      "png": "png_128/check__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "check",
+      "variant": "info",
+      "group": "alerts",
+      "svg": "svg/check__info.svg",
+      "png": "png_128/check__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "check",
+      "variant": "success",
+      "group": "alerts",
+      "svg": "svg/check__success.svg",
+      "png": "png_128/check__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "check",
+      "variant": "warning",
+      "group": "alerts",
+      "svg": "svg/check__warning.svg",
+      "png": "png_128/check__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "check",
+      "variant": "danger",
+      "group": "alerts",
+      "svg": "svg/check__danger.svg",
+      "png": "png_128/check__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "error",
+      "variant": "default",
+      "group": "alerts",
+      "svg": "svg/error__default.svg",
+      "png": "png_128/error__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "error",
+      "variant": "active",
+      "group": "alerts",
+      "svg": "svg/error__active.svg",
+      "png": "png_128/error__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "error",
+      "variant": "info",
+      "group": "alerts",
+      "svg": "svg/error__info.svg",
+      "png": "png_128/error__info.png",
+      "color": "#56BDF4"
+    },
+    {
+      "name": "error",
+      "variant": "success",
+      "group": "alerts",
+      "svg": "svg/error__success.svg",
+      "png": "png_128/error__success.png",
+      "color": "#4BDD91"
+    },
+    {
+      "name": "error",
+      "variant": "warning",
+      "group": "alerts",
+      "svg": "svg/error__warning.svg",
+      "png": "png_128/error__warning.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "error",
+      "variant": "danger",
+      "group": "alerts",
+      "svg": "svg/error__danger.svg",
+      "png": "png_128/error__danger.png",
+      "color": "#FF666B"
+    },
+    {
+      "name": "plus",
+      "variant": "default",
+      "group": "actions",
+      "svg": "svg/plus__default.svg",
+      "png": "png_128/plus__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "plus",
+      "variant": "active",
+      "group": "actions",
+      "svg": "svg/plus__active.svg",
+      "png": "png_128/plus__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "pencil",
+      "variant": "default",
+      "group": "actions",
+      "svg": "svg/pencil__default.svg",
+      "png": "png_128/pencil__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "pencil",
+      "variant": "active",
+      "group": "actions",
+      "svg": "svg/pencil__active.svg",
+      "png": "png_128/pencil__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "trash",
+      "variant": "default",
+      "group": "actions",
+      "svg": "svg/trash__default.svg",
+      "png": "png_128/trash__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "trash",
+      "variant": "active",
+      "group": "actions",
+      "svg": "svg/trash__active.svg",
+      "png": "png_128/trash__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "sliders",
+      "variant": "default",
+      "group": "actions",
+      "svg": "svg/sliders__default.svg",
+      "png": "png_128/sliders__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "sliders",
+      "variant": "active",
+      "group": "actions",
+      "svg": "svg/sliders__active.svg",
+      "png": "png_128/sliders__active.png",
+      "color": "#FFB347"
+    },
+    {
+      "name": "share",
+      "variant": "default",
+      "group": "actions",
+      "svg": "svg/share__default.svg",
+      "png": "png_128/share__default.png",
+      "color": "#F5F5F6"
+    },
+    {
+      "name": "share",
+      "variant": "active",
+      "group": "actions",
+      "svg": "svg/share__active.svg",
+      "png": "png_128/share__active.png",
+      "color": "#FFB347"
+    }
+  ]
+}

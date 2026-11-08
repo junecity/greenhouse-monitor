@@ -12,6 +12,8 @@ Native Kotlin/Jetpack Compose greenhouse dashboard for Android 10+ (API 29). The
 - Coordinate-based inverse-distance-weighted temperature, humidity, VPD, and dew-point maps, including center and area-average estimates.
 - Local SQLite history and 7-day graphs for all four metrics.
 - Live front-camera preview on both Dashboard and Cameras using CameraX, with rear-camera fallback and an in-app permission retry.
+- Paired phone-to-phone camera streaming with QR setup, AES-256-GCM encrypted frames, a random viewer token, local Wi-Fi access, and automatic UPnP remote access on compatible routers.
+- Selectable camera stream profiles: Data Saver (480×270 at 4 fps), Balanced (640×360 at 7 fps), and High (1280×720 at 10 fps). Frame capture is throttled before JPEG compression to reduce server-phone CPU use and latency.
 - ZIP-code weather through Open-Meteo. No GPS or location permission is used.
 - Background sensor checks, locally configurable alert categories, quiet defaults, repeat control, and snooze.
 
@@ -41,9 +43,20 @@ Launch **Greenhouse Monitor** and keep the phone in landscape orientation.
 
 Set a five-digit ZIP code under **Settings → General**. Weather lookup geocodes only that ZIP. Notification defaults are intentionally quiet: pop-ups, sound, vibration, and repeat alerts start disabled. Monitoring and history continue even when notifications are disabled.
 
+## Pair a camera server and viewer
+
+1. On the greenhouse phone, open **Settings → Camera** and select **Greenhouse Server**.
+2. Allow camera access and leave the app open. The status reports whether local-only or local-and-remote access is ready.
+3. On the other phone, select **Viewer Client**, tap **Scan server QR**, and scan the QR displayed by the greenhouse phone.
+4. Open **Dashboard** or **Cameras** on the viewer. It tries the local Wi-Fi address first, then the mapped public address.
+5. In the live viewer, pinch to zoom up to 5x, drag to pan, and double-tap to reset the image.
+6. Use **Revoke viewers & make new QR** on the server at any time to invalidate the previous token and encryption key.
+
+The video payload is encrypted before being sent. Treat the pairing QR like a camera password and only scan it with trusted phones. Remote access requires UPnP on the router and a publicly reachable IPv4 address. If the ISP changes that public address while both phones are away from the home network, pair again after returning to the local network.
+
 ## Deliberate limitations
 
-- The Cameras page provides a clipped live front-camera preview. Its tabs are selectable; Playback and Timelapse show their current unconfigured states because stored/remote media still requires a streaming and storage backend.
+- The camera server runs while the Greenhouse Monitor app is open. Playback and Timelapse remain unconfigured because the app does not record or upload video.
 - Email alerts require an email delivery service and credentials; the app marks them unavailable instead of pretending delivery is configured.
 - Background polling uses Android WorkManager's 15-minute platform minimum; one-minute refresh applies while the app is open.
 
@@ -51,7 +64,20 @@ Set a five-digit ZIP code under **Settings → General**. Weather lookup geocode
 
 - Working Stage 3 rollback tag: `codex-stage3-baseline`
 - Upgrade branch: `codex/greenhouse-complete-upgrade`
-- Final APK: `deliverables/greenhouse-monitor-2.0-debug.apk`
+- Latest APK: `deliverables/geometry-settings-v2.6/Greenhouse Monitor 2.6.1-debug.apk`
+- Version 2.6.1 renders the Zones footprint at a uniform feet-to-pixels scale, so equally sized attached greenhouse sections remain visually proportional, and uses a minimalist summary-first Settings layout with advanced editing hidden until requested.
+- Version 2.6 makes Settings typography larger, derives the Zones footprint directly from the saved greenhouse plan, calculates section area and bounding dimensions accurately, and safely reprojects sensor positions when geometry changes.
+- Version 2.6 Moto G7 screenshots and validation: `deliverables/geometry-settings-v2.6/`
+- Previous icon-library APK: `deliverables/icon-library-v2.5/Greenhouse Monitor 2.5-debug.apk`
+- Version 2.5 integrates the complete Greenhouse Individual Icon Assets library as sharp native Compose vectors, including accessibility-aware motion timings.
+- Version 2.5 screenshots and validation: `deliverables/icon-library-v2.5/`
+- Full supplied SVG and PNG preview library: `design-assets/greenhouse-individual-icons/`
+- Previous layout APK: `deliverables/greenhouse-layout-v2.4/Greenhouse Monitor 2.4-debug.apk`
+- Version 2.4 adds a persistent rectangle/T-shaped greenhouse designer, the 8 × 16 + 8 × 16 T preset, a shape-aware Zones map, and standardized action buttons.
+- Version 2.4 screenshots and validation: `deliverables/greenhouse-layout-v2.4/`
+- Previous camera streaming APK: `deliverables/camera-streaming-v2.3/Greenhouse Monitor 2.3-debug.apk`
+- Version 2.3 dashboard screenshot: `deliverables/camera-streaming-v2.3/dashboard-moto-g7.png`
+- Version 2.3 validation: `deliverables/camera-streaming-v2.3/VALIDATION.md`
 - Validation report: `deliverables/complete-upgrade/VALIDATION.md`
 - A71 screenshots: `deliverables/complete-upgrade/final-a71/`
 - Moto G7 screenshots: `deliverables/complete-upgrade/final-moto-g7/`

@@ -1,15 +1,38 @@
 package studio.junecity.greenhouse.model
 
 import kotlin.math.ln
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 enum class AppScreen { Dashboard, Zones, History, Cameras, Settings }
 enum class Metric { Temperature, Humidity, Vpd, DewPoint }
 enum class HistoryRange { Day, Week, Month }
 enum class CameraMode { CameraServer, ViewerClient }
-data class SensorPosition(val xFeet:Double,val yFeet:Double,val heightFeet:Double=0.0){fun normalized(g:GreenhouseConfig)=NormalizedPosition((xFeet/g.lengthFeet).coerceIn(0.0,1.0),(yFeet/g.widthFeet).coerceIn(0.0,1.0))}
+enum class CameraStreamQuality { DataSaver, Balanced, High }
+enum class GreenhouseShape { Rectangle, TShape }
+data class SensorPosition(val xFeet:Double,val yFeet:Double,val heightFeet:Double=0.0){fun normalized(g:GreenhouseConfig)=NormalizedPosition((xFeet/g.planLengthFeet).coerceIn(0.0,1.0),(yFeet/g.planWidthFeet).coerceIn(0.0,1.0))}
 data class NormalizedPosition(val x:Double,val y:Double)
-data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap()){val areaSquareFeet get()=lengthFeet*widthFeet}
+data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap(),val shape:GreenhouseShape=GreenhouseShape.Rectangle,val attachedLengthFeet:Double=16.0,val attachedWidthFeet:Double=8.0){
+    val planLengthFeet get()=if(shape==GreenhouseShape.TShape)max(lengthFeet,attachedWidthFeet) else lengthFeet
+    val planWidthFeet get()=if(shape==GreenhouseShape.TShape)widthFeet+attachedLengthFeet else widthFeet
+    val crossbarLeftFeet get()=if(shape==GreenhouseShape.TShape)(planLengthFeet-lengthFeet)/2.0 else 0.0
+    val stemLeftFeet get()=if(shape==GreenhouseShape.TShape)(planLengthFeet-attachedWidthFeet)/2.0 else 0.0
+    val areaSquareFeet get()=lengthFeet*widthFeet+if(shape==GreenhouseShape.TShape)attachedLengthFeet*attachedWidthFeet else 0.0
+    fun containsPoint(xFeet:Double,yFeet:Double):Boolean{
+        if(xFeet in crossbarLeftFeet..(crossbarLeftFeet+lengthFeet)&&yFeet in 0.0..widthFeet)return true
+        if(shape!=GreenhouseShape.TShape||yFeet !in widthFeet..planWidthFeet)return false
+        return xFeet in stemLeftFeet..(stemLeftFeet+attachedWidthFeet)
+    }
+    fun coercePoint(xFeet:Double,yFeet:Double):SensorPosition{
+        val y=yFeet.coerceIn(0.0,planWidthFeet)
+        val range=if(shape==GreenhouseShape.TShape&&y>widthFeet) stemLeftFeet..(stemLeftFeet+attachedWidthFeet) else crossbarLeftFeet..(crossbarLeftFeet+lengthFeet)
+        return SensorPosition(xFeet.coerceIn(range.start,range.endInclusive),y)
+    }
+    fun reproject(position:SensorPosition,from:GreenhouseConfig):SensorPosition{
+        val normalized=position.normalized(from)
+        return coercePoint(normalized.x*planLengthFeet,normalized.y*planWidthFeet).copy(heightFeet=position.heightFeet)
+    }
+}
 data class GoveeSensor(val id:String,val sku:String,val name:String,val temperatureF:Double?=null,val humidityPercent:Double?=null,val online:Boolean=false,val updatedAtEpochMs:Long=0,val greenhouseId:String="main",val zone:String="Unassigned"){
     fun isFresh(now:Long=System.currentTimeMillis(),staleAfterMs:Long=10*60_000L)=online&&temperatureF!=null&&humidityPercent!=null&&now-updatedAtEpochMs<=staleAfterMs
     val roundedTemperature get()=temperatureF?.roundToInt();val roundedHumidity get()=humidityPercent?.roundToInt()
@@ -21,5 +44,5 @@ data class WeatherReading(val zipCode:String,val location:String,val temperature
 data class DeviceStatus(val batteryPercent:Int,val charging:Boolean,val wifiConnected:Boolean)
 data class HistoryReading(val sensorId:String,val sensorName:String,val temperatureF:Double,val humidityPercent:Double,val timestampEpochMs:Long)
 data class NotificationPreferences(val masterEnabled:Boolean=true,val popupsEnabled:Boolean=false,val soundEnabled:Boolean=false,val vibrationEnabled:Boolean=false,val repeatedAlerts:Boolean=false,val repeatMinutes:Int=30,val snoozedUntilEpochMs:Long=0,val temperatureAlerts:Boolean=true,val humidityAlerts:Boolean=true,val offlineAlerts:Boolean=true,val connectionAlerts:Boolean=false,val lowTemperatureF:Double=45.0,val highTemperatureF:Double=95.0,val lowHumidity:Double=30.0,val highHumidity:Double=85.0,val recoveryMargin:Double=2.0)
-data class AppPreferences(val zipCode:String="06382",val temperatureFahrenheit:Boolean=true,val refreshMinutes:Int=1,val historyRetentionDays:Int=30,val keepScreenOn:Boolean=true,val autoStart:Boolean=false,val greenhouses:List<GreenhouseConfig> = listOf(GreenhouseConfig()),val activeGreenhouseId:String="main",val notifications:NotificationPreferences=NotificationPreferences(),val sensorGreenhouseIds:Map<String,String> = emptyMap(),val cameraMode:CameraMode=CameraMode.CameraServer){val activeGreenhouse get()=greenhouses.firstOrNull{it.id==activeGreenhouseId}?:greenhouses.first()}
+data class AppPreferences(val zipCode:String="06382",val temperatureFahrenheit:Boolean=true,val refreshMinutes:Int=1,val historyRetentionDays:Int=30,val keepScreenOn:Boolean=true,val autoStart:Boolean=false,val greenhouses:List<GreenhouseConfig> = listOf(GreenhouseConfig()),val activeGreenhouseId:String="main",val notifications:NotificationPreferences=NotificationPreferences(),val sensorGreenhouseIds:Map<String,String> = emptyMap(),val cameraMode:CameraMode=CameraMode.CameraServer,val cameraStreamQuality:CameraStreamQuality=CameraStreamQuality.Balanced){val activeGreenhouse get()=greenhouses.firstOrNull{it.id==activeGreenhouseId}?:greenhouses.first()}
 data class GreenhouseUiState(val screen:AppScreen=AppScreen.Dashboard,val metric:Metric=Metric.Temperature,val sensors:List<GoveeSensor> = emptyList(),val weather:WeatherReading=WeatherReading("06382","Outside (06382)",null,"Unavailable"),val history:List<HistoryReading> = emptyList(),val preferences:AppPreferences=AppPreferences(),val goveeConnected:Boolean=false,val refreshing:Boolean=false,val message:String?=null)
