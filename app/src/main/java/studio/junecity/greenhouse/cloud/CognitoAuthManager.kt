@@ -56,8 +56,15 @@ class CognitoAuthManager(private val context: Context, private val configuration
         Amplify.Auth.confirmSignUp(email.trim(), code.trim(), success, failure)
     }
 
-    suspend fun signIn(email: String, password: String): AuthSignInResult = callback { success, failure ->
-        Amplify.Auth.signIn(email.trim(), password, success, failure)
+    suspend fun signIn(email: String, password: String): AuthSignInResult {
+        // A successful identity sign-in followed by a failed first bootstrap can
+        // leave Amplify authenticated while onboarding remains visible. An
+        // explicit credential sign-in means the customer wants this account, so
+        // clear any persisted/partial session before starting a fresh SRP flow.
+        signOut()
+        return callback { success, failure ->
+            Amplify.Auth.signIn(email.trim(), password, success, failure)
+        }
     }
 
     suspend fun resetPassword(email: String): AuthResetPasswordResult = callback { success, failure ->
@@ -75,7 +82,7 @@ class CognitoAuthManager(private val context: Context, private val configuration
     }
 
     suspend fun signOut() = suspendCancellableCoroutine { continuation ->
-        Amplify.Auth.signOut { continuation.resume(Unit) }
+        Amplify.Auth.signOut { if (continuation.isActive) continuation.resume(Unit) }
     }
 
     suspend fun isSignedIn(): Boolean {

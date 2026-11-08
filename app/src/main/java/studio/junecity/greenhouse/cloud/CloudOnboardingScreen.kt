@@ -58,6 +58,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import com.amplifyframework.auth.AuthException
 import kotlinx.coroutines.launch
 import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.SecureSettingsStore
@@ -439,8 +440,20 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 internal fun accountErrorMessage(error: Throwable): String {
-    val raw = listOfNotNull(error.message, error.cause?.message, error::class.simpleName).joinToString(" ")
+    val raw = generateSequence(error) { it.cause }
+        .take(6)
+        .flatMap { cause ->
+            sequenceOf(
+                cause.message,
+                cause::class.simpleName,
+                (cause as? AuthException)?.recoverySuggestion
+            ).filterNotNull()
+        }
+        .joinToString(" ")
     return when {
+        raw.contains("already signed in", ignoreCase = true) ||
+            raw.contains("signed in user", ignoreCase = true) ->
+            "An older app session was cleared. Tap Sign in again."
         raw.contains("incorrect username or password", ignoreCase = true) ||
             raw.contains("user does not exist", ignoreCase = true) ||
             raw.contains("not authorized", ignoreCase = true) ||
@@ -455,7 +468,12 @@ internal fun accountErrorMessage(error: Throwable): String {
         raw.contains("code", ignoreCase = true) &&
             (raw.contains("expired", ignoreCase = true) || raw.contains("mismatch", ignoreCase = true) || raw.contains("invalid", ignoreCase = true)) ->
             "That verification code is invalid or expired. Request a new code and try again."
-        raw.contains("network", ignoreCase = true) || raw.contains("timeout", ignoreCase = true) ->
+        raw.contains("not confirmed", ignoreCase = true) ->
+            "Verify this email with the confirmation code, then sign in."
+        raw.contains("limit exceeded", ignoreCase = true) || raw.contains("too many", ignoreCase = true) ->
+            "Too many attempts were made. Wait a few minutes, then try again."
+        raw.contains("network", ignoreCase = true) || raw.contains("timeout", ignoreCase = true) ||
+            raw.contains("unable to resolve host", ignoreCase = true) || raw.contains("connection", ignoreCase = true) ->
             "Unable to connect. Check your internet connection and try again."
         else -> "We couldn't complete that request. Please try again."
     }

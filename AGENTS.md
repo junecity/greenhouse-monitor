@@ -162,6 +162,14 @@
 - The repaired application and admin stacks are deployed and `UPDATE_COMPLETE`. A disposable real Cognito SRP customer received HTTP 201 from the live staged bootstrap, and its Cognito/DynamoDB test data was removed. The live admin preflight returns 204 with the configured origin/method/header policy, and the deployed staged admin session route returned 200 in a role-claim Lambda smoke test.
 - Current automated checkpoint: 48 Python tests passed, both CloudFormation templates passed `cfn-lint`, and the admin template passed account-aware SAM validation/build. The existing confirmed customer identity remains intentionally unmapped until its next authenticated app bootstrap; no customer password, token, or account record was fabricated by administration.
 
+## Android customer reauthentication checkpoint (2026-11-08)
+
+- A successful identity sign-in followed by the earlier failed bootstrap could leave Amplify with a persisted signed-in session while onboarding remained visible. Explicit credential sign-in now performs a local sign-out first, then starts a fresh SRP sign-in for the entered customer. This also makes switching customer identities deterministic.
+- Account error translation now inspects the bounded nested cause chain plus Amplify recovery suggestions, recognizes stale-session, unconfirmed-account, rate-limit, nested credential, and connection failures, and continues to keep infrastructure-provider language out of customer UI.
+- Android 2.6.4 / version code 12 is the current cloud-connected build. A clean emulator installed the configured APK, signed in through the live customer pool with a disposable confirmed identity, completed live account bootstrap, and reached phone-role selection. The disposable Cognito identity and all bootstrap records were deleted afterward.
+- Current Android checkpoint: 63 JVM tests passed with zero failures/errors, lint passed, configured debug assembly passed, and APK package/version inspection passed. The non-fatal pre-existing D8 Kotlin metadata warning remains. APK SHA-256: `9c67c24daf8041d480877758f0d036738617bc336d0ad41fd0641f7f6afee0ae`.
+- The admin stack's current Android version marker is deployed as 2.6.4 and the stack is `UPDATE_COMPLETE`. The existing real customer's password reset is confirmed by the identity provider, but its private-credential sign-in on a physical phone still must be performed by the owner using the 2.6.4 APK.
+
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).

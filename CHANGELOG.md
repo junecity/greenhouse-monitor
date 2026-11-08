@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Customer stale-session recovery and Android 2.6.4
+
+- Fixed explicit customer sign-in so it clears any persisted or partial Amplify session before starting a fresh SRP authentication for the entered email. This repairs the state left when identity authentication succeeded before the original account-bootstrap outage was corrected.
+- Expanded customer-safe authentication error handling to inspect nested causes and recovery suggestions and give actionable guidance for stale sessions, unconfirmed accounts, credential failures, throttling, and connectivity failures instead of hiding them behind a generic message.
+- Released the cloud-configured Android debug build as 2.6.4 (version code 12), SHA-256 `9c67c24daf8041d480877758f0d036738617bc336d0ad41fd0641f7f6afee0ae`, and updated the deployed admin stack's current-version marker to 2.6.4.
+- Live validation: the real customer's password-reset event is confirmed successful while no sign-in event reached the identity service from the affected build, matching a local stale-session failure. A clean Android emulator installed 2.6.4, performed a real SRP sign-in with a disposable confirmed customer, received a live account/tenant bootstrap, and advanced to phone-role selection. The disposable identity and database records were deleted after verification.
+- Automated validation: 63 JVM tests passed with zero failures/errors; Android lint and cloud-configured debug assembly passed; package/version inspection passed. A non-fatal pre-existing D8 Kotlin metadata warning remains. The owner's physical-phone sign-in is not claimed because private credentials were not accessed.
+
 ## 2026-11-08 — Live customer bootstrap and admin data loading repair
 
 - Fixed deployed customer and administrator route matching by normalizing the API Gateway stage prefix before dispatch. The prior `/dev` prefix caused valid customer bootstrap and administrator data routes to fall through.

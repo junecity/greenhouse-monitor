@@ -37,4 +37,21 @@ class CloudOnboardingCopyTest {
         assertTrue(newAccountPasswordIssue("LongEnoughButNoSymbol1") != null)
         assertTrue(newAccountPasswordIssue("ValidPassword1!") == null)
     }
+
+    @Test
+    fun staleSignedInSessionGetsActionableRecoveryCopy() {
+        val message = accountErrorMessage(IllegalStateException("There is already a signed in user."))
+
+        assertTrue(message.contains("older app session", ignoreCase = true))
+        assertTrue(message.contains("Sign in"))
+    }
+
+    @Test
+    fun nestedAuthenticationCauseIsNotHiddenByGenericWrapper() {
+        val message = accountErrorMessage(
+            IllegalStateException("Sign in failed", IllegalArgumentException("Incorrect username or password."))
+        )
+
+        assertTrue(message.contains("Forgot password"))
+    }
 }

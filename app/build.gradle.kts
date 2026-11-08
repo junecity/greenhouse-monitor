@@ -14,8 +14,8 @@ android {
         applicationId = "studio.junecity.greenhouse"
         minSdk = 29
         targetSdk = 36
-        versionCode = 11
-        versionName = "2.6.3"
+        versionCode = 12
+        versionName = "2.6.4"
         val cloudValue = { name: String ->
             providers.gradleProperty(name).orElse(providers.environmentVariable(name)).getOrElse("")
         }
