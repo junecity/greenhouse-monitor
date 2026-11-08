@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Current GitHub Actions runtime
+
+- Verified pushed commit `1c68f87` in GitHub Actions run `42488729170`: Android tests/lint/APK, 29 backend tests, Python compilation, AWS template lint, APK checksum, and artifact upload all passed.
+- Updated checkout, Java, Python, Gradle, and artifact actions to their official Node 24-compatible major releases after GitHub flagged the prior runtimes as deprecated.
+- Added per-ref concurrency cancellation so superseded pushes do not consume overlapping CI time.
+- Validation: each referenced official major tag was resolved from its upstream Git repository before editing. The updated workflow requires a fresh pushed run.
+
 ## 2026-11-08 — AWS-only complimentary Premium administration
 
 - Added an IAM-invoked entitlement administration Lambda with no HTTP route or function URL.
