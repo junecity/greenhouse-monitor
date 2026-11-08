@@ -31,6 +31,8 @@ Resources:
     Type: AWS::Cognito::UserPool
     Properties:
       UserPoolName: !Sub greenhouse-monitor-${EnvironmentName}-users
+      UserPoolTier: PLUS
+      DeletionProtection: ACTIVE
       AutoVerifiedAttributes: [email]
       UsernameAttributes: [email]
       MfaConfiguration: OPTIONAL

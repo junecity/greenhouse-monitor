@@ -100,9 +100,14 @@
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
 3. Add the customer-authenticated HTTP gateway, foreground heartbeat service, and tenant-aware push/acknowledgement worker.
 
+## Deployment status
+
+- `docs/AWS_DEPLOYMENT.md` is the approval-gated deployment, cost, rollback, and physical-test checklist.
+- The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
+- Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
+
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).
 - Added remote-connectivity upgrade requirements and required AGENTS.md + CHANGELOG.md workflow.
-- No runtime camera or AWS code has been changed by this documentation task.
-- Next: Codex read these files, audit existing camera implementation, propose scoped architecture and cost/security plan, then implement only with authorization.
+- No runtime camera or AWS code was changed by the initial documentation task.

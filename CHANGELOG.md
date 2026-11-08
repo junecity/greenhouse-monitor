@@ -2,6 +2,12 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Deployment and cost handoff
+
+- Added an approval-gated AWS deployment, rollback, cost, and physical-device validation checklist.
+- Made the Cognito Plus cost/security choice explicit and enabled user-pool deletion protection.
+- No infrastructure was deployed. SAM validation remains pending because the SAM CLI and AWS configuration are not available in the current environment.
+
 ## 2026-11-08 — Stage 6 heartbeat and alert foundations
 
 - Added Android-domain heartbeat reporting and explicit critical/high/normal alert policy without modifying the approved monitoring UI.
