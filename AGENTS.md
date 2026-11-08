@@ -79,7 +79,7 @@
 - AWS deployment outputs can now be injected at build time through four `GREENHOUSE_*` Gradle properties/environment variables. An all-blank local build preserves existing local operation; partial configuration fails closed.
 - `scripts/build-aws-debug-apk.sh` reads only non-secret CloudFormation outputs after deployment and creates a checksum-matched configured debug APK under ignored `build-out/`. It does not deploy infrastructure or access long-lived AWS keys in the APK.
 - Encrypted `CloudEnrollment` persists only the stable device ID, cloud greenhouse ID, and backend role. The heartbeat service now obtains automatically refreshed Cognito tokens at report time instead of relying on a copied access token, and reports the backend greenhouse ID.
-- A separate portrait-first `CloudOnboardingGate` now handles account sign-up, email confirmation, sign-in/session validation, Server/Client role selection, atomic bootstrap, QR generation/scanning, one-use pairing, and encrypted enrollment before rotating into the unchanged landscape five-screen monitor. Existing enrollments still require a valid Cognito session after process start.
+- A separate portrait-first `CloudOnboardingGate` handles account sign-up, email confirmation, sign-in/session validation, automatic Client registration, client-created Server QR scanning/approval, atomic bootstrap, and encrypted enrollment before rotating into the unchanged landscape five-screen monitor. Viewer enrollments restore through Cognito; newly paired Servers restore through their device-bound credential.
 - Account device inventory records are maintained transactionally beside primary device records. Cognito-authenticated, enabled devices can list their account's devices and enable/revoke them through tenant/account-conditioned APIs; revocation is audit-stamped and is enforced by alert access, pairing, and renewable remote-stream authorization. Android gateway methods are present, but no new controls were added to the frozen five monitoring screens.
 
 ## WebRTC migration implementation
@@ -115,9 +115,19 @@
 
 ## Next implementation steps
 
-1. Have the initial Owner complete the emailed temporary-password change and mandatory TOTP enrollment, then run authenticated role/mutation/audit checks.
+1. Install Android 2.7.0 on the intended client and greenhouse phones and complete the physical QR/approval/reboot/replacement/Govee regression matrix.
 2. Configure an approved Google Play product/service account in Secrets Manager and validate purchase lifecycle notifications before activating production billing.
 3. Validate the physical A71/Pixel camera/network/background/reboot matrix and create a release-signed Play build.
+
+## Automatic client and server enrollment (2026-11-08)
+
+- Android 2.7.0 no longer asks authenticated customers to choose Client or Server. The first successful account sign-in registers the phone as the primary `VIEWER_CLIENT`; additional signed-in phones register as authorized clients and open monitoring after backend validation.
+- Fresh installs also offer `Scan QR Code to Pair as Server`. An authenticated client creates a single-use five-minute invitation in Settings → Devices. The scanning phone sends no account password, creates a 256-bit device secret locally, waits for explicit client approval, and persists only the approved role/greenhouse/device credential inside the existing Android Keystore-backed encrypted enrollment.
+- Public server-pairing request/status routes carry no account authority. Invitation creation, pending-request listing, and approval remain Cognito/client-authorized. Approved server service calls use the separate `/v1/device/*` route, a hashed device secret, enabled-device checks, account-state checks, and a server-only route allowlist. Revocation therefore takes effect without relying on local flags.
+- Accounts can own multiple greenhouses and servers. Settings → Devices exposes Add Server, Replace Server, Remove Server, client revocation, status, pending approval, and greenhouse selection. Replacement retains the stable greenhouse ID, disables the old server atomically, and preserves geometry/preferences, notification settings, sensor greenhouse/zone assignments, and up to 1,500 recent readings through a server-authenticated backup. Govee credentials are deliberately excluded.
+- Legacy authenticated server enrollments without device secrets remain valid for migration; new servers use device credentials and do not need a customer password or Cognito session. The existing local Govee, history, alerts, camera, and five-screen landscape implementation remains in place.
+- The development stack is updated and `IN_SYNC`, and the admin stack's current-version marker is 2.7.0. Live disposable-account testing passed automatic client registration, two greenhouses, three server approvals, replacement, device credential validation, and backup restoration, followed by verified cleanup. Local checkpoints: 68 Android JVM tests, lint, configured assembly, emulator onboarding/scanner launch, 57 backend tests, Python compilation, CloudFormation lint, and SAM validate/build all passed.
+- Current artifact: `build-out/Greenhouse-Monitor-AWS-debug.apk`, version 2.7.0/code 13, SHA-256 `38c4d7148509acc1626776f8ab5dea74a8ed94decf2c9e522b73f1a5be5b7961`. It is debug-signed. Physical two-phone QR capture/approval, reboot persistence, replacement restore, and Govee regression are not yet claimed.
 
 ## Administrator customer registration visibility (2026-11-08)
 
@@ -125,15 +135,15 @@
 - Registered-but-unbootstrapped identities appear as `PENDING_SETUP` with `setupComplete: false`. They count toward Total customers but intentionally do not count as Active, Free, Premium, devices, or greenhouses until onboarding completes.
 - Pending registrations are read-only in the portal: account-state and complimentary-entitlement controls remain hidden until the authoritative account/tenant records exist.
 - The administrator Lambda has only `cognito-idp:ListUsers` access to the customer pool for this reconciliation. Existing DynamoDB account records remain authoritative for tenant state, entitlements, devices, and activity.
-- Live deployment verification returned two registered identities, both pending setup, so the overview correctly reports Total customers 2 and Active customers 0. Customer sign-in and role selection are still required to finish setup.
+- Live deployment verification returned registered identities pending setup, so the overview distinguishes Total customers from Active customers. A successful customer sign-in now completes setup by registering that phone automatically as a client; there is no role-selection step.
 
 ## Deployment status
 
 - `docs/AWS_DEPLOYMENT.md` is the deployment, cost, rollback, and physical-test checklist.
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
-- The dedicated `greenhouse-monitor-dev` application stack and `greenhouse-monitor-deployment-bootstrap` least-privilege role/artifact stack are deployed in `us-east-1`. The application stack is `CREATE_COMPLETE`; Cognito Plus deletion protection is active.
+- The dedicated `greenhouse-monitor-dev` application stack and `greenhouse-monitor-deployment-bootstrap` least-privilege role/artifact stack are deployed in `us-east-1`. The application stack is `UPDATE_COMPLETE`; Cognito Plus deletion protection is active.
 - Live AWS checks passed for unauthenticated API denial, DynamoDB encryption/PITR/TTL, active Python 3.13 arm64 Lambdas, the enabled one-minute heartbeat schedule, a zero-error heartbeat-monitor invocation, and `IN_SYNC` drift status for both stacks. Kinesis resources remain on-demand and have not yet been exercised by two phones.
-- Latest cloud-connected APK: `build-out/Greenhouse-Monitor-2.6.3-debug.apk`, SHA-256 `17fb83725808c858d9833021648086c058bd45721827c184d02534121cecfc88`. It is debug-signed, contains the real non-secret stack outputs, and adds customer password recovery.
+- Latest cloud-connected APK: `build-out/Greenhouse-Monitor-AWS-debug.apk`, version 2.7.0/code 13, SHA-256 `38c4d7148509acc1626776f8ab5dea74a8ed94decf2c9e522b73f1a5be5b7961`. It is debug-signed and contains only the real non-secret stack outputs.
 - AWS deployment checkpoint: 57 Android JVM tests, lint, assembly, 29 Python tests, Python 3.13 compilation, SAM validation/build, CloudFormation lint, APK verification, live AWS smoke checks, and emulator launch passed. Cognito account confirmation, QR pairing, inventory/revocation, direct/TURN WebRTC, camera handoff, alert delivery, boot recovery, and network transitions remain unverified on the physical A71/Pixel phones.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 - GitHub Actions runs `42488729170` and `42489260140` passed all Android, backend, AWS template-lint, checksum, and artifact steps. The workflow now uses official Node 24-compatible action majors (including `upload-artifact@v7`) and cancels superseded runs on the same ref to limit CI waste.
@@ -146,7 +156,7 @@
 - Customer-facing brand copy is `junecity.studio`; do not expose AWS, Cognito, Kinesis, Lambda, or other infrastructure-provider names in Android interface copy. Technical code, logs, deployment docs, and internal identifiers may retain accurate provider names.
 - Account onboarding is portrait-first and scrollable on narrow phones. Successful/restored enrollment switches the activity to sensor landscape for the frozen Dashboard, Zones, History, Cameras, and Settings screens; unconfigured local builds also open directly in landscape.
 - New-account passwords are validated before submission against the deployed policy: at least 12 characters with uppercase, lowercase, a number, and a symbol. Raw authentication failures are converted to customer-facing guidance, and existing customers can request and confirm an emailed password-reset code inside the portrait onboarding flow.
-- Android version 2.6.3 / code 11 is the latest build. The password-recovery change passed 61 JVM tests, lint, debug assembly, APK signature/configuration verification, and a cloud-configured build; its physical reset flow and email delivery still require device confirmation.
+- Android version 2.7.0 / code 13 is the latest build. Automatic Client registration and approved Server QR pairing passed 68 JVM tests, lint, configured assembly, APK signature/configuration verification, emulator onboarding/scanner launch, and a disposable live backend flow; physical two-phone pairing and Govee regression still require device confirmation.
 
 ## Private admin portal (2026-11-08)
 

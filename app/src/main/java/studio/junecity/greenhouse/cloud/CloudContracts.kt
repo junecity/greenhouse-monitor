@@ -17,7 +17,9 @@ data class RegisteredDevice(
     val tenantId: String,
     val role: CloudDeviceRole,
     val enabled: Boolean = true,
-    val greenhouseId: String? = null
+    val greenhouseId: String? = null,
+    val online: Boolean = false,
+    val lastSeenAtEpochMs: Long? = null
 )
 
 data class AccountDevice(
@@ -94,6 +96,32 @@ data class PairingChallenge(
     val displayCode: String,
     val serverDeviceId: String,
     val expiresAtEpochMs: Long
+)
+
+data class ServerPairingInvitation(
+    val invitationId: String,
+    val displayCode: String,
+    val greenhouseId: String,
+    val greenhouseName: String,
+    val expiresAtEpochMs: Long
+)
+
+data class ServerPairingRequest(
+    val requestId: String,
+    val serverDeviceId: String,
+    val greenhouseId: String,
+    val greenhouseName: String,
+    val replaceServerDeviceId: String?,
+    val state: String,
+    val createdAtEpochMs: Long,
+    val expiresAtEpochMs: Long
+)
+
+data class ServerPairingStatus(
+    val requestId: String,
+    val state: String,
+    val expiresAtEpochMs: Long,
+    val device: RegisteredDevice? = null
 )
 
 data class IceServer(

@@ -49,6 +49,7 @@ class FakeTable:
         self.meta = SimpleNamespace(client=self.client)
         self.query_items = []
         self.updates = []
+        self.puts = []
 
     def get_item(self, Key, **_kwargs):
         value = self.items.get((Key["pk"], Key["sk"]))
@@ -59,6 +60,10 @@ class FakeTable:
 
     def update_item(self, **kwargs):
         self.updates.append(kwargs)
+        return {}
+
+    def put_item(self, **kwargs):
+        self.puts.append(kwargs)
         return {}
 
 
@@ -198,6 +203,170 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual("tenant-existing", device["tenantId"])
         self.assertEqual("account-existing", greenhouse["accountId"])
         self.assertEqual("greenhouse-12345678", device["greenhouseId"])
+
+    def test_authenticated_phone_is_automatically_registered_as_client(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+        })
+        app.table = fake
+
+        result = app.handler(event(
+            "/v1/devices", device_id="client-12345678",
+            body={"deviceId": "client-12345678", "role": "VIEWER_CLIENT"},
+        ), None)
+
+        self.assertEqual(201, result["statusCode"])
+        transaction = fake.client.transactions[0]
+        self.assertEqual("VIEWER_CLIENT", transaction[0]["Put"]["Item"]["role"])
+        self.assertIn("primaryClientDeviceId=if_not_exists", transaction[2]["Update"]["UpdateExpression"])
+
+    def test_server_invitation_is_created_by_an_enabled_client(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+            ("DEVICE#client-12345678", "METADATA"): {
+                "deviceId": "client-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "VIEWER_CLIENT", "enabled": True,
+            },
+        })
+        app.table = fake
+
+        result = app.handler(event(
+            "/v1/server-pairing/invitations", device_id="client-12345678",
+            body={"greenhouseId": "greenhouse-12345678", "greenhouseName": "North House"},
+        ), None)
+        body = json.loads(result["body"])
+
+        self.assertEqual(201, result["statusCode"])
+        self.assertEqual("greenhouse-12345678", body["greenhouseId"])
+        self.assertGreaterEqual(len(body["displayCode"]), 24)
+        self.assertEqual("SERVER_INVITATION", fake.puts[0]["Item"]["sk"])
+
+    def test_expired_server_qr_cannot_create_pairing_request(self):
+        code = "abcdefghijklmnopqrstuvwxyz123456"
+        fake = FakeTable({
+            (f"PAIRING#{app.pairing_code_hash(code)}", "SERVER_INVITATION"): {
+                "pk": f"PAIRING#{app.pairing_code_hash(code)}", "sk": "SERVER_INVITATION",
+                "accountId": "account-existing", "tenantId": "tenant-existing", "greenhouseId": "greenhouse-12345678",
+                "expiresAt": 1,
+            },
+        })
+        app.table = fake
+
+        result = app.handler(event(
+            "/v1/public-server-pairing/requests", subject=None,
+            body={"pairingCode": code, "serverDeviceId": "server-12345678", "deviceSecret": "s" * 48},
+        ), None)
+
+        self.assertEqual(403, result["statusCode"])
+        self.assertEqual("expired_used_or_invalid_pairing_code", json.loads(result["body"])["error"])
+
+    def test_valid_server_qr_creates_request_that_requires_client_approval(self):
+        code = "abcdefghijklmnopqrstuvwxyz123456"
+        invitation = {
+            "pk": f"PAIRING#{app.pairing_code_hash(code)}", "sk": "SERVER_INVITATION",
+            "accountId": "account-existing", "tenantId": "tenant-existing", "greenhouseId": "greenhouse-12345678",
+            "greenhouseName": "North House", "expiresAt": 4_000_000_000,
+        }
+        fake = FakeTable({(invitation["pk"], invitation["sk"]): invitation})
+        app.table = fake
+
+        result = app.handler(event(
+            "/v1/public-server-pairing/requests", subject=None,
+            body={"pairingCode": code, "serverDeviceId": "server-12345678", "deviceSecret": "s" * 48},
+        ), None)
+        body = json.loads(result["body"])
+
+        self.assertEqual(202, result["statusCode"])
+        self.assertEqual("PENDING_APPROVAL", body["state"])
+        self.assertEqual(3, len(fake.client.transactions[0]))
+        request = fake.client.transactions[0][1]["Put"]["Item"]
+        self.assertNotIn("s" * 48, request.values())
+        self.assertEqual(64, len(request["deviceSecretHash"]))
+
+    def test_client_approval_replaces_server_without_replacing_greenhouse_record(self):
+        request_id = "request-12345678"
+        request = {
+            "pk": f"SERVER_PAIRING#{request_id}", "sk": "METADATA", "requestId": request_id,
+            "accountId": "account-existing", "tenantId": "tenant-existing", "greenhouseId": "greenhouse-12345678",
+            "greenhouseName": "North House", "serverDeviceId": "server-new12345", "replaceServerDeviceId": "server-old12345",
+            "deviceSecretHash": "a" * 64, "state": "PENDING_APPROVAL", "expiresAt": 4_000_000_000,
+        }
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+            ("DEVICE#client-12345678", "METADATA"): {
+                "deviceId": "client-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "VIEWER_CLIENT", "enabled": True,
+            },
+            (request["pk"], request["sk"]): request,
+            ("GREENHOUSE#greenhouse-12345678", "METADATA"): {
+                "pk": "GREENHOUSE#greenhouse-12345678", "sk": "METADATA", "greenhouseId": "greenhouse-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing", "serverDeviceId": "server-old12345",
+                "createdAt": 100, "layoutVersion": 7, "historyPartition": "greenhouse-12345678",
+            },
+        })
+        app.table = fake
+
+        result = app.handler(event(
+            f"/v1/server-pairing/requests/{request_id}/approve", device_id="client-12345678",
+        ), None)
+
+        self.assertEqual(200, result["statusCode"])
+        transaction = fake.client.transactions[0]
+        greenhouse = transaction[1]["Put"]["Item"]
+        self.assertEqual(7, greenhouse["layoutVersion"])
+        self.assertEqual("greenhouse-12345678", greenhouse["historyPartition"])
+        self.assertEqual("server-new12345", greenhouse["serverDeviceId"])
+        disabled_keys = [item["Update"]["Key"] for item in transaction if "Update" in item and "replacedAt" in item["Update"].get("UpdateExpression", "")]
+        self.assertEqual(2, len(disabled_keys))
+
+    def test_server_device_secret_authentication_restores_role(self):
+        secret = "secure-device-secret-12345678901234567890"
+        fake = FakeTable({
+            ("DEVICE#server-12345678", "METADATA"): {
+                "deviceId": "server-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "GREENHOUSE_SERVER", "greenhouseId": "greenhouse-12345678", "enabled": True,
+                "deviceSecretHash": app.hashlib.sha256(secret.encode()).hexdigest(),
+            },
+            ("ACCOUNT#account-existing", "METADATA"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing", "state": "ACTIVE",
+            },
+        })
+        app.table = fake
+        request = event("/v1/device/devices/current", method="GET", subject=None, device_id="server-12345678")
+        request["headers"]["x-greenhouse-device-secret"] = secret
+
+        result = app.handler(request, None)
+
+        self.assertEqual(200, result["statusCode"])
+        self.assertEqual("GREENHOUSE_SERVER", json.loads(result["body"])["role"])
+
+    def test_authorized_server_uploads_replacement_backup_without_exposing_secret(self):
+        secret = "secure-device-secret-12345678901234567890"
+        fake = FakeTable({
+            ("DEVICE#server-12345678", "METADATA"): {
+                "deviceId": "server-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "GREENHOUSE_SERVER", "greenhouseId": "greenhouse-12345678", "enabled": True,
+                "deviceSecretHash": app.hashlib.sha256(secret.encode()).hexdigest(),
+            },
+            ("ACCOUNT#account-existing", "METADATA"): {"accountId": "account-existing", "tenantId": "tenant-existing", "state": "ACTIVE"},
+            ("GREENHOUSE#greenhouse-12345678", "METADATA"): {
+                "greenhouseId": "greenhouse-12345678", "serverDeviceId": "server-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+        })
+        app.table = fake
+        request = event(
+            "/v1/device/greenhouses/greenhouse-12345678/backup", device_id="server-12345678", subject=None,
+            body={"backup": {"schema": 1, "preferences": {"active": "main"}, "zones": {}, "history": []}},
+        )
+        request["headers"]["x-greenhouse-device-secret"] = secret
+
+        result = app.handler(request, None)
+
+        self.assertEqual(204, result["statusCode"])
+        backup = fake.puts[0]["Item"]
+        self.assertEqual("BACKUP", backup["sk"])
+        self.assertNotIn(secret, backup["backupJson"])
 
     def test_device_inventory_and_revocation_are_account_scoped(self):
         fake = FakeTable({

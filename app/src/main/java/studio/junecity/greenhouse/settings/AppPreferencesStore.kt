@@ -9,6 +9,8 @@ class AppPreferencesStore(context:Context){
     private val prefs=context.getSharedPreferences("greenhouse_preferences_v2",Context.MODE_PRIVATE)
     fun load():AppPreferences=runCatching{prefs.getString("state",null)?.let{decode(JSONObject(it))}?:AppPreferences()}.getOrElse{AppPreferences()}
     fun save(value:AppPreferences){prefs.edit().putString("state",encode(value).toString()).apply()}
+    fun exportJson():JSONObject=encode(load())
+    fun importJson(value:JSONObject){save(decode(value))}
     private fun encode(p:AppPreferences):JSONObject{
         val n=p.notifications
         val notifications=JSONObject().put("master",n.masterEnabled).put("popups",n.popupsEnabled).put("sound",n.soundEnabled).put("vibration",n.vibrationEnabled).put("repeat",n.repeatedAlerts).put("repeatMinutes",n.repeatMinutes).put("snooze",n.snoozedUntilEpochMs).put("temp",n.temperatureAlerts).put("humidity",n.humidityAlerts).put("offline",n.offlineAlerts).put("connection",n.connectionAlerts).put("lowT",n.lowTemperatureF).put("highT",n.highTemperatureF).put("lowH",n.lowHumidity).put("highH",n.highHumidity)

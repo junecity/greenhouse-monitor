@@ -14,6 +14,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import studio.junecity.greenhouse.settings.CloudEnrollment
 
 data class CognitoConfiguration(
     val region: String,
@@ -102,9 +103,19 @@ class CognitoAuthManager(private val context: Context, private val configuration
 
     fun gateway(deviceId: String) = AuthenticatedCloudGateway(CloudApiConfig(configuration.apiBaseUrl, deviceId), this)
 
+    fun deviceGateway(deviceId: String, deviceSecret: String) =
+        AuthenticatedCloudGateway(CloudApiConfig(configuration.apiBaseUrl, deviceId), deviceSecret = deviceSecret)
+
     private suspend fun <T> callback(block: ((T) -> Unit, (AuthException) -> Unit) -> Unit): T = suspendCancellableCoroutine { continuation ->
         block({ if (continuation.isActive) continuation.resume(it) }, { if (continuation.isActive) continuation.resumeWithException(it) })
     }
 
     private companion object { val configured = AtomicBoolean(false) }
+}
+
+fun gatewayForEnrollment(context: Context, configuration: CognitoConfiguration, enrollment: CloudEnrollment): AuthenticatedCloudGateway {
+    enrollment.deviceSecret?.let {
+        return AuthenticatedCloudGateway(CloudApiConfig(configuration.apiBaseUrl, enrollment.deviceId), deviceSecret = it)
+    }
+    return CognitoAuthManager(context.applicationContext, configuration).also(CognitoAuthManager::initialize).gateway(enrollment.deviceId)
 }

@@ -25,4 +25,14 @@ class HistoryStore(context: Context) : SQLiteOpenHelper(context, "greenhouse_his
         try { while(cursor.moveToNext()) result+=HistoryReading(cursor.getString(0),cursor.getString(1),cursor.getDouble(2),cursor.getDouble(3),cursor.getLong(4)) } finally { cursor.close() }
         return result
     }
+    fun importReadings(readings:List<HistoryReading>){
+        val db=writableDatabase
+        db.beginTransaction()
+        try{
+            readings.forEach{reading->
+                db.insert("readings",null,ContentValues().apply{put("sensor_id",reading.sensorId);put("sensor_name",reading.sensorName);put("temperature",reading.temperatureF);put("humidity",reading.humidityPercent);put("recorded_at",reading.timestampEpochMs)})
+            }
+            db.setTransactionSuccessful()
+        }finally{db.endTransaction()}
+    }
 }

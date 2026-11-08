@@ -66,9 +66,7 @@ class CloudAlertService : Service() {
         if (enrollment == null || configuration == null) {
             stopSelf(); return
         }
-        val auth = CognitoAuthManager(this, configuration)
-        runCatching { auth.initialize() }.onFailure { stopSelf(); return }
-        val gateway = auth.gateway(enrollment.deviceId)
+        val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
         var failures = 0
         while (scope.isActive) {
             val result = runCatching { gateway.pendingAlerts() }
@@ -150,9 +148,7 @@ class CloudAlertAcknowledgeReceiver : BroadcastReceiver() {
                 runCatching {
                     val enrollment = SecureSettingsStore(context).cloudEnrollment() ?: return@runCatching
                     val configuration = CloudRuntime.configurationOrNull() ?: return@runCatching
-                    val auth = CognitoAuthManager(context.applicationContext, configuration)
-                    auth.initialize()
-                    auth.gateway(enrollment.deviceId).acknowledgeAlert(alertId)
+                    gatewayForEnrollment(context.applicationContext, configuration, enrollment).acknowledgeAlert(alertId)
                     context.getSystemService(NotificationManager::class.java).cancel(notificationId)
                 }
             } finally {

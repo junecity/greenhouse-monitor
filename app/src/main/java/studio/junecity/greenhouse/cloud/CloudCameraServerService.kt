@@ -71,9 +71,7 @@ class CloudCameraServerService : Service() {
         if (enrollment?.role != CloudDeviceRole.GreenhouseServer || configuration == null) {
             stopSelf(); return
         }
-        val auth = CognitoAuthManager(this, configuration)
-        runCatching { auth.initialize() }.onFailure { stopSelf(); return }
-        val gateway = auth.gateway(enrollment.deviceId)
+        val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
         while (scope.isActive) {
             val pending = runCatching { gateway.pendingRemoteStreamingSession(enrollment.deviceId) }.getOrNull()
             if (pending == null) delay(POLL_INTERVAL_MS) else serve(gateway, pending)

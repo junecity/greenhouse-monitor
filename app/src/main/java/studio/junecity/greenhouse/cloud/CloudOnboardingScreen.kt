@@ -60,6 +60,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.amplifyframework.auth.AuthException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.ui.DashboardTokens
@@ -67,8 +68,10 @@ import java.net.URI
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.security.SecureRandom
+import java.util.Base64
 
-private enum class OnboardingStep { Auth, Confirm, ResetPassword, Mode, ServerPair, ClientPair }
+private enum class OnboardingStep { Auth, Confirm, ResetPassword, ServerApproval }
 
 fun pairingCodeFromPayload(payload: String): String? {
     val value = payload.trim()
@@ -83,7 +86,24 @@ fun pairingCodeFromPayload(payload: String): String? {
     }.getOrNull()
 }
 
-private fun pairingPayload(code: String) = "greenhouse://cloud-pair?v=1&code=${URLEncoder.encode(code, StandardCharsets.UTF_8.name())}"
+fun serverPairingCodeFromPayload(payload: String): String? {
+    val value = payload.trim()
+    if (value.length in 24..128 && !value.contains("://")) return value
+    return runCatching {
+        val uri = URI(value)
+        if (uri.scheme != "greenhouse" || uri.host != "server-pair") null
+        else uri.rawQuery.orEmpty().split('&').asSequence().mapNotNull { part ->
+            val pieces = part.split('=', limit = 2)
+            if (pieces.size == 2 && pieces[0] == "code") URLDecoder.decode(pieces[1], StandardCharsets.UTF_8.name()) else null
+        }.firstOrNull()?.takeIf { it.length in 24..128 }
+    }.getOrNull()
+}
+
+fun serverPairingPayload(code: String) = "greenhouse://server-pair?v=1&code=${URLEncoder.encode(code, StandardCharsets.UTF_8.name())}"
+
+fun newDeviceSecret(): String = ByteArray(32).also(SecureRandom()::nextBytes).let {
+    Base64.getUrlEncoder().withoutPadding().encodeToString(it)
+}
 
 @Composable
 fun CloudOnboardingGate(
@@ -135,20 +155,28 @@ private fun CloudOnboarding(
     val authResult = remember(configuration) { runCatching { CognitoAuthManager(context, configuration).also(CognitoAuthManager::initialize) } }
     val auth = authResult.getOrNull()
     val deviceId = remember { secure.cloudDeviceId() }
-    val greenhouseId = remember { secure.cloudGreenhouseId() }
     val gateway = remember(auth, deviceId) { auth?.gateway(deviceId) }
+    val serverPairing = remember(configuration.apiBaseUrl) { ServerPairingGateway(configuration.apiBaseUrl) }
     var step by remember { mutableStateOf(OnboardingStep.Auth) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmationCode by remember { mutableStateOf("") }
     var pairingCode by remember { mutableStateOf("") }
-    var pendingServer by remember { mutableStateOf<CloudEnrollment?>(null) }
-    var challenge by remember { mutableStateOf<PairingChallenge?>(null) }
+    var serverRequestId by remember { mutableStateOf<String?>(null) }
+    var serverSecret by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(authResult.exceptionOrNull()?.let(::accountErrorMessage)) }
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { pairingCodeFromPayload(it) }?.let { pairingCode = it }
+        val code = result.contents?.let(::serverPairingCodeFromPayload)
+        if (code == null) message = "That is not a valid junecity.studio server pairing code"
+        else {
+            pairingCode = code
+            serverSecret = newDeviceSecret()
+            serverRequestId = null
+            message = null
+            step = OnboardingStep.ServerApproval
+        }
     }
     val runAction: (suspend () -> Unit) -> Unit = { action ->
         scope.launch {
@@ -159,17 +187,54 @@ private fun CloudOnboarding(
         }
     }
 
-    LaunchedEffect(auth, gateway) {
-        if (auth != null && gateway != null) {
+    LaunchedEffect(auth, gateway, existingEnrollment) {
+        if (existingEnrollment?.role == CloudDeviceRole.GreenhouseServer && existingEnrollment.deviceSecret != null) {
+            busy = true
+            runCatching {
+                gatewayForEnrollment(context, configuration, existingEnrollment).currentDevice()
+                onAuthenticated()
+            }.onFailure {
+                secure.clearCloudEnrollment()
+                message = "This server is no longer authorized. Scan a new pairing code."
+            }
+            busy = false
+        } else if (auth != null && gateway != null) {
             busy = true
             runCatching {
                 if (auth.isSignedIn()) {
                     gateway.bootstrap()
-                    if (existingEnrollment != null) onAuthenticated() else step = OnboardingStep.Mode
+                    val registered = if (existingEnrollment != null) gateway.currentDevice() else gateway.registerClientDevice()
+                    val greenhouse = registered.greenhouseId ?: gateway.devices().firstOrNull { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled }?.device?.greenhouseId.orEmpty()
+                    if (existingEnrollment != null) onAuthenticated()
+                    else onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient))
                 }
             }.onFailure { message = accountErrorMessage(it) }
             busy = false
         }
+    }
+
+    LaunchedEffect(step, pairingCode, serverSecret) {
+        if (step != OnboardingStep.ServerApproval || pairingCode.isBlank() || serverSecret == null) return@LaunchedEffect
+        busy = true
+        runCatching {
+            val initial = serverPairing.requestPairing(pairingCode, deviceId, requireNotNull(serverSecret))
+            serverRequestId = initial.requestId
+            busy = false
+            message = "Waiting for approval on your client phone…"
+            while (true) {
+                delay(2_000)
+                val status = serverPairing.status(initial.requestId, deviceId, requireNotNull(serverSecret))
+                if (status.state == "APPROVED") {
+                    val device = requireNotNull(status.device)
+                    val completed = CloudEnrollment(deviceId, requireNotNull(device.greenhouseId), CloudDeviceRole.GreenhouseServer, serverSecret)
+                    val deviceGateway = gatewayForEnrollment(context, configuration, completed)
+                    deviceGateway.greenhouseBackup(completed.greenhouseId)?.let { GreenhouseBackupStore(context).restore(it) }
+                    onComplete(completed)
+                    break
+                }
+                if (System.currentTimeMillis() >= status.expiresAtEpochMs) error("This pairing code expired. Generate a new code on the client phone.")
+            }
+        }.onFailure { message = accountErrorMessage(it); busy = false }
     }
 
     CloudSetupShell(
@@ -177,17 +242,13 @@ private fun CloudOnboarding(
             OnboardingStep.Auth -> "Your greenhouse account"
             OnboardingStep.Confirm -> "Verify your email"
             OnboardingStep.ResetPassword -> "Reset your password"
-            OnboardingStep.Mode -> "Choose this phone's role"
-            OnboardingStep.ServerPair -> "Pair your client phone"
-            OnboardingStep.ClientPair -> "Connect to your greenhouse"
+            OnboardingStep.ServerApproval -> "Pair greenhouse server"
         },
         subtitle = when (step) {
             OnboardingStep.Auth -> "Sign in to monitor your greenhouse securely from this phone or another device."
             OnboardingStep.Confirm -> "Enter the verification code sent to your email."
             OnboardingStep.ResetPassword -> "Enter the code sent to your email and choose a new password."
-            OnboardingStep.Mode -> "Use the older greenhouse phone as Server and your everyday phone as Client."
-            OnboardingStep.ServerPair -> "On the client phone, sign in to this same account and scan this one-use code."
-            OnboardingStep.ClientPair -> "Scan the QR code shown by the greenhouse Server phone."
+            OnboardingStep.ServerApproval -> "Approve this phone from Manage Devices on your signed-in client."
         },
         message = message,
         busy = busy
@@ -211,7 +272,9 @@ private fun CloudOnboarding(
                             val result = manager.signIn(email, password)
                             if (!result.isSignedIn) error("Additional account verification is required")
                             api.bootstrap()
-                            if (existingEnrollment != null) onAuthenticated() else step = OnboardingStep.Mode
+                            val registered = api.registerClientDevice()
+                            val greenhouse = registered.greenhouseId ?: api.devices().firstOrNull { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled }?.device?.greenhouseId.orEmpty()
+                            onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient))
                         }
                     }
                     SecondaryButton("Create account", Modifier.fillMaxWidth(), busy) {
@@ -225,6 +288,9 @@ private fun CloudOnboarding(
                             step = if (result.isSignUpComplete) OnboardingStep.Auth else OnboardingStep.Confirm
                             message = if (result.isSignUpComplete) "Account created. Sign in to continue." else null
                         }
+                    }
+                    SecondaryButton("Scan QR Code to Pair as Server", Modifier.fillMaxWidth(), busy) {
+                        scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the server code shown on your client phone").setBeepEnabled(false).setOrientationLocked(false))
                     }
                     SecondaryButton("Forgot password?", Modifier.fillMaxWidth(), busy) {
                         val manager = auth ?: return@SecondaryButton
@@ -287,70 +353,18 @@ private fun CloudOnboarding(
                     }
                 }
             }
-            OnboardingStep.Mode -> {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    RoleButton("Greenhouse Server", "Uses this phone's sensors and front camera.", Modifier.fillMaxWidth(), busy) {
-                        val api = gateway ?: return@RoleButton
-                        runAction {
-                            api.registerServerDevice(greenhouseId)
-                            pendingServer = CloudEnrollment(deviceId, greenhouseId, CloudDeviceRole.GreenhouseServer)
-                            challenge = api.createPairingChallenge(deviceId)
-                            step = OnboardingStep.ServerPair
-                        }
-                    }
-                    RoleButton("Viewer Client", "Views your greenhouse locally and remotely.", Modifier.fillMaxWidth(), busy) {
-                        step = OnboardingStep.ClientPair
+            OnboardingStep.ServerApproval -> {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CircularProgressIndicator(color = DashboardTokens.Amber)
+                    Text(
+                        if (serverRequestId == null) "Sending secure pairing request…" else "Pairing request sent",
+                        color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
+                    )
+                    Text("On the client phone, open Settings → Devices and approve this server.", color = DashboardTokens.Muted, fontSize = 15.sp, textAlign = TextAlign.Center)
+                    SecondaryButton("Cancel", Modifier.fillMaxWidth(), disabled = false) {
+                        pairingCode = ""; serverRequestId = null; serverSecret = null; message = null; step = OnboardingStep.Auth
                     }
                 }
-            }
-            OnboardingStep.ServerPair -> {
-                val current = challenge
-                if (current != null) {
-                    val payload = pairingPayload(current.displayCode)
-                    BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        val compact = maxWidth < 520.dp
-                        val details: @Composable ColumnScope.() -> Unit = {
-                            Text("Expires in 5 minutes", color = DashboardTokens.Green, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            Text(current.displayCode, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            SecondaryButton("Refresh code", Modifier.fillMaxWidth(), busy) {
-                                val api = gateway ?: return@SecondaryButton
-                                runAction { challenge = api.createPairingChallenge(deviceId) }
-                            }
-                            PrimaryButton("Finish server setup", Modifier.fillMaxWidth(), busy) {
-                                pendingServer?.let(onComplete)
-                            }
-                        }
-                        if (compact) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                                Image(qrBitmap(payload).asImageBitmap(), "One-use greenhouse pairing QR code", Modifier.size(180.dp).clip(RoundedCornerShape(14.dp)))
-                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), content = details)
-                            }
-                        } else {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                                Image(qrBitmap(payload).asImageBitmap(), "One-use greenhouse pairing QR code", Modifier.size(190.dp).clip(RoundedCornerShape(14.dp)))
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp), content = details)
-                            }
-                        }
-                    }
-                }
-            }
-            OnboardingStep.ClientPair -> {
-                CloudField(pairingCode, { pairingCode = it }, "Pairing code", KeyboardType.Ascii)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SecondaryButton("Scan QR code", Modifier.fillMaxWidth(), busy) {
-                        scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the greenhouse Server code").setBeepEnabled(false).setOrientationLocked(false))
-                    }
-                    PrimaryButton("Pair client", Modifier.fillMaxWidth(), busy) {
-                        val api = gateway ?: return@PrimaryButton
-                        runAction {
-                            val code = pairingCodeFromPayload(pairingCode) ?: error("Enter or scan a valid pairing code")
-                            val registered = api.claimPairingChallenge(code, deviceId)
-                            val pairedGreenhouse = registered.greenhouseId ?: error("Server registration is incomplete")
-                            onComplete(CloudEnrollment(deviceId, pairedGreenhouse, CloudDeviceRole.ViewerClient))
-                        }
-                    }
-                }
-                SecondaryButton("Back", Modifier.fillMaxWidth(), busy) { step = OnboardingStep.Mode }
             }
         }
     }
@@ -536,7 +550,7 @@ private fun RoleButton(title: String, body: String, modifier: Modifier, disabled
     }
 }
 
-private fun qrBitmap(value: String, size: Int = 640): Bitmap {
+fun serverPairingQrBitmap(value: String, size: Int = 640): Bitmap {
     val matrix = MultiFormatWriter().encode(value, BarcodeFormat.QR_CODE, size, size)
     val pixels = IntArray(size * size) { index -> if (matrix[index % size, index / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
     return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)

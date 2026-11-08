@@ -28,12 +28,16 @@ data class CloudSession(
 data class CloudEnrollment(
     val deviceId: String,
     val greenhouseId: String,
-    val role: CloudDeviceRole
+    val role: CloudDeviceRole,
+    val deviceSecret: String? = null
 ) {
-    fun toJson() = JSONObject().put("deviceId", deviceId).put("greenhouseId", greenhouseId).put("role", role.name).toString()
+    fun toJson() = JSONObject().put("deviceId", deviceId).put("greenhouseId", greenhouseId).put("role", role.name).put("deviceSecret", deviceSecret).toString()
     companion object {
         fun parse(value: String) = JSONObject(value).let {
-            CloudEnrollment(it.getString("deviceId"), it.getString("greenhouseId"), CloudDeviceRole.valueOf(it.getString("role")))
+            CloudEnrollment(
+                it.getString("deviceId"), it.getString("greenhouseId"), CloudDeviceRole.valueOf(it.getString("role")),
+                if (it.has("deviceSecret") && !it.isNull("deviceSecret")) it.getString("deviceSecret").ifBlank { null } else null
+            )
         }
     }
 }

@@ -152,7 +152,7 @@ Resources:
         ThrottlingBurstLimit: 40
         ThrottlingRateLimit: 20
       CorsConfiguration:
-        AllowHeaders: [authorization, content-type, x-greenhouse-device-id]
+        AllowHeaders: [authorization, content-type, x-greenhouse-device-id, x-greenhouse-device-secret]
         AllowMethods: [GET, POST, DELETE]
         AllowOrigins: ['https://invalid.local']
       Auth:
@@ -233,6 +233,22 @@ Resources:
             ApiId: !Ref Api
             Path: /v1/{proxy+}
             Method: ANY
+        DeviceProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /v1/device/{proxy+}
+            Method: ANY
+            Auth:
+              Authorizer: NONE
+        PublicServerPairing:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /v1/public-server-pairing/{proxy+}
+            Method: ANY
+            Auth:
+              Authorizer: NONE
 
   CriticalAlertTopic:
     Type: AWS::SNS::Topic

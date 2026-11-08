@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import hmac
 import os
 import secrets
 import uuid
@@ -23,6 +24,7 @@ PENDING_SESSION_SECONDS = 300
 AUTHORIZATION_LEASE_SECONDS = 120
 MAXIMUM_SESSION_SECONDS = 4 * 60 * 60
 MAX_ALERT_QUERY_PAGES = 5
+SERVER_PAIRING_SECONDS = 300
 
 
 def response(status: int, body: dict):
@@ -51,6 +53,22 @@ def principal_from(event) -> Principal:
     if not device_id:
         raise AccessDenied("device_missing")
     return Principal(account["accountId"], account["tenantId"], device_id)
+
+
+def device_principal_from(event) -> Principal:
+    headers = {str(key).lower(): str(value) for key, value in (event.get("headers") or {}).items()}
+    device_id = require_device_id(headers.get("x-greenhouse-device-id", ""))
+    device_secret = headers.get("x-greenhouse-device-secret", "")
+    if len(device_secret) < 32 or len(device_secret) > 256:
+        raise AccessDenied("device_credential_missing")
+    device = table.get_item(Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    supplied_hash = hashlib.sha256(device_secret.encode("utf-8")).hexdigest()
+    if not device or not device.get("enabled") or not hmac.compare_digest(str(device.get("deviceSecretHash", "")), supplied_hash):
+        raise AccessDenied("device_credential_invalid")
+    account = table.get_item(Key={"pk": f"ACCOUNT#{device['accountId']}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    if not account or account.get("state", "ACTIVE") != "ACTIVE":
+        raise AccessDenied("account_suspended")
+    return Principal(device["accountId"], device["tenantId"], device_id)
 
 
 def route_parts(event: dict) -> list[str]:
@@ -175,6 +193,49 @@ def register_server_device(event, principal: Principal):
     })
 
 
+def register_client_device(event, principal: Principal):
+    body = json.loads(event.get("body") or "{}")
+    device_id = require_device_id(body.get("deviceId", ""))
+    if principal.device_id != device_id:
+        raise AccessDenied("device_mismatch")
+    if body.get("role") != "VIEWER_CLIENT":
+        raise AccessDenied("invalid_device_role")
+    now = int(datetime.now(timezone.utc).timestamp())
+    existing = table.get_item(Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    if existing and not existing.get("enabled"):
+        raise AccessDenied("device_disabled")
+    created_at = int(existing.get("createdAt", now)) if existing else now
+    device = {
+        "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
+        "tenantId": principal.tenant_id, "accountId": principal.account_id,
+        "role": "VIEWER_CLIENT", "enabled": True, "createdAt": created_at,
+        "adminEntity": "DEVICE", "adminSort": f"{created_at:020d}#{device_id}",
+    }
+    table.meta.client.transact_write_items(TransactItems=[
+        {"Put": {
+            "TableName": table.name, "Item": device,
+            "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:role)",
+            "ExpressionAttributeNames": {"#role": "role"},
+            "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id, ":role": "VIEWER_CLIENT"},
+        }},
+        {"Put": {
+            "TableName": table.name, "Item": account_device_record(device),
+            "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
+            "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id},
+        }},
+        {"Update": {
+            "TableName": table.name,
+            "Key": {"pk": f"ACCOUNT#{principal.account_id}", "sk": "METADATA"},
+            "UpdateExpression": "SET primaryClientDeviceId=if_not_exists(primaryClientDeviceId,:device)",
+            "ConditionExpression": "tenantId=:tenant AND accountId=:account",
+            "ExpressionAttributeValues": {":device": device_id, ":tenant": principal.tenant_id, ":account": principal.account_id},
+        }},
+    ])
+    return response(201 if not existing else 200, {
+        "id": device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "enabled": True,
+    })
+
+
 def get_owned(kind: str, object_id: str, tenant_id: str):
     item = table.get_item(Key={"pk": f"{kind}#{object_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
     if not item or item.get("tenantId") != tenant_id:
@@ -251,23 +312,47 @@ def require_enabled_requester(principal: Principal) -> dict:
     return requester
 
 
+def require_client_requester(principal: Principal) -> dict:
+    requester = require_enabled_requester(principal)
+    if requester.get("role") != "VIEWER_CLIENT":
+        raise AccessDenied("client_device_required")
+    return requester
+
+
+def current_device(principal: Principal):
+    device = require_enabled_requester(principal)
+    return response(200, {
+        "id": device["deviceId"], "tenantId": device["tenantId"], "role": device["role"],
+        "enabled": True, "greenhouseId": device.get("greenhouseId"),
+    })
+
+
 def list_devices(principal: Principal):
-    require_enabled_requester(principal)
+    require_client_requester(principal)
     result = table.query(
         KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{principal.account_id}") & Key("sk").begins_with("DEVICE#"),
         ConsistentRead=True,
     )
-    devices = [{
-        "id": item["deviceId"], "tenantId": item["tenantId"], "role": item["role"],
-        "enabled": bool(item.get("enabled")), "greenhouseId": item.get("greenhouseId"),
-        "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
-    } for item in result.get("Items", []) if item.get("tenantId") == principal.tenant_id]
+    now = int(datetime.now(timezone.utc).timestamp())
+    devices = []
+    for item in result.get("Items", []):
+        if item.get("tenantId") != principal.tenant_id:
+            continue
+        primary = table.get_item(Key={"pk": f"DEVICE#{item['deviceId']}", "sk": "METADATA"}, ConsistentRead=True).get("Item", item)
+        last_heartbeat = int(primary.get("lastHeartbeat", 0))
+        devices.append({
+            "id": item["deviceId"], "tenantId": item["tenantId"], "role": item["role"],
+            "enabled": bool(primary.get("enabled")), "greenhouseId": item.get("greenhouseId"),
+            "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
+            "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
+            "online": bool(primary.get("enabled")) and last_heartbeat > 0 and now - last_heartbeat <= 180,
+        })
     return response(200, {"devices": sorted(devices, key=lambda value: value["createdAtEpochMs"])})
 
 
 def set_device_state(event, principal: Principal, device_id: str):
     require_device_id(device_id)
-    require_enabled_requester(principal)
+    require_client_requester(principal)
     target = get_owned("DEVICE", device_id, principal.tenant_id)
     if target.get("accountId") != principal.account_id:
         raise AccessDenied("not_found")
@@ -305,6 +390,183 @@ def set_device_state(event, principal: Principal, device_id: str):
         "id": device_id, "tenantId": principal.tenant_id, "role": target["role"],
         "enabled": enabled, "greenhouseId": target.get("greenhouseId"),
     })
+
+
+def create_server_invitation(event, principal: Principal):
+    require_client_requester(principal)
+    body = json.loads(event.get("body") or "{}")
+    greenhouse_id = require_resource_id(body.get("greenhouseId", ""))
+    greenhouse_name = str(body.get("greenhouseName") or "Greenhouse").strip()[:120] or "Greenhouse"
+    replace_device_id = body.get("replaceServerDeviceId")
+    if replace_device_id:
+        replace_device_id = require_device_id(replace_device_id)
+        replaced = get_owned("DEVICE", replace_device_id, principal.tenant_id)
+        if replaced.get("accountId") != principal.account_id or replaced.get("role") != "GREENHOUSE_SERVER" or replaced.get("greenhouseId") != greenhouse_id:
+            raise AccessDenied("invalid_replacement")
+    code = secrets.token_urlsafe(24)
+    code_hash = pairing_code_hash(code)
+    now = int(datetime.now(timezone.utc).timestamp())
+    expires_at = now + SERVER_PAIRING_SECONDS
+    invitation_id = f"invite-{uuid.uuid4().hex}"
+    table.put_item(Item={
+        "pk": f"PAIRING#{code_hash}", "sk": "SERVER_INVITATION", "invitationId": invitation_id,
+        "tenantId": principal.tenant_id, "accountId": principal.account_id,
+        "greenhouseId": greenhouse_id, "greenhouseName": greenhouse_name,
+        "replaceServerDeviceId": replace_device_id, "requestedByDeviceId": principal.device_id,
+        "createdAt": now, "expiresAt": expires_at,
+    }, ConditionExpression="attribute_not_exists(pk)")
+    return response(201, {
+        "invitationId": invitation_id, "displayCode": code, "greenhouseId": greenhouse_id,
+        "greenhouseName": greenhouse_name, "expiresAt": expires_at,
+    })
+
+
+def request_server_pairing(event):
+    body = json.loads(event.get("body") or "{}")
+    device_id = require_device_id(body.get("serverDeviceId", ""))
+    device_secret = str(body.get("deviceSecret") or "")
+    if len(device_secret) < 32 or len(device_secret) > 256:
+        return response(400, {"error": "valid_device_secret_required"})
+    code_hash = pairing_code_hash(body.get("pairingCode", ""))
+    now = int(datetime.now(timezone.utc).timestamp())
+    invitation = table.get_item(Key={"pk": f"PAIRING#{code_hash}", "sk": "SERVER_INVITATION"}, ConsistentRead=True).get("Item")
+    if not invitation or int(invitation.get("expiresAt", 0)) <= now or invitation.get("requestedAt"):
+        raise AccessDenied("expired_used_or_invalid_pairing_code")
+    request_id = f"request-{uuid.uuid4().hex}"
+    request = {
+        "pk": f"SERVER_PAIRING#{request_id}", "sk": "METADATA", "requestId": request_id,
+        "tenantId": invitation["tenantId"], "accountId": invitation["accountId"],
+        "greenhouseId": invitation["greenhouseId"], "greenhouseName": invitation.get("greenhouseName", "Greenhouse"),
+        "replaceServerDeviceId": invitation.get("replaceServerDeviceId"),
+        "serverDeviceId": device_id, "deviceSecretHash": hashlib.sha256(device_secret.encode("utf-8")).hexdigest(),
+        "state": "PENDING_APPROVAL", "createdAt": now, "expiresAt": int(invitation["expiresAt"]),
+    }
+    account_request = {**request, "pk": f"ACCOUNT#{invitation['accountId']}", "sk": f"SERVER_PAIRING#{request_id}"}
+    table.meta.client.transact_write_items(TransactItems=[
+        {"Update": {
+            "TableName": table.name, "Key": {"pk": invitation["pk"], "sk": invitation["sk"]},
+            "UpdateExpression": "SET requestedAt=:now, requestId=:request, serverDeviceId=:device",
+            "ConditionExpression": "expiresAt>:now AND attribute_not_exists(requestedAt)",
+            "ExpressionAttributeValues": {":now": now, ":request": request_id, ":device": device_id},
+        }},
+        {"Put": {"TableName": table.name, "Item": request, "ConditionExpression": "attribute_not_exists(pk)"}},
+        {"Put": {"TableName": table.name, "Item": account_request, "ConditionExpression": "attribute_not_exists(pk)"}},
+    ])
+    return response(202, {"requestId": request_id, "state": "PENDING_APPROVAL", "expiresAt": request["expiresAt"]})
+
+
+def list_server_pairing_requests(principal: Principal):
+    require_client_requester(principal)
+    now = int(datetime.now(timezone.utc).timestamp())
+    result = table.query(
+        KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{principal.account_id}") & Key("sk").begins_with("SERVER_PAIRING#"),
+        ConsistentRead=True,
+    )
+    requests = [{
+        "requestId": item["requestId"], "serverDeviceId": item["serverDeviceId"],
+        "greenhouseId": item["greenhouseId"], "greenhouseName": item.get("greenhouseName", "Greenhouse"),
+        "replaceServerDeviceId": item.get("replaceServerDeviceId"), "state": item.get("state", "PENDING_APPROVAL"),
+        "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000, "expiresAtEpochMs": int(item.get("expiresAt", 0)) * 1000,
+    } for item in result.get("Items", []) if item.get("tenantId") == principal.tenant_id and int(item.get("expiresAt", 0)) > now and item.get("state") == "PENDING_APPROVAL"]
+    return response(200, {"requests": requests})
+
+
+def approve_server_pairing(principal: Principal, request_id: str):
+    require_client_requester(principal)
+    require_resource_id(request_id)
+    now = int(datetime.now(timezone.utc).timestamp())
+    request = table.get_item(Key={"pk": f"SERVER_PAIRING#{request_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    if not request or request.get("accountId") != principal.account_id or request.get("tenantId") != principal.tenant_id:
+        raise AccessDenied("not_found")
+    if request.get("state") != "PENDING_APPROVAL" or int(request.get("expiresAt", 0)) <= now:
+        raise AccessDenied("expired_used_or_conflicting")
+    device_id = request["serverDeviceId"]
+    greenhouse_id = request["greenhouseId"]
+    existing_greenhouse = table.get_item(Key={"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    created_at = int(existing_greenhouse.get("createdAt", now)) if existing_greenhouse else now
+    device = {
+        "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
+        "tenantId": principal.tenant_id, "accountId": principal.account_id, "role": "GREENHOUSE_SERVER",
+        "greenhouseId": greenhouse_id, "enabled": True, "createdAt": now,
+        "deviceSecretHash": request["deviceSecretHash"],
+        "adminEntity": "DEVICE", "adminSort": f"{now:020d}#{device_id}",
+    }
+    greenhouse = {
+        **(existing_greenhouse or {}), "pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA",
+        "greenhouseId": greenhouse_id, "tenantId": principal.tenant_id, "accountId": principal.account_id,
+        "name": request.get("greenhouseName", "Greenhouse"), "serverDeviceId": device_id, "enabled": True,
+        "createdAt": created_at, "updatedAt": now, "adminEntity": "GREENHOUSE",
+        "adminSort": f"{created_at:020d}#{greenhouse_id}",
+    }
+    transaction = [
+        {"Put": {"TableName": table.name, "Item": device, "ConditionExpression": "attribute_not_exists(pk)"}},
+        {"Put": {"TableName": table.name, "Item": greenhouse,
+                 "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
+                 "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id}}},
+        {"Put": {"TableName": table.name, "Item": account_device_record(device), "ConditionExpression": "attribute_not_exists(pk)"}},
+        {"Update": {"TableName": table.name, "Key": {"pk": request["pk"], "sk": request["sk"]},
+                    "UpdateExpression": "SET #state=:approved, approvedAt=:now, approvedBy=:client",
+                    "ConditionExpression": "#state=:pending AND expiresAt>:now", "ExpressionAttributeNames": {"#state": "state"},
+                    "ExpressionAttributeValues": {":approved": "APPROVED", ":pending": "PENDING_APPROVAL", ":now": now, ":client": principal.device_id}}},
+        {"Update": {"TableName": table.name, "Key": {"pk": f"ACCOUNT#{principal.account_id}", "sk": f"SERVER_PAIRING#{request_id}"},
+                    "UpdateExpression": "SET #state=:approved, approvedAt=:now, approvedBy=:client",
+                    "ConditionExpression": "#state=:pending AND expiresAt>:now", "ExpressionAttributeNames": {"#state": "state"},
+                    "ExpressionAttributeValues": {":approved": "APPROVED", ":pending": "PENDING_APPROVAL", ":now": now, ":client": principal.device_id}}},
+    ]
+    old_device_id = request.get("replaceServerDeviceId") or (existing_greenhouse or {}).get("serverDeviceId")
+    if old_device_id and old_device_id != device_id:
+        for key in ({"pk": f"DEVICE#{old_device_id}", "sk": "METADATA"}, {"pk": f"ACCOUNT#{principal.account_id}", "sk": f"DEVICE#{old_device_id}"}):
+            transaction.append({"Update": {
+                "TableName": table.name, "Key": key, "UpdateExpression": "SET enabled=:disabled, replacedAt=:now, replacedBy=:device",
+                "ConditionExpression": "tenantId=:tenant AND accountId=:account",
+                "ExpressionAttributeValues": {":disabled": False, ":now": now, ":device": device_id, ":tenant": principal.tenant_id, ":account": principal.account_id},
+            }})
+    table.meta.client.transact_write_items(TransactItems=transaction)
+    return response(200, {"requestId": request_id, "state": "APPROVED", "serverDeviceId": device_id, "greenhouseId": greenhouse_id})
+
+
+def server_pairing_status(event):
+    body = json.loads(event.get("body") or "{}")
+    request_id = require_resource_id(body.get("requestId", ""))
+    device_id = require_device_id(body.get("serverDeviceId", ""))
+    secret = str(body.get("deviceSecret") or "")
+    request = table.get_item(Key={"pk": f"SERVER_PAIRING#{request_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    secret_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    if not request or request.get("serverDeviceId") != device_id or not hmac.compare_digest(str(request.get("deviceSecretHash", "")), secret_hash):
+        raise AccessDenied("pairing_request_invalid")
+    now = int(datetime.now(timezone.utc).timestamp())
+    state = request.get("state", "PENDING_APPROVAL")
+    if state != "APPROVED" and int(request.get("expiresAt", 0)) <= now:
+        return response(410, {"error": "pairing_request_expired"})
+    body = {"requestId": request_id, "state": state, "expiresAt": int(request.get("expiresAt", 0))}
+    if state == "APPROVED":
+        body.update({"id": device_id, "tenantId": request["tenantId"], "role": "GREENHOUSE_SERVER", "enabled": True, "greenhouseId": request["greenhouseId"]})
+    return response(200, body)
+
+
+def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bool):
+    greenhouse_id = require_resource_id(greenhouse_id)
+    device = require_enabled_requester(principal)
+    greenhouse = get_owned("GREENHOUSE", greenhouse_id, principal.tenant_id)
+    if device.get("role") != "GREENHOUSE_SERVER" or device.get("greenhouseId") != greenhouse_id or greenhouse.get("serverDeviceId") != principal.device_id:
+        raise AccessDenied("server_device")
+    key = {"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "BACKUP"}
+    if not write:
+        item = table.get_item(Key=key, ConsistentRead=True).get("Item")
+        return response(200, {"backup": json.loads(item["backupJson"]) if item else None, "updatedAt": int(item.get("updatedAt", 0)) if item else None})
+    body = json.loads(event.get("body") or "{}")
+    backup = body.get("backup")
+    if not isinstance(backup, dict) or backup.get("schema") != 1:
+        return response(400, {"error": "valid_backup_required"})
+    encoded = json.dumps(backup, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > 350_000:
+        return response(413, {"error": "backup_too_large"})
+    now = int(datetime.now(timezone.utc).timestamp())
+    table.put_item(Item={
+        **key, "accountId": principal.account_id, "tenantId": principal.tenant_id,
+        "greenhouseId": greenhouse_id, "backupJson": encoded, "updatedAt": now,
+    })
+    return response(204, {})
 
 
 def create_stream_session(event, principal: Principal, greenhouse_id: str):
@@ -624,11 +886,32 @@ def handler(event, _context):
     try:
         method = event.get("requestContext", {}).get("http", {}).get("method")
         parts = route_parts(event)
+        if method == "POST" and parts == ["v1", "public-server-pairing", "requests"]:
+            return request_server_pairing(event)
+        if method == "POST" and parts == ["v1", "public-server-pairing", "status"]:
+            return server_pairing_status(event)
         if method == "POST" and parts == ["v1", "bootstrap"]:
             return bootstrap_account(event)
-        principal = principal_from(event)
+        device_authenticated = len(parts) >= 2 and parts[:2] == ["v1", "device"]
+        if device_authenticated:
+            parts = ["v1", *parts[2:]]
+            principal = device_principal_from(event)
+        else:
+            principal = principal_from(event)
         if method == "POST" and parts == ["v1", "devices"]:
-            return register_server_device(event, principal)
+            role = json.loads(event.get("body") or "{}").get("role")
+            return register_client_device(event, principal) if role == "VIEWER_CLIENT" else register_server_device(event, principal)
+        if method == "GET" and parts == ["v1", "devices", "current"]:
+            return current_device(principal)
+        if device_authenticated and not (
+            (method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "stream-sessions") or
+            (method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat") or
+            (method in {"POST", "DELETE"} and len(parts) in {3, 4} and parts[:2] == ["v1", "stream-sessions"]) or
+            (method == "GET" and parts == ["v1", "alerts"]) or
+            (method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge") or
+            (method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "backup")
+        ):
+            raise AccessDenied("device_route_not_allowed")
         if method == "GET" and parts == ["v1", "devices"]:
             return list_devices(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "state":
@@ -637,8 +920,16 @@ def handler(event, _context):
             return create_pairing_challenge(principal, parts[2])
         if method == "POST" and parts == ["v1", "pairing-challenges", "claim"]:
             return claim_pairing_challenge(event, principal)
+        if method == "POST" and parts == ["v1", "server-pairing", "invitations"]:
+            return create_server_invitation(event, principal)
+        if method == "GET" and parts == ["v1", "server-pairing", "requests"]:
+            return list_server_pairing_requests(principal)
+        if method == "POST" and len(parts) == 5 and parts[:3] == ["v1", "server-pairing", "requests"] and parts[4] == "approve":
+            return approve_server_pairing(principal, parts[3])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "stream-sessions":
             return create_stream_session(event, principal, parts[2])
+        if method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "backup":
+            return greenhouse_backup(event, principal, parts[2], write=method == "POST")
         if method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "stream-sessions":
             return pending_stream_session(principal, parts[2])
         if method == "DELETE" and len(parts) == 3 and parts[:2] == ["v1", "stream-sessions"]:

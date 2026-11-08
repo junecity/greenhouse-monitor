@@ -2,6 +2,16 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Automatic clients and approved QR server pairing (Android 2.7.0)
+
+- Removed post-login Client/Server selection. A newly authenticated phone registers as a Viewer Client automatically, later signed-in phones join the same account as clients, and securely persisted enrollments are validated before monitoring opens.
+- Added passwordless greenhouse-server enrollment from the fresh-install screen: the server scans a client-created five-minute QR invitation, generates a device-bound secret locally, waits for explicit client approval, and stores the approved role in Android Keystore-backed encrypted storage. Device-secret routes are isolated from the Cognito-authorized client routes and enforce account/device revocation server-side.
+- Added Settings → Devices management for registered clients and greenhouse servers, live/offline state, pending approval, Add Server, Replace Server, Remove Server, and greenhouse selection. Multiple greenhouse servers are account-scoped and tenant-isolated.
+- Added replacement continuity backup for greenhouse geometry/preferences, notification settings, sensor-to-greenhouse and zone assignments, and the latest 1,500 history readings. Backups remain attached to the stable greenhouse ID; Govee credentials are intentionally not copied.
+- Deployed the reviewed application change set to `greenhouse-monitor-dev`; it completed without resource replacement and drift detection reports `IN_SYNC`. The admin stack's current Android version marker is 2.7.0. A disposable live SRP customer verified automatic client creation, two independent greenhouse servers, three approval cycles, server replacement, device-secret restoration, and backup restoration; every disposable Cognito and DynamoDB record was deleted afterward.
+- Validation: 68 Android JVM tests passed with zero failures/errors; Android lint, local/configured assembly, APK checksum and v2 signature verification passed; a clean emulator cold-launched the portrait onboarding and opened the built-in QR scanner. 57 backend tests, Python 3.13 compilation, CloudFormation lint, SAM validation/build, deployment smoke checks, and authorization-boundary checks passed. Configured APK SHA-256: `38c4d7148509acc1626776f8ab5dea74a8ed94decf2c9e522b73f1a5be5b7961`.
+- Limitations: QR capture/approval, persistence after reboot, Govee regression, replacement restore, and layout behavior still need final verification on two physical phones. Expiration is automated-test verified rather than delayed five minutes in the live stack. The APK is debug-signed; Play/release signing remains external.
+
 ## 2026-11-08 — Administrator pending-customer visibility
 
 - Fixed the administrator dashboard and customer directory so confirmed customer registrations are visible before Android onboarding creates their account, tenant, and Free-entitlement records. Pending registrations are labeled `PENDING_SETUP` and are not misreported as active or subscribed customers.

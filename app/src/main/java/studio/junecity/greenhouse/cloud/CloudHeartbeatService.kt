@@ -71,14 +71,15 @@ class CloudHeartbeatService : Service() {
         if (enrollment == null || enrollment.role != CloudDeviceRole.GreenhouseServer || configuration == null) {
             stopSelf(); return
         }
-        val auth = CognitoAuthManager(this, configuration)
-        runCatching { auth.initialize() }.onFailure { stopSelf(); return }
-        val gateway = auth.gateway(enrollment.deviceId)
+        val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
         var failures = 0
         while (scope.isActive) {
             val health = HeartbeatHealthStore(this).load()
             val result = runCatching {
                 HeartbeatReporter(gateway).report(MonitoringHealth(enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature))
+            }
+            if (result.isSuccess) runCatching {
+                gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(this@CloudHeartbeatService).snapshot())
             }
             failures = if (result.isSuccess) 0 else failures + 1
             delay(HeartbeatRetryPolicy.delayMs(failures))
