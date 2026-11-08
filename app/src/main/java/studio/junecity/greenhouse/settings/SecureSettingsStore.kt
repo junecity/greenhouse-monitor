@@ -10,6 +10,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
+import studio.junecity.greenhouse.cloud.CloudDeviceRole
+import java.util.UUID
 
 data class CloudSession(
     val apiBaseUrl: String,
@@ -21,6 +23,19 @@ data class CloudSession(
     fun toJson() = JSONObject().put("apiBaseUrl", apiBaseUrl).put("deviceId", deviceId).put("accessToken", accessToken)
         .put("accessTokenExpiresAtEpochMs", accessTokenExpiresAtEpochMs).put("refreshToken", refreshToken).toString()
     companion object { fun parse(value: String) = JSONObject(value).let { CloudSession(it.getString("apiBaseUrl"), it.getString("deviceId"), it.getString("accessToken"), it.getLong("accessTokenExpiresAtEpochMs"), if(it.has("refreshToken")&&!it.isNull("refreshToken"))it.getString("refreshToken").ifBlank { null }else null) } }
+}
+
+data class CloudEnrollment(
+    val deviceId: String,
+    val greenhouseId: String,
+    val role: CloudDeviceRole
+) {
+    fun toJson() = JSONObject().put("deviceId", deviceId).put("greenhouseId", greenhouseId).put("role", role.name).toString()
+    companion object {
+        fun parse(value: String) = JSONObject(value).let {
+            CloudEnrollment(it.getString("deviceId"), it.getString("greenhouseId"), CloudDeviceRole.valueOf(it.getString("role")))
+        }
+    }
 }
 
 class SecureSettingsStore(context: Context) {
@@ -37,6 +52,11 @@ class SecureSettingsStore(context: Context) {
     fun saveCloudSession(value: CloudSession) = saveEncrypted("cloud_session", value.toJson())
     fun cloudSession(): CloudSession? = loadEncrypted("cloud_session")?.let { runCatching { CloudSession.parse(it) }.getOrNull() }
     fun clearCloudSession() = prefs.edit().remove("cloud_session").apply()
+    fun saveCloudEnrollment(value: CloudEnrollment) = saveEncrypted("cloud_enrollment", value.toJson())
+    fun cloudEnrollment(): CloudEnrollment? = loadEncrypted("cloud_enrollment")?.let { runCatching { CloudEnrollment.parse(it) }.getOrNull() }
+    fun clearCloudEnrollment() = prefs.edit().remove("cloud_enrollment").apply()
+    fun cloudDeviceId(): String = stableIdentifier("cloud_device_id", "device")
+    fun cloudGreenhouseId(): String = stableIdentifier("cloud_greenhouse_id", "greenhouse")
 
     private fun saveEncrypted(preferenceKey: String, value: String) {
         if (value.isBlank()) { prefs.edit().remove(preferenceKey).apply(); return }
@@ -53,6 +73,11 @@ class SecureSettingsStore(context: Context) {
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, Base64.decode(pieces[0], Base64.NO_WRAP)))
         String(cipher.doFinal(Base64.decode(pieces[1], Base64.NO_WRAP)), Charsets.UTF_8)
     }.getOrNull()
+
+    private fun stableIdentifier(preferenceKey: String, prefix: String): String {
+        loadEncrypted(preferenceKey)?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]{7,79}")) }?.let { return it }
+        return "$prefix-${UUID.randomUUID()}".also { saveEncrypted(preferenceKey, it) }
+    }
 
     fun goveeApiKey(): String? = loadEncrypted("govee_key")
 

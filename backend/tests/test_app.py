@@ -110,6 +110,7 @@ class BootstrapApiTests(unittest.TestCase):
         greenhouse = fake.client.transactions[0][1]["Put"]["Item"]
         self.assertEqual({"S": "tenant-existing"}, device["tenantId"])
         self.assertEqual({"S": "account-existing"}, greenhouse["accountId"])
+        self.assertEqual({"S": "greenhouse-12345678"}, device["greenhouseId"])
 
     def test_server_registration_rejects_header_body_mismatch(self):
         fake = FakeTable({

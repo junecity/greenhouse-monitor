@@ -7,6 +7,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class CloudJsonCodecTest {
+    @Test fun registeredDeviceIncludesItsCloudGreenhouse() {
+        val value = CloudJsonCodec.device(JSONObject()
+            .put("id", "server-12345678").put("tenantId", "tenant-1")
+            .put("role", "GREENHOUSE_SERVER").put("enabled", true)
+            .put("greenhouseId", "greenhouse-12345678"))
+        assertEquals(CloudDeviceRole.GreenhouseServer, value.role)
+        assertEquals("greenhouse-12345678", value.greenhouseId)
+    }
+
     @Test fun premiumEntitlementIsDecodedFromBackendVocabulary() {
         val value = CloudJsonCodec.entitlement(JSONObject()
             .put("accountId", "account-1").put("plan", "PREMIUM").put("state", "ACTIVE")

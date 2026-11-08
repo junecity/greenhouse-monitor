@@ -26,6 +26,18 @@ class AuthenticatedCloudGateway(
     private val tokens: CloudTokenProvider,
     private val client: OkHttpClient = OkHttpClient()
 ) : GreenhouseCloudGateway {
+    suspend fun bootstrap(): CloudAccount {
+        val json = request("POST", "/v1/bootstrap")
+        return CloudAccount(json.getString("accountId"), json.getString("tenantId"))
+    }
+
+    suspend fun registerServerDevice(greenhouseId: String): RegisteredDevice = CloudJsonCodec.device(
+        request(
+            "POST", "/v1/devices",
+            JSONObject().put("deviceId", config.deviceId).put("greenhouseId", greenhouseId).put("role", "GREENHOUSE_SERVER")
+        )
+    )
+
     override suspend fun createPairingChallenge(serverDeviceId: String) =
         CloudJsonCodec.pairing(request("POST", "/v1/devices/${segment(serverDeviceId)}/pairing-challenges"))
 
@@ -102,7 +114,7 @@ object CloudJsonCodec {
     fun device(json: JSONObject) = RegisteredDevice(
         json.getString("id"), json.optString("tenantId"),
         CloudDeviceRole.valueOf(if (json.getString("role") == "GREENHOUSE_SERVER") "GreenhouseServer" else "ViewerClient"),
-        json.optBoolean("enabled", true)
+        json.optBoolean("enabled", true), json.optString("greenhouseId").ifBlank { null }
     )
 
     fun entitlement(json: JSONObject): EntitlementSnapshot {

@@ -87,7 +87,7 @@ def register_server_device(event, principal: Principal):
     device = {
         "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
-        "role": "GREENHOUSE_SERVER", "enabled": True, "createdAt": now,
+        "role": "GREENHOUSE_SERVER", "greenhouseId": greenhouse_id, "enabled": True, "createdAt": now,
     }
     greenhouse = {
         "pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA", "greenhouseId": greenhouse_id,
@@ -116,7 +116,7 @@ def register_server_device(event, principal: Principal):
         }},
     ])
     return response(201, {
-        "deviceId": device_id, "greenhouseId": greenhouse_id,
+        "id": device_id, "greenhouseId": greenhouse_id,
         "tenantId": principal.tenant_id, "role": "GREENHOUSE_SERVER", "enabled": True,
     })
 
@@ -166,11 +166,12 @@ def claim_pairing_challenge(event, principal: Principal):
         },
         ReturnValues="ALL_NEW",
     ).get("Attributes", {})
+    server = get_owned("DEVICE", challenge["serverDeviceId"], principal.tenant_id)
     device = {
         "pk": f"DEVICE#{viewer_device_id}", "sk": "METADATA", "deviceId": viewer_device_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
         "role": "VIEWER_CLIENT", "enabled": True,
-        "pairedServerDeviceId": challenge["serverDeviceId"], "createdAt": now,
+        "pairedServerDeviceId": challenge["serverDeviceId"], "greenhouseId": server.get("greenhouseId"), "createdAt": now,
     }
     table.put_item(
         Item=device,
@@ -178,7 +179,7 @@ def claim_pairing_challenge(event, principal: Principal):
         ExpressionAttributeNames={"#role": "role"},
         ExpressionAttributeValues={":tenant": principal.tenant_id, ":account": principal.account_id, ":viewerRole": "VIEWER_CLIENT"},
     )
-    return response(201, {"id": viewer_device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "enabled": True})
+    return response(201, {"id": viewer_device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "enabled": True, "greenhouseId": server.get("greenhouseId")})
 
 
 def create_stream_session(event, principal: Principal, greenhouse_id: str):

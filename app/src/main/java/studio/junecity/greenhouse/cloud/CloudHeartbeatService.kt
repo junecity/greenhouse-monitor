@@ -18,7 +18,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import studio.junecity.greenhouse.model.GoveeSensor
-import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 
 data class HeartbeatHealth(val sensorConnectionHealthy: Boolean, val criticalTemperature: Boolean)
@@ -64,18 +63,20 @@ class CloudHeartbeatService : Service() {
     }
 
     private suspend fun reportLoop() {
+        val secure = SecureSettingsStore(this)
+        val enrollment = secure.cloudEnrollment()
+        val configuration = runCatching { CloudRuntime.configurationOrNull() }.getOrNull()
+        if (enrollment == null || enrollment.role != CloudDeviceRole.GreenhouseServer || configuration == null) {
+            stopSelf(); return
+        }
+        val auth = CognitoAuthManager(this, configuration)
+        runCatching { auth.initialize() }.onFailure { stopSelf(); return }
+        val gateway = auth.gateway(enrollment.deviceId)
         var failures = 0
         while (scope.isActive) {
-            val secure = SecureSettingsStore(this)
-            val session = secure.cloudSession()
-            if (session == null || session.accessTokenExpiresAtEpochMs <= System.currentTimeMillis() + 30_000L) {
-                stopSelf(); return
-            }
-            val preferences = AppPreferencesStore(this).load()
-            val gateway = AuthenticatedCloudGateway(CloudApiConfig(session.apiBaseUrl, session.deviceId), CloudTokenProvider { session.accessToken })
             val health = HeartbeatHealthStore(this).load()
             val result = runCatching {
-                HeartbeatReporter(gateway).report(MonitoringHealth(session.deviceId, preferences.activeGreenhouse.id, health.sensorConnectionHealthy, health.criticalTemperature))
+                HeartbeatReporter(gateway).report(MonitoringHealth(enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature))
             }
             failures = if (result.isSuccess) 0 else failures + 1
             delay(HeartbeatRetryPolicy.delayMs(failures))

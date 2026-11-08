@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+fun quotedBuildValue(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 android {
     namespace = "studio.junecity.greenhouse"
     compileSdk = 36
@@ -14,6 +16,13 @@ android {
         targetSdk = 36
         versionCode = 9
         versionName = "2.6.1"
+        val cloudValue = { name: String ->
+            providers.gradleProperty(name).orElse(providers.environmentVariable(name)).getOrElse("")
+        }
+        buildConfigField("String", "GREENHOUSE_AWS_REGION", quotedBuildValue(cloudValue("GREENHOUSE_AWS_REGION")))
+        buildConfigField("String", "GREENHOUSE_COGNITO_USER_POOL_ID", quotedBuildValue(cloudValue("GREENHOUSE_COGNITO_USER_POOL_ID")))
+        buildConfigField("String", "GREENHOUSE_COGNITO_APP_CLIENT_ID", quotedBuildValue(cloudValue("GREENHOUSE_COGNITO_APP_CLIENT_ID")))
+        buildConfigField("String", "GREENHOUSE_AWS_API_BASE_URL", quotedBuildValue(cloudValue("GREENHOUSE_AWS_API_BASE_URL")))
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {

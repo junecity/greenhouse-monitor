@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS runtime configuration and durable device enrollment
+
+- Added all-or-nothing build-time injection for the AWS region, Cognito user pool/client, and API Gateway URL while keeping unconfigured local builds operational.
+- Added encrypted stable device/greenhouse enrollment identifiers and backend role; no AWS credentials are stored.
+- Added bootstrap/server-registration gateway calls and greenhouse identity propagation through server and one-use viewer pairing responses.
+- Changed cloud heartbeat reporting to obtain automatically refreshed Cognito tokens at runtime and report the backend greenhouse ID instead of a copied token/local UI ID.
+- Tests: 49 Android JVM tests, Android lint, debug assembly, 18 Python tests, and Python byte-compilation passed. Live Cognito/API behavior remains unverified without deployment; the onboarding UI is the next task.
+
 ## 2026-11-08 — Atomic AWS account and server-device bootstrap
 
 - Added an idempotent Cognito-subject bootstrap endpoint that atomically creates an isolated account, tenant, and active Free entitlement without storing email or trusting client tenant identifiers.

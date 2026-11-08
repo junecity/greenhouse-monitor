@@ -16,8 +16,11 @@ data class RegisteredDevice(
     val id: String,
     val tenantId: String,
     val role: CloudDeviceRole,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val greenhouseId: String? = null
 )
+
+data class CloudAccount(val accountId: String, val tenantId: String)
 
 data class CloudGreenhouse(val id: String, val tenantId: String)
 
