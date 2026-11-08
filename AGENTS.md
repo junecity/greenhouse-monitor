@@ -119,6 +119,14 @@
 2. Configure an approved Google Play product/service account in Secrets Manager and validate purchase lifecycle notifications before activating production billing.
 3. Validate the physical A71/Pixel camera/network/background/reboot matrix and create a release-signed Play build.
 
+## Administrator customer registration visibility (2026-11-08)
+
+- The deployed administrator API now treats confirmed identities in the dedicated customer Cognito pool as registered customers immediately, even before the Android app completes `/v1/bootstrap`.
+- Registered-but-unbootstrapped identities appear as `PENDING_SETUP` with `setupComplete: false`. They count toward Total customers but intentionally do not count as Active, Free, Premium, devices, or greenhouses until onboarding completes.
+- Pending registrations are read-only in the portal: account-state and complimentary-entitlement controls remain hidden until the authoritative account/tenant records exist.
+- The administrator Lambda has only `cognito-idp:ListUsers` access to the customer pool for this reconciliation. Existing DynamoDB account records remain authoritative for tenant state, entitlements, devices, and activity.
+- Live deployment verification returned two registered identities, both pending setup, so the overview correctly reports Total customers 2 and Active customers 0. Customer sign-in and role selection are still required to finish setup.
+
 ## Deployment status
 
 - `docs/AWS_DEPLOYMENT.md` is the deployment, cost, rollback, and physical-test checklist.

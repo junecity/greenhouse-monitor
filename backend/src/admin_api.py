@@ -193,19 +193,98 @@ def _safe_device(item: dict, now: int | None = None) -> dict:
     }
 
 
+def customer_identities() -> list[dict]:
+    """Return registered customer identities, including accounts not bootstrapped yet."""
+    if not CUSTOMER_USER_POOL_ID:
+        return []
+    users: list[dict] = []
+    pagination_token = None
+    for _ in range(20):
+        request = {"UserPoolId": CUSTOMER_USER_POOL_ID, "Limit": 60}
+        if pagination_token:
+            request["PaginationToken"] = pagination_token
+        result = cognito.list_users(**request)
+        for user in result.get("Users", []):
+            attributes = {item.get("Name"): item.get("Value") for item in user.get("Attributes", [])}
+            subject = str(attributes.get("sub") or user.get("Username") or "")
+            if not subject:
+                continue
+            created = user.get("UserCreateDate")
+            users.append({
+                "subject": subject,
+                "email": str(attributes.get("email") or "")[:320] or None,
+                "displayName": str(attributes.get("name") or "")[:120] or None,
+                "enabled": bool(user.get("Enabled")),
+                "status": str(user.get("UserStatus") or "UNKNOWN"),
+                "createdAt": int(created.timestamp()) if hasattr(created, "timestamp") else int(created or 0),
+            })
+        pagination_token = result.get("PaginationToken")
+        if not pagination_token:
+            break
+    return users
+
+
+def _pending_customer(identity: dict) -> dict:
+    return {
+        "accountId": f"registration-{identity['subject']}",
+        "tenantId": None,
+        "displayName": identity.get("displayName"),
+        "email": identity.get("email"),
+        "state": "PENDING_SETUP" if identity.get("enabled") else "SUSPENDED",
+        "createdAt": int(identity.get("createdAt", 0)),
+        "plan": "NOT_STARTED",
+        "subscriptionState": "NOT_STARTED",
+        "subscriptionSource": "NONE",
+        "complimentary": False,
+        "expiresAt": None,
+        "setupComplete": False,
+    }
+
+
 def list_customers(query: str = "") -> dict:
     normalized = query.strip().casefold()[:160]
+    accounts = entity_items("ACCOUNT")
+    identities = customer_identities()
     customers = []
-    for item in entity_items("ACCOUNT"):
+    bootstrapped_subjects = set()
+    for item in accounts:
         safe = _safe_account(item)
+        safe["setupComplete"] = True
+        if item.get("cognitoSubject"):
+            bootstrapped_subjects.add(str(item["cognitoSubject"]))
         haystack = " ".join(str(safe.get(key) or "") for key in ("accountId", "displayName", "email")).casefold()
         if not normalized or normalized in haystack:
             customers.append(safe)
+    for identity in identities:
+        if identity["subject"] in bootstrapped_subjects:
+            continue
+        safe = _pending_customer(identity)
+        haystack = " ".join(str(safe.get(key) or "") for key in ("accountId", "displayName", "email")).casefold()
+        if not normalized or normalized in haystack:
+            customers.append(safe)
+    customers.sort(key=lambda item: int(item.get("createdAt", 0)), reverse=True)
     return {"customers": customers, "count": len(customers)}
 
 
 def customer_detail(account_id: str) -> dict:
+    if account_id.startswith("registration-"):
+        subject = account_id.removeprefix("registration-")
+        identity = next((item for item in customer_identities() if item["subject"] == subject), None)
+        if not identity:
+            raise AdminAccessDenied("customer_not_found")
+        customer = _pending_customer(identity)
+        customer["devices"] = []
+        customer["greenhouses"] = []
+        customer["alerts"] = []
+        customer["entitlement"] = _safe_entitlement({
+            "accountId": account_id,
+            "plan": "NOT_STARTED",
+            "state": "NOT_STARTED",
+            "source": "NONE",
+        })
+        return customer
     customer = _safe_account(account_record(account_id))
+    customer["setupComplete"] = True
     inventory = account_items(account_id)
     devices = []
     greenhouse_ids = set()
@@ -290,6 +369,7 @@ def _trend(items: Iterable[dict], predicate=lambda _item: True) -> list[dict]:
 def dashboard() -> dict:
     now = int(time.time())
     accounts = entity_items("ACCOUNT")
+    identities = customer_identities()
     devices = entity_items("DEVICE")
     entitlements = entity_items("ENTITLEMENT")
     sessions = entity_items("STREAM_SESSION")
@@ -299,10 +379,13 @@ def dashboard() -> dict:
     complimentary = [item for item in premium if item.get("source") == "COMPLIMENTARY_BACKEND_GRANT"]
     server_devices = [item for item in safe_devices if item.get("role") == "GREENHOUSE_SERVER" and item.get("enabled")]
     connected_sensors = sum(item.get("sensorCount", 0) for item in safe_devices if item.get("online"))
+    registered_subjects = {item.get("cognitoSubject") for item in accounts if item.get("cognitoSubject")}
+    registered_subjects.update(item["subject"] for item in identities)
+    legacy_accounts = sum(1 for item in accounts if not item.get("cognitoSubject"))
     return {
         "generatedAt": now,
         "metrics": {
-            "totalCustomers": len(accounts),
+            "totalCustomers": len(registered_subjects) + legacy_accounts,
             "activeCustomers": sum(1 for item in accounts if item.get("state", "ACTIVE") == "ACTIVE"),
             "freeAccounts": sum(1 for item in entitlements if item.get("plan", "FREE") == "FREE"),
             "premiumSubscribers": len(premium) - len(complimentary),
@@ -313,7 +396,7 @@ def dashboard() -> dict:
             "activeCameraSessions": len(active_sessions),
         },
         "trends": {
-            "customerGrowth": _trend(accounts),
+            "customerGrowth": _trend(identities or accounts),
             "subscriptions": _trend(entitlements, lambda item: item.get("plan") != "FREE"),
             "reliability": [{
                 "date": _day(now),

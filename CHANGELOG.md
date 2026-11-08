@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Administrator pending-customer visibility
+
+- Fixed the administrator dashboard and customer directory so confirmed customer registrations are visible before Android onboarding creates their account, tenant, and Free-entitlement records. Pending registrations are labeled `PENDING_SETUP` and are not misreported as active or subscribed customers.
+- Added a read-only pending-customer detail state and hid account/entitlement mutations until setup completes. Existing DynamoDB account records remain authoritative after bootstrap.
+- Granted the administrator API least-privilege `cognito-idp:ListUsers` access to the customer pool and deployed the updated Lambda, IAM policy, static portal, and CloudFront invalidation to the development environment.
+- Validation: 50 Python tests and Python compilation passed; 12 portal tests, ESLint, and the production static build passed; SAM validation and CloudFormation lint passed. Live Lambda checks returned two registered customers, both pending setup, with Total customers 2 and Active customers 0. The deployed portal asset contains the pending-setup state and the CloudFront invalidation completed.
+- Limitation: a pending customer becomes Active/Free only after a successful app sign-in and role-selection bootstrap; no customer credentials were accessed during validation.
+
 ## 2026-11-08 — Customer stale-session recovery and Android 2.6.4
 
 - Fixed explicit customer sign-in so it clears any persisted or partial Amplify session before starting a fresh SRP authentication for the entered email. This repairs the state left when identity authentication succeeded before the original account-bootstrap outage was corrected.

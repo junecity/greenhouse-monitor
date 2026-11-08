@@ -123,10 +123,36 @@ class AdminDataTests(unittest.TestCase):
             "displayName": "June Garden", "email": "june@example.test",
             "state": "ACTIVE", "createdAt": 1700000000,
         }]
-        with patch.object(admin_api, "entity_items", return_value=accounts):
+        with patch.object(admin_api, "entity_items", return_value=accounts), \
+             patch.object(admin_api, "customer_identities", return_value=[]):
             result = admin_api.list_customers("garden")
         self.assertEqual(1, result["count"])
         self.assertEqual("account-12345678", result["customers"][0]["accountId"])
+
+    def test_customer_directory_includes_confirmed_identity_before_app_setup(self):
+        identity = {
+            "subject": "pending-subject", "email": "pending@example.test",
+            "displayName": None, "enabled": True, "status": "CONFIRMED", "createdAt": 1700000000,
+        }
+        with patch.object(admin_api, "entity_items", return_value=[]), \
+             patch.object(admin_api, "customer_identities", return_value=[identity]):
+            result = admin_api.list_customers("pending@example.test")
+
+        self.assertEqual(1, result["count"])
+        self.assertEqual("PENDING_SETUP", result["customers"][0]["state"])
+        self.assertFalse(result["customers"][0]["setupComplete"])
+
+    def test_pending_customer_detail_has_no_privileged_account_controls(self):
+        identity = {
+            "subject": "pending-subject", "email": "pending@example.test",
+            "displayName": None, "enabled": True, "status": "CONFIRMED", "createdAt": 1700000000,
+        }
+        with patch.object(admin_api, "customer_identities", return_value=[identity]):
+            result = admin_api.customer_detail("registration-pending-subject")
+
+        self.assertFalse(result["setupComplete"])
+        self.assertEqual("NOT_STARTED", result["entitlement"]["plan"])
+        self.assertEqual([], result["devices"])
 
     def test_dashboard_counts_only_backend_records(self):
         now = int(time.time())
@@ -143,6 +169,7 @@ class AdminDataTests(unittest.TestCase):
             "STREAM_SESSION": [{"state": "REQUESTED", "expiresAt": now + 60}],
         }
         with patch.object(admin_api, "entity_items", side_effect=lambda value: data[value]), \
+             patch.object(admin_api, "customer_identities", return_value=[]), \
              patch.object(admin_api, "cost_snapshot", return_value={"status": "UNAVAILABLE"}), \
              patch.object(admin_api, "operation_alarms", return_value=[]):
             result = admin_api.dashboard()

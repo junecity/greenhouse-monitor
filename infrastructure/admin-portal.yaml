@@ -257,6 +257,7 @@ Resources:
             - Sid: AuthorizedCustomerRecoveryAndSuspension
               Effect: Allow
               Action:
+                - cognito-idp:ListUsers
                 - cognito-idp:AdminDisableUser
                 - cognito-idp:AdminEnableUser
                 - cognito-idp:AdminResetUserPassword
