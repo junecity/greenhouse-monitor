@@ -80,11 +80,18 @@
 - These components compile but are not connected to the approved camera UI because the backend does not yet issue signed Kinesis URLs and no AWS stack is deployed. Existing encrypted JPEG viewing remains active.
 - Stage 3/4 verification: Android unit/lint/build passed with 28 JVM tests. Codec and lifecycle behavior are unit-tested; physical A71/Pixel, H.264, direct ICE, TURN, handoff, and AWS signaling remain unverified.
 
+## Sensor provider boundary
+
+- `sensors/SensorProvider.kt` defines vendor-neutral devices, measurements, optional battery, connectivity, timestamps, and credential types.
+- `GoveeSensorProvider` adapts the existing H5179 API to this boundary. The ViewModel and background worker use the provider while mapping back to the unchanged UI/history model.
+- No Junecity hardware protocol is assumed or implemented.
+- Stage 7 verification: Android unit/lint/build passed with 30 JVM tests; live Govee API regression requires a real API key and H5179 devices.
+
 ## Next implementation steps
 
 1. Complete one-time pairing persistence and signed Kinesis WSS/ICE issuance in the backend.
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
-3. Add heartbeat/emergency Android worker and provider-neutral sensor interfaces.
+3. Add heartbeat/emergency Android worker and customer-authenticated cloud gateway.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
