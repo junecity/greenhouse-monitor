@@ -2,6 +2,17 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Private administration portal development deployment
+
+- Deployed the reviewed application-table update, restricted bootstrap-role update, and dedicated `greenhouse-monitor-admin-dev` stack in `us-east-1`; all stacks completed successfully without replacing application data resources.
+- Published the static portal through private encrypted S3 and CloudFront, configured the live API/Cognito callback origins, and created one enabled Owner account with mandatory first-password change and TOTP MFA. No password or personal address was committed.
+- Fixed the managed CloudFront cache-policy identifier, least-privilege deployment permissions, Next.js static hydration CSP, browser-storage fallback, bounded session initialization, and Cognito discovery CORS incompatibility using explicit authorization-code + PKCE endpoints.
+- Normalized the API Gateway access-log destination ARN so CloudFormation drift detection compares the exact stored ARN instead of the log-group wildcard form.
+- The admin GSI is active. Its migration dry run reported zero eligible records, so no data backfill write was needed. Failed pre-creation stack attempts were rolled back only after retained resources were verified empty; no customer records were removed.
+- Live validation: portal 200 over HTTPS with HSTS/CSP/frame/nosniff/no-store headers and AES256 origin storage; sign-in redirected to the dedicated Cognito hosted login with PKCE; anonymous API access returned 401; direct Owner-role Lambda dashboard smoke returned 200 with actual empty-state metrics, Cost Explorer status `AVAILABLE`, and healthy alarm data; the existing application Lambda rejected an unauthenticated smoke event with 403 and no import error.
+- Automated validation: 60 Android JVM tests with zero failures/errors, Android lint/debug assembly, 45 Python tests, Python 3.13 compilation, 11 portal tests, ESLint, production static build, zero-vulnerability npm audit, all three CloudFormation lints, and SAM account-aware validation/build passed. Final drift checks report all three deployed stacks `IN_SYNC`; the pushed CI result is recorded with the deployment commit after completion.
+- Remaining external gates: the Owner must use the emailed temporary password to set a permanent password and enroll TOTP before authenticated browser actions can be tested; Google Play credentials/billing and physical A71/Pixel streaming/background/network tests remain unconfigured or unverified.
+
 ## 2026-11-08 — Private administration portal
 
 - Added a separate responsive Next.js/TypeScript administrator portal with real-data overview charts, customer search/detail, device health, subscription management, streaming operations metadata, cost visibility, audit history, support tools, and explicit loading/empty/error states. The approved Android monitoring screens were not modified.

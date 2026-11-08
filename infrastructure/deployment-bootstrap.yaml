@@ -6,6 +6,10 @@ Parameters:
     Type: String
     Default: greenhouse-monitor-dev
     AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
+  AdminStackName:
+    Type: String
+    Default: greenhouse-monitor-admin-dev
+    AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
 
 Resources:
   ArtifactBucket:
@@ -61,16 +65,24 @@ Resources:
                   - cloudwatch:UntagResource
                   - cognito-idp:CreateUserPool
                   - cognito-idp:CreateUserPoolClient
+                  - cognito-idp:CreateUserPoolDomain
+                  - cognito-idp:CreateGroup
                   - cognito-idp:DeleteUserPool
                   - cognito-idp:DeleteUserPoolClient
+                  - cognito-idp:DeleteUserPoolDomain
+                  - cognito-idp:DeleteGroup
                   - cognito-idp:DescribeUserPool
                   - cognito-idp:DescribeUserPoolClient
+                  - cognito-idp:DescribeUserPoolDomain
+                  - cognito-idp:GetGroup
                   - cognito-idp:GetUserPoolMfaConfig
+                  - cognito-idp:ListGroups
                   - cognito-idp:DescribeRiskConfiguration
                   - cognito-idp:SetRiskConfiguration
                   - cognito-idp:SetUserPoolMfaConfig
                   - cognito-idp:TagResource
                   - cognito-idp:UntagResource
+                  - cognito-idp:UpdateGroup
                   - cognito-idp:UpdateUserPool
                   - cognito-idp:UpdateUserPoolClient
                   - dynamodb:CreateTable
@@ -164,6 +176,55 @@ Resources:
                   - apigateway:TagResource
                   - apigateway:UntagResource
                 Resource: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}::/*
+              - Sid: ManageAdminPortalBuckets
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:GetAccelerateConfiguration
+                  - s3:GetBucketCORS
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:GetBucketVersioning
+                  - s3:GetLifecycleConfiguration
+                  - s3:ListBucket
+                  - s3:PutBucketCORS
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketTagging
+                  - s3:PutBucketVersioning
+                  - s3:PutLifecycleConfiguration
+                Resource: !Sub arn:${AWS::Partition}:s3:::${AdminStackName}-*
+              - Sid: ManageAdminPortalCloudFront
+                Effect: Allow
+                Action:
+                  - cloudfront:CreateDistribution
+                  - cloudfront:CreateFunction
+                  - cloudfront:CreateOriginAccessControl
+                  - cloudfront:CreateResponseHeadersPolicy
+                  - cloudfront:DeleteDistribution
+                  - cloudfront:DeleteFunction
+                  - cloudfront:DeleteOriginAccessControl
+                  - cloudfront:DeleteResponseHeadersPolicy
+                  - cloudfront:DescribeFunction
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:GetFunction
+                  - cloudfront:GetOriginAccessControl
+                  - cloudfront:GetResponseHeadersPolicy
+                  - cloudfront:ListTagsForResource
+                  - cloudfront:PublishFunction
+                  - cloudfront:TagResource
+                  - cloudfront:UntagResource
+                  - cloudfront:UpdateDistribution
+                  - cloudfront:UpdateFunction
+                  - cloudfront:UpdateOriginAccessControl
+                  - cloudfront:UpdateResponseHeadersPolicy
+                Resource: '*'
               - Sid: UseServerlessTransform
                 Effect: Allow
                 Action: cloudformation:CreateChangeSet
@@ -185,6 +246,25 @@ Resources:
                   - iam:TagRole
                   - iam:UntagRole
                 Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackName}-*
+              - Sid: ManageAdminPortalExecutionRoles
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                # SAM truncates long generated role names before appending its hash, so scope
+                # to the dedicated admin product prefix instead of the full stack name.
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/greenhouse-monitor-admin-*
               - Sid: ReadBuildArtifacts
                 Effect: Allow
                 Action: s3:GetObject
@@ -224,6 +304,7 @@ Resources:
                   - cloudformation:UpdateStack
                 Resource:
                   - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ApplicationStackName}/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AdminStackName}/*
                   - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
               - Sid: ValidateTemplates
                 Effect: Allow

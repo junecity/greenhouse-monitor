@@ -212,7 +212,9 @@ Resources:
               issuer: !Sub https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${AdminUserPool}
               audience: [!Ref AdminUserPoolClient]
       AccessLogSettings:
-        DestinationArn: !GetAtt AdminApiAccessLogs.Arn
+        # LogGroup.Arn includes a trailing :* wildcard, while API Gateway stores
+        # the group ARN itself. Build the exact ARN to keep drift checks stable.
+        DestinationArn: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AdminApiAccessLogs}
         Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLength":"$context.responseLength","authorizerError":"$context.authorizer.error"}'
       Tags:
         Product: GreenhouseMonitor
@@ -355,7 +357,10 @@ Resources:
         Name: !Sub greenhouse-monitor-${EnvironmentName}-admin-security
         SecurityHeadersConfig:
           ContentSecurityPolicy:
-            ContentSecurityPolicy: !Sub "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://${AdminApi}.execute-api.${AWS::Region}.${AWS::URLSuffix} https://${AdminHostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com; form-action 'self' https://${AdminHostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+            # Next.js static export emits small inline hydration bootstraps. S3/CloudFront
+            # cannot attach a per-request nonce, so inline scripts are permitted while all
+            # script origins remain restricted to this private distribution.
+            ContentSecurityPolicy: !Sub "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://${AdminApi}.execute-api.${AWS::Region}.${AWS::URLSuffix} https://${AdminHostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com; form-action 'self' https://${AdminHostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
             Override: true
           ContentTypeOptions:
             Override: true
@@ -410,7 +415,9 @@ Resources:
           AllowedMethods: [GET, HEAD, OPTIONS]
           CachedMethods: [GET, HEAD, OPTIONS]
           Compress: true
-          CachePolicyId: 413f1603-6d27-4d1a-9a60-9b4be2ad3c11
+          # AWS managed CachingDisabled policy. The portal and API use no-store
+          # semantics so administrator data is never retained by CloudFront.
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
           ResponseHeadersPolicyId: !Ref PortalSecurityHeaders
           FunctionAssociations:
             - EventType: viewer-request

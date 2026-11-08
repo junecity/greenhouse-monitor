@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { User, UserManager, WebStorageStateStore } from "oidc-client-ts";
+import { InMemoryWebStorage, User, UserManager, WebStorageStateStore } from "oidc-client-ts";
 import { portalConfig } from "@/lib/config";
 
 type AuthState = "loading" | "authenticated" | "unauthenticated" | "configuration-error";
@@ -21,14 +21,32 @@ function userManager(): UserManager | null {
   const config = portalConfig();
   if (!config || typeof window === "undefined") return null;
   if (!manager) {
+    let browserStore: Storage;
+    try {
+      browserStore = window.sessionStorage || new InMemoryWebStorage();
+    } catch {
+      browserStore = new InMemoryWebStorage();
+    }
     manager = new UserManager({
       authority: config.authority,
+      // Cognito's issuer discovery document does not include browser CORS headers.
+      // Supplying the same stack-owned endpoints avoids a cross-origin discovery
+      // fetch while preserving authorization-code + PKCE and issuer validation.
+      metadata: {
+        issuer: config.authority,
+        authorization_endpoint: `${config.hostedUiBaseUrl}/oauth2/authorize`,
+        token_endpoint: `${config.hostedUiBaseUrl}/oauth2/token`,
+        userinfo_endpoint: `${config.hostedUiBaseUrl}/oauth2/userInfo`,
+        end_session_endpoint: `${config.hostedUiBaseUrl}/logout`,
+        jwks_uri: `${config.authority}/.well-known/jwks.json`,
+        revocation_endpoint: `${config.hostedUiBaseUrl}/oauth2/revoke`,
+      },
       client_id: config.clientId,
       redirect_uri: config.redirectUri,
       post_logout_redirect_uri: config.logoutUri,
       response_type: "code",
       scope: "openid email profile",
-      userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+      userStore: new WebStorageStateStore({ store: browserStore }),
       automaticSilentRenew: false,
       loadUserInfo: false,
     });
@@ -43,10 +61,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const instance = userManager();
     if (!instance) return;
+    let active = true;
+    const timeout = window.setTimeout(() => {
+      if (active) setState("unauthenticated");
+    }, 2000);
     void instance.getUser().then((value) => {
+      if (!active) return;
+      window.clearTimeout(timeout);
       if (value && !value.expired) { setUser(value); setState("authenticated"); }
       else { setUser(null); setState("unauthenticated"); }
-    }).catch(() => setState("unauthenticated"));
+    }).catch(() => {
+      if (active) { window.clearTimeout(timeout); setState("unauthenticated"); }
+    });
+    return () => { active = false; window.clearTimeout(timeout); };
   }, []);
 
   const signIn = useCallback(async () => {

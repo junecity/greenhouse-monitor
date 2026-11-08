@@ -115,9 +115,9 @@
 
 ## Next implementation steps
 
-1. Deploy the private admin stack only after its change set, IAM scope, hostname, and Cognito Plus costs are approved; then create the initial Owner through `AdminCreateUser` and require TOTP enrollment.
-2. Configure the approved Google Play product/service account in Secrets Manager and validate purchase lifecycle notifications before activating production billing.
-3. Validate the deployed stack and physical A71/Pixel camera/network/background/reboot matrix.
+1. Have the initial Owner complete the emailed temporary-password change and mandatory TOTP enrollment, then run authenticated role/mutation/audit checks.
+2. Configure an approved Google Play product/service account in Secrets Manager and validate purchase lifecycle notifications before activating production billing.
+3. Validate the physical A71/Pixel camera/network/background/reboot matrix and create a release-signed Play build.
 
 ## Deployment status
 
@@ -143,12 +143,15 @@
 ## Private admin portal (2026-11-08)
 
 - `admin-portal/` is a separate Next.js 16/React 19 static web application. It does not modify the frozen Android monitoring interface and has no public registration route or customer camera-view capability.
-- `infrastructure/admin-portal.yaml` defines an approval-gated private S3/CloudFront site, dedicated Cognito Plus administrator pool with mandatory TOTP MFA, Owner/Support/ReadOnly groups, JWT-authorized HTTP API, admin Lambda, login audit trigger, throttling, security headers, retention controls, and alarms. It has not been deployed.
+- `infrastructure/admin-portal.yaml` defines the deployed private S3/CloudFront site, dedicated Cognito Plus administrator pool with mandatory TOTP MFA, Owner/Support/ReadOnly groups, JWT-authorized HTTP API, admin Lambda, login audit trigger, throttling, security headers, retention controls, and alarms.
 - `backend/src/admin_api.py` enforces roles server-side and exposes real-data dashboard, customer, entitlement, greenhouse/device, streaming-metadata, cost, alarm, audit, and support APIs. Destructive actions are confirmed in the portal and audited; secrets, passwords, purchase tokens, camera keys, and video are never returned.
 - Customer account/entitlement/device/greenhouse/session records now maintain an `adminEntity`/`adminSort` GSI projection. `scripts/backfill-admin-index.py` is dry-run by default and excludes pairing secrets and alert content.
 - Google Play purchase verification is backend-only through an optional Secrets Manager service-account credential. The Android API can submit a purchase token for verification; only the backend writes authoritative Premium state. Production billing and credentials remain approval-gated and unconfigured.
-- Local verification passed: 45 Python tests, Python 3.13 compilation, 11 portal tests, ESLint, static production build, zero npm audit findings, both CloudFormation lints, and the unchanged Android regression suite with 60 JVM tests/lint/debug assembly. SAM CLI was unavailable, so `sam validate`/`sam build`, live Cognito/TOTP, Google Play, CloudFront, Cost Explorer, and mobile-browser checks remain deployment-gated.
-- Deployment, migration, rollback, cost assumptions, and owner-creation steps are in `docs/ADMIN_PORTAL.md`. Never deploy this stack or the main-table GSI change without a reviewed change set.
+- The `greenhouse-monitor-admin-dev` stack is live in `us-east-1`; CloudFront serves the portal, the admin API denies unauthenticated requests, and the initial enabled Owner is in only the Owner group with `FORCE_CHANGE_PASSWORD` status. The temporary password was delivered by Cognito and is not stored in the repository.
+- Portal authentication uses authorization-code + PKCE with explicit stack-provided Cognito endpoints because the issuer discovery response lacks browser CORS headers. It falls back to in-memory storage when session storage is unavailable and times out safely instead of hanging.
+- Live verification passed for HTTPS/security headers, AES256 S3 storage, CloudFront delivery, sign-in redirect, Lambda dashboard execution, tag-filtered Cost Explorer access, API denial, and the existing application Lambda import/runtime path. The admin GSI is active, the dry-run backfill found zero eligible existing records, and the bootstrap/application/admin stacks all report `IN_SYNC` drift status.
+- Current test checkpoint: 45 Python tests, Python 3.13 compilation, 11 portal tests, ESLint, static production build, zero npm audit findings, SAM validation/build, CloudFormation lint, and prior unchanged Android regression with 60 JVM tests/lint/debug assembly. Authenticated portal/API mutations, TOTP, Google Play, and physical mobile-browser checks still require the Owner's first sign-in and/or external credentials/devices.
+- Deployment, migration, rollback, costs, live endpoints, and owner-first-sign-in steps are in `docs/ADMIN_PORTAL.md`. Future deployments must continue using reviewed change sets and the restricted CloudFormation service role.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
