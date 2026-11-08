@@ -38,6 +38,16 @@ class AuthenticatedCloudGateway(
         )
     )
 
+    suspend fun devices(): List<AccountDevice> {
+        val json = request("GET", "/v1/devices")
+        val values = json.optJSONArray("devices") ?: JSONArray()
+        return (0 until values.length()).map { CloudJsonCodec.accountDevice(values.getJSONObject(it)) }
+    }
+
+    suspend fun setDeviceEnabled(deviceId: String, enabled: Boolean): RegisteredDevice = CloudJsonCodec.device(
+        request("POST", "/v1/devices/${segment(deviceId)}/state", JSONObject().put("enabled", enabled))
+    )
+
     override suspend fun createPairingChallenge(serverDeviceId: String) =
         CloudJsonCodec.pairing(request("POST", "/v1/devices/${segment(serverDeviceId)}/pairing-challenges"))
 
@@ -122,6 +132,10 @@ class AuthenticatedCloudGateway(
 }
 
 object CloudJsonCodec {
+    fun accountDevice(json: JSONObject) = AccountDevice(
+        device(json), json.getLong("createdAtEpochMs")
+    )
+
     fun alert(json: JSONObject) = MonitoringAlert(
         id = json.getString("id"),
         greenhouseId = json.optString("greenhouseId"),

@@ -181,12 +181,50 @@ class BootstrapApiTests(unittest.TestCase):
 
         self.assertEqual(201, result["statusCode"])
         self.assertEqual(1, len(fake.client.transactions))
-        self.assertEqual(2, len(fake.client.transactions[0]))
+        self.assertEqual(3, len(fake.client.transactions[0]))
         device = fake.client.transactions[0][0]["Put"]["Item"]
         greenhouse = fake.client.transactions[0][1]["Put"]["Item"]
         self.assertEqual({"S": "tenant-existing"}, device["tenantId"])
         self.assertEqual({"S": "account-existing"}, greenhouse["accountId"])
         self.assertEqual({"S": "greenhouse-12345678"}, device["greenhouseId"])
+
+    def test_device_inventory_and_revocation_are_account_scoped(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("DEVICE#viewer-12345678", "METADATA"): {
+                "deviceId": "viewer-12345678", "accountId": "account-existing",
+                "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True,
+                "greenhouseId": "greenhouse-12345678",
+            },
+            ("DEVICE#viewer-87654321", "METADATA"): {
+                "deviceId": "viewer-87654321", "accountId": "account-existing",
+                "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True,
+                "greenhouseId": "greenhouse-12345678",
+            },
+        })
+        fake.query_items = [{
+            "deviceId": "viewer-87654321", "accountId": "account-existing",
+            "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True,
+            "greenhouseId": "greenhouse-12345678", "createdAt": 100,
+        }]
+        app.table = fake
+
+        listing = app.handler(event("/v1/devices", method="GET", device_id="viewer-12345678"), None)
+        changed = app.handler(event(
+            "/v1/devices/viewer-87654321/state", device_id="viewer-12345678",
+            body={"enabled": False},
+        ), None)
+
+        self.assertEqual(200, listing["statusCode"])
+        self.assertEqual(["viewer-87654321"], [item["id"] for item in json.loads(listing["body"])["devices"]])
+        self.assertEqual(200, changed["statusCode"])
+        self.assertFalse(json.loads(changed["body"])["enabled"])
+        transaction = fake.client.transactions[0]
+        self.assertEqual(2, len(transaction))
+        self.assertEqual({"S": "DEVICE#viewer-87654321"}, transaction[0]["Update"]["Key"]["pk"])
+        self.assertEqual({"S": "ACCOUNT#account-existing"}, transaction[1]["Update"]["Key"]["pk"])
 
     def test_server_registration_rejects_header_body_mismatch(self):
         fake = FakeTable({

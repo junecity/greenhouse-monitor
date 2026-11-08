@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS account device inventory and revocation
+
+- Added transactionally maintained account-device index records for Server and paired Viewer phones.
+- Added Cognito-authenticated, tenant/account-conditioned device listing and enable/revoke endpoints with revocation time and requesting-device audit fields.
+- Added Android gateway contracts for device inventory and state changes without modifying the approved monitoring screens.
+- Revoked devices are denied alert access and pairing, and remote streaming loses authorization when the current renewable lease expires.
+- Tests: 57 Android JVM tests, Android lint, debug assembly, 26 Python tests, and Python byte-compilation passed. Live DynamoDB transactions, Cognito authorization, revocation propagation timing, and account-administration UI remain unverified or intentionally outside the frozen five-screen interface.
+
 ## 2026-11-08 — AWS operational safeguards and template validation
 
 - Added HTTP API throttling, explicit 30-day Lambda log retention, an encrypted operations SNS topic, and CloudWatch alarms for API errors/throttling/5xx responses and heartbeat-monitor errors.

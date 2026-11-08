@@ -52,6 +52,16 @@ def _serialized(item: dict) -> dict:
     return {key: serializer.serialize(value) for key, value in item.items()}
 
 
+def account_device_record(device: dict) -> dict:
+    return {
+        "pk": f"ACCOUNT#{device['accountId']}", "sk": f"DEVICE#{device['deviceId']}",
+        "deviceId": device["deviceId"], "tenantId": device["tenantId"],
+        "accountId": device["accountId"], "role": device["role"],
+        "greenhouseId": device.get("greenhouseId"), "enabled": bool(device.get("enabled")),
+        "createdAt": int(device["createdAt"]),
+    }
+
+
 def bootstrap_account(event):
     subject = subject_from(event)
     existing = table.get_item(Key={"pk": f"USER#{subject}", "sk": "ACCOUNT"}, ConsistentRead=True).get("Item")
@@ -119,6 +129,11 @@ def register_server_device(event, principal: Principal):
                 ":device": serializer.serialize(device_id),
             },
         }},
+        {"Put": {
+            "TableName": table.name, "Item": _serialized(account_device_record(device)),
+            "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
+            "ExpressionAttributeValues": {":tenant": tenant_value, ":account": account_value},
+        }},
     ])
     return response(201, {
         "id": device_id, "greenhouseId": greenhouse_id,
@@ -178,13 +193,83 @@ def claim_pairing_challenge(event, principal: Principal):
         "role": "VIEWER_CLIENT", "enabled": True,
         "pairedServerDeviceId": challenge["serverDeviceId"], "greenhouseId": server.get("greenhouseId"), "createdAt": now,
     }
-    table.put_item(
-        Item=device,
-        ConditionExpression="attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:viewerRole)",
-        ExpressionAttributeNames={"#role": "role"},
-        ExpressionAttributeValues={":tenant": principal.tenant_id, ":account": principal.account_id, ":viewerRole": "VIEWER_CLIENT"},
-    )
+    table.meta.client.transact_write_items(TransactItems=[
+        {"Put": {
+            "TableName": table.name, "Item": _serialized(device),
+            "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:viewerRole)",
+            "ExpressionAttributeNames": {"#role": "role"},
+            "ExpressionAttributeValues": _serialized({":tenant": principal.tenant_id, ":account": principal.account_id, ":viewerRole": "VIEWER_CLIENT"}),
+        }},
+        {"Put": {
+            "TableName": table.name, "Item": _serialized(account_device_record(device)),
+            "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
+            "ExpressionAttributeValues": _serialized({":tenant": principal.tenant_id, ":account": principal.account_id}),
+        }},
+    ])
     return response(201, {"id": viewer_device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "enabled": True, "greenhouseId": server.get("greenhouseId")})
+
+
+def require_enabled_requester(principal: Principal) -> dict:
+    requester = get_owned("DEVICE", principal.device_id, principal.tenant_id)
+    if not requester.get("enabled") or requester.get("accountId") != principal.account_id:
+        raise AccessDenied("device_disabled")
+    return requester
+
+
+def list_devices(principal: Principal):
+    require_enabled_requester(principal)
+    result = table.query(
+        KeyConditionExpression=Key("pk").eq(f"ACCOUNT#{principal.account_id}") & Key("sk").begins_with("DEVICE#"),
+        ConsistentRead=True,
+    )
+    devices = [{
+        "id": item["deviceId"], "tenantId": item["tenantId"], "role": item["role"],
+        "enabled": bool(item.get("enabled")), "greenhouseId": item.get("greenhouseId"),
+        "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
+    } for item in result.get("Items", []) if item.get("tenantId") == principal.tenant_id]
+    return response(200, {"devices": sorted(devices, key=lambda value: value["createdAtEpochMs"])})
+
+
+def set_device_state(event, principal: Principal, device_id: str):
+    require_device_id(device_id)
+    require_enabled_requester(principal)
+    target = get_owned("DEVICE", device_id, principal.tenant_id)
+    if target.get("accountId") != principal.account_id:
+        raise AccessDenied("not_found")
+    body = json.loads(event.get("body") or "{}")
+    if not isinstance(body.get("enabled"), bool):
+        return response(400, {"error": "enabled_boolean_required"})
+    enabled = body["enabled"]
+    now = int(datetime.now(timezone.utc).timestamp())
+    expression = "SET enabled=:enabled"
+    if enabled:
+        expression += " REMOVE revokedAt, revokedBy"
+    else:
+        expression += ", revokedAt=:now, revokedBy=:requester"
+    values = {":enabled": enabled, ":tenant": principal.tenant_id, ":account": principal.account_id}
+    if not enabled:
+        values[":now"] = now
+        values[":requester"] = principal.device_id
+    table.meta.client.transact_write_items(TransactItems=[
+        {"Update": {
+            "TableName": table.name,
+            "Key": _serialized({"pk": f"DEVICE#{device_id}", "sk": "METADATA"}),
+            "UpdateExpression": expression,
+            "ConditionExpression": "tenantId=:tenant AND accountId=:account",
+            "ExpressionAttributeValues": _serialized(values),
+        }},
+        {"Update": {
+            "TableName": table.name,
+            "Key": _serialized({"pk": f"ACCOUNT#{principal.account_id}", "sk": f"DEVICE#{device_id}"}),
+            "UpdateExpression": expression,
+            "ConditionExpression": "tenantId=:tenant AND accountId=:account",
+            "ExpressionAttributeValues": _serialized(values),
+        }},
+    ])
+    return response(200, {
+        "id": device_id, "tenantId": principal.tenant_id, "role": target["role"],
+        "enabled": enabled, "greenhouseId": target.get("greenhouseId"),
+    })
 
 
 def create_stream_session(event, principal: Principal, greenhouse_id: str):
@@ -441,6 +526,10 @@ def handler(event, _context):
         principal = principal_from(event)
         if method == "POST" and parts == ["v1", "devices"]:
             return register_server_device(event, principal)
+        if method == "GET" and parts == ["v1", "devices"]:
+            return list_devices(principal)
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "state":
+            return set_device_state(event, principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "pairing-challenges":
             return create_pairing_challenge(principal, parts[2])
         if method == "POST" and parts == ["v1", "pairing-challenges", "claim"]:

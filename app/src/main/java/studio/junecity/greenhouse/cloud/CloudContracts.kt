@@ -20,6 +20,11 @@ data class RegisteredDevice(
     val greenhouseId: String? = null
 )
 
+data class AccountDevice(
+    val device: RegisteredDevice,
+    val createdAtEpochMs: Long
+)
+
 data class CloudAccount(val accountId: String, val tenantId: String)
 
 data class CloudGreenhouse(val id: String, val tenantId: String)

@@ -50,6 +50,21 @@ class MonitoringAlertsTest {
         assertEquals(120_000L, CloudAlertPollingPolicy.delayMs(9))
     }
 
+    @Test fun accountDeviceCodecIncludesRevocationStateAndCreationTime() {
+        val value = CloudJsonCodec.accountDevice(JSONObject("""{
+            "id":"viewer-12345678",
+            "tenantId":"tenant-12345678",
+            "role":"VIEWER_CLIENT",
+            "enabled":false,
+            "greenhouseId":"greenhouse-12345678",
+            "createdAtEpochMs":123000
+        }"""))
+
+        assertEquals(CloudDeviceRole.ViewerClient, value.device.role)
+        assertFalse(value.device.enabled)
+        assertEquals(123_000L, value.createdAtEpochMs)
+    }
+
     private class RecordingGateway : GreenhouseCloudGateway {
         var heartbeat: GreenhouseHeartbeat? = null
         override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat) { this.heartbeat = heartbeat }
