@@ -112,6 +112,7 @@
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
 - Final credential-free checkpoint: 43 Android JVM tests, lint, debug assembly, 12 Python policy tests, and Python compilation passed. Production completion is blocked by external deployment/configuration and physical-device validation, not additional safe offline implementation.
+- `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory

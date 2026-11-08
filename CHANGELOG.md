@@ -2,6 +2,12 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Reproducible CI verification
+
+- Added a least-permission GitHub Actions workflow for Android unit tests, lint, debug assembly, backend tests, Python compilation, APK checksumming, and short-lived artifact upload.
+- No credentials or deployment actions are present in the workflow.
+- Local validation remains the latest executed result until GitHub completes the first workflow run.
+
 ## 2026-11-08 — Final credential-free checkpoint
 
 - Completed every safe offline component through the cloud activation boundary without changing the approved five-screen design or deploying billable services.
