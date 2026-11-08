@@ -54,6 +54,12 @@ class AuthenticatedCloudGateway(
     suspend fun pendingRemoteStreamingSession(serverDeviceId: String): RemoteStreamingSession? =
         requestOrNull("GET", "/v1/devices/${segment(serverDeviceId)}/stream-sessions")?.let(CloudJsonCodec::streamingSession)
 
+    suspend fun refreshRemoteStreamingConnection(sessionId: String): RemoteStreamingSession =
+        CloudJsonCodec.streamingSession(request("POST", "/v1/stream-sessions/${segment(sessionId)}/connection"))
+
+    suspend fun renewRemoteStreamingLease(sessionId: String): Long =
+        request("POST", "/v1/stream-sessions/${segment(sessionId)}/lease").getLong("authorizationExpiresAtEpochMs")
+
     override suspend fun endRemoteStreamingSession(sessionId: String) {
         requestOrNull("DELETE", "/v1/stream-sessions/${segment(sessionId)}")
     }
@@ -141,7 +147,8 @@ object CloudJsonCodec {
                 val item = ice.getJSONObject(index); val urls = item.getJSONArray("urls")
                 IceServer((0 until urls.length()).map(urls::getString), item.optString("username").ifBlank { null }, item.optString("credential").ifBlank { null })
             },
-            json.getLong("expiresAtEpochMs"), json.getString("signalingWebSocketUrl"), json.optNullableString("peerClientId")
+            json.getLong("expiresAtEpochMs"), json.getString("signalingWebSocketUrl"), json.optNullableString("peerClientId"),
+            json.optLongOrNull("authorizationExpiresAtEpochMs")
         )
     }
 

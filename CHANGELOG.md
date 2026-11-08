@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Renewable, revocation-aware streaming sessions
+
+- Extended authorized viewing sessions to a four-hour absolute cap while adding a two-minute backend authorization lease.
+- Viewer phones revalidate tenant/device/Premium authorization every minute; Server phones independently enforce but cannot extend the lease, limiting abandoned or modified-client streaming.
+- Added participant-only connection refresh endpoints that issue fresh role-scoped SigV4 WebSocket and AWS ICE/TURN data before bounded reconnect attempts.
+- Kept immediate non-cancellable session termination on viewer exit/background and preserved the on-demand camera lifecycle.
+- Tests: 54 Android JVM tests, Android lint, debug assembly, 20 Python tests, and Python byte-compilation passed. Live lease timing, revocation, long-duration streaming, and reconnects remain unverified until deployment and device testing.
+
 ## 2026-11-08 — On-demand AWS WebRTC camera activation
 
 - Connected enrolled Viewer camera panels to backend-authorized Kinesis WebRTC while retaining the existing local encrypted-JPEG fallback.

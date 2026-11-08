@@ -30,10 +30,12 @@ class CloudJsonCodecTest {
         val json = JSONObject().put("id", "session-1").put("greenhouseId", "greenhouse-1")
             .put("serverDeviceId", "server-1").put("viewerDeviceId", "viewer-1")
             .put("signalingChannelArn", "arn:test").put("region", "us-east-1").put("expiresAtEpochMs", 5000)
+            .put("authorizationExpiresAtEpochMs", 4000)
             .put("signalingWebSocketUrl", "wss://example.test").put("peerClientId", JSONObject.NULL)
             .put("iceServers", JSONArray().put(JSONObject().put("urls", JSONArray().put("stun:test"))))
         val value = CloudJsonCodec.streamingSession(json)
         assertEquals(listOf("stun:test"), value.iceServers.single().urls)
+        assertEquals(4000L, value.authorizationExpiresAtEpochMs)
         assertNull(value.peerClientId)
     }
 }

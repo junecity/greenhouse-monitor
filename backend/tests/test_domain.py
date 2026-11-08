@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 
-from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, is_missing_heartbeat, pairing_code_hash, require_device_id, require_resource_id, signaling_channel_name
+from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, is_missing_heartbeat, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id, signaling_channel_name
 
 
 class AuthorizationTests(unittest.TestCase):
@@ -95,6 +95,17 @@ class SignalingChannelTests(unittest.TestCase):
         self.assertNotEqual(first, signaling_channel_name("Dev Environment", "Greenhouse - North"))
         self.assertRegex(first, r"^[a-z0-9_-]+$")
         self.assertLessEqual(len(first), 256)
+
+
+class StreamingLeaseTests(unittest.TestCase):
+    def test_active_authorization_lease_is_accepted(self):
+        require_active_session_lease({"state": "CONNECTING", "expiresAt": 500, "authorizationExpiresAt": 200}, 100)
+
+    def test_expired_authorization_or_absolute_session_is_denied(self):
+        with self.assertRaisesRegex(AccessDenied, "authorization_expired"):
+            require_active_session_lease({"state": "CONNECTING", "expiresAt": 500, "authorizationExpiresAt": 100}, 100)
+        with self.assertRaisesRegex(AccessDenied, "session_expired"):
+            require_active_session_lease({"state": "CONNECTING", "expiresAt": 100, "authorizationExpiresAt": 200}, 100)
 
 
 if __name__ == "__main__":

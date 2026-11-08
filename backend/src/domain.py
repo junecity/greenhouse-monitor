@@ -111,6 +111,15 @@ def authorize_stream(principal: Principal, viewer: dict, server: dict, greenhous
     require_remote_video_entitlement(principal, entitlement, now_epoch)
 
 
+def require_active_session_lease(session: dict, now_epoch: int) -> None:
+    if session.get("state") == "ENDED":
+        raise AccessDenied("session_ended")
+    if int(session.get("expiresAt", 0)) <= now_epoch:
+        raise AccessDenied("session_expired")
+    if int(session.get("authorizationExpiresAt", 0)) <= now_epoch:
+        raise AccessDenied("authorization_expired")
+
+
 def is_missing_heartbeat(device: dict, cutoff_epoch: int) -> bool:
     """Pure predicate used by the scheduled monitor and its unit tests."""
     return bool(device.get("enabled")) and int(device.get("lastHeartbeat", 0)) < cutoff_epoch

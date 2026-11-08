@@ -114,8 +114,18 @@ fun CloudWebRtcFeed(
             }
             try {
                 var attempt = 0
-                while (attempt < 5 && System.currentTimeMillis() < session.expiresAtEpochMs) {
+                var activeSession = session
+                while (attempt < 5 && System.currentTimeMillis() < activeSession.expiresAtEpochMs) {
                     val disconnected = CompletableDeferred<String>()
+                    val leaseJob = launch {
+                        while (true) {
+                            delay(60_000L)
+                            if (runCatching { api.renewRemoteStreamingLease(activeSession.id) }.isFailure) {
+                                disconnected.complete("authorization_lease_failed")
+                                break
+                            }
+                        }
+                    }
                     val peer = LibWebRtcPeer(context, WebRtcRole.Viewer, KinesisWebSocketSignaling(), object : WebRtcPeerEvents {
                         override fun onConnected() {
                             callbackScope.launch {
@@ -128,10 +138,11 @@ fun CloudWebRtcFeed(
                         override fun onRemoteVideo(track: VideoTrack) { callbackScope.launch { remoteTrack = track } }
                     })
                     try {
-                        peer.connect(session)
-                        val remaining = (session.expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(1L)
+                        peer.connect(activeSession)
+                        val remaining = (activeSession.expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(1L)
                         if (withTimeoutOrNull(remaining) { disconnected.await() } == null) break
                     } finally {
+                        leaseJob.cancel()
                         peer.close()
                         connected = false
                         remoteTrack = null
@@ -140,6 +151,7 @@ fun CloudWebRtcFeed(
                     if (attempt < 5) {
                         message = "Reconnecting secure live view…"
                         delay((1_000L shl attempt.coerceAtMost(4)).coerceAtMost(15_000L))
+                        activeSession = runCatching { api.refreshRemoteStreamingConnection(activeSession.id) }.getOrElse { break }
                     }
                 }
                 if (!connected) {

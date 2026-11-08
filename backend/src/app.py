@@ -12,12 +12,15 @@ from boto3.dynamodb.conditions import Key
 from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
-from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_device_id, require_resource_id
+from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 serializer = TypeSerializer()
+PENDING_SESSION_SECONDS = 300
+AUTHORIZATION_LEASE_SECONDS = 120
+MAXIMUM_SESSION_SECONDS = 4 * 60 * 60
 
 
 def response(status: int, body: dict):
@@ -200,14 +203,16 @@ def create_stream_session(event, principal: Principal, greenhouse_id: str):
         "pk": f"STREAM_SESSION#{session_id}", "sk": "METADATA", "tenantId": principal.tenant_id,
         "accountId": principal.account_id, "greenhouseId": greenhouse_id,
         "viewerDeviceId": principal.device_id, "serverDeviceId": server["deviceId"],
-        "signalingChannelArn": channel_arn, "state": "REQUESTED", "createdAt": now, "expiresAt": now + 300,
+        "signalingChannelArn": channel_arn, "state": "REQUESTED", "createdAt": now,
+        "authorizationExpiresAt": now + AUTHORIZATION_LEASE_SECONDS,
+        "expiresAt": now + MAXIMUM_SESSION_SECONDS,
     }
     table.put_item(Item=item, ConditionExpression="attribute_not_exists(pk)")
     table.put_item(Item={
         "pk": f"DEVICE#{server['deviceId']}", "sk": f"STREAM_SESSION#{session_id}",
         "tenantId": principal.tenant_id, "sessionId": session_id, "greenhouseId": greenhouse_id,
         "viewerDeviceId": principal.device_id, "signalingChannelArn": channel_arn,
-        "createdAt": now, "expiresAt": now + 300,
+        "createdAt": now, "expiresAt": now + PENDING_SESSION_SECONDS,
     })
     return response(201, stream_response(item, viewer_connection, None))
 
@@ -218,8 +223,61 @@ def stream_response(item: dict, connection: dict, peer_client_id: str | None):
         "serverDeviceId": item["serverDeviceId"], "viewerDeviceId": item["viewerDeviceId"],
         "signalingChannelArn": item["signalingChannelArn"], "region": os.environ.get("AWS_REGION", "us-east-1"),
         "iceServers": connection["iceServers"], "expiresAtEpochMs": int(item["expiresAt"]) * 1000,
+        "authorizationExpiresAtEpochMs": int(item.get("authorizationExpiresAt", 0)) * 1000,
         "signalingWebSocketUrl": connection["signalingWebSocketUrl"], "peerClientId": peer_client_id,
     }
+
+
+def participating_session(principal: Principal, session_id: str) -> dict:
+    session = table.get_item(Key={"pk": f"STREAM_SESSION#{session_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    if not session or session.get("tenantId") != principal.tenant_id:
+        raise AccessDenied("not_found")
+    if principal.device_id not in {session.get("viewerDeviceId"), session.get("serverDeviceId")}:
+        raise AccessDenied("device_mismatch")
+    return session
+
+
+def authorize_or_check_session_lease(principal: Principal, session: dict, now: int, extend_viewer: bool) -> int:
+    if int(session.get("expiresAt", 0)) <= now or session.get("state") == "ENDED":
+        raise AccessDenied("session_expired")
+    if principal.device_id == session.get("viewerDeviceId"):
+        viewer = get_owned("DEVICE", principal.device_id, principal.tenant_id)
+        greenhouse = get_owned("GREENHOUSE", session["greenhouseId"], principal.tenant_id)
+        server = get_owned("DEVICE", session["serverDeviceId"], principal.tenant_id)
+        entitlement_item = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {})
+        authorize_stream(principal, viewer, server, greenhouse, entitlement_item, now)
+        authorization_expires_at = now + AUTHORIZATION_LEASE_SECONDS
+        if extend_viewer:
+            table.update_item(
+                Key={"pk": session["pk"], "sk": session["sk"]},
+                UpdateExpression="SET authorizationExpiresAt=:expires",
+                ConditionExpression="#state<>:ended AND expiresAt>:now",
+                ExpressionAttributeNames={"#state": "state"},
+                ExpressionAttributeValues={":expires": authorization_expires_at, ":ended": "ENDED", ":now": now},
+            )
+            session["authorizationExpiresAt"] = authorization_expires_at
+        return authorization_expires_at
+    require_active_session_lease(session, now)
+    return int(session["authorizationExpiresAt"])
+
+
+def renew_stream_lease(principal: Principal, session_id: str):
+    now = int(datetime.now(timezone.utc).timestamp())
+    session = participating_session(principal, session_id)
+    expires_at = authorize_or_check_session_lease(principal, session, now, extend_viewer=True)
+    return response(200, {"authorizationExpiresAtEpochMs": expires_at * 1000})
+
+
+def refresh_stream_connection(principal: Principal, session_id: str):
+    now = int(datetime.now(timezone.utc).timestamp())
+    session = participating_session(principal, session_id)
+    authorize_or_check_session_lease(principal, session, now, extend_viewer=True)
+    is_viewer = principal.device_id == session.get("viewerDeviceId")
+    role = "VIEWER" if is_viewer else "MASTER"
+    client_id = principal.device_id if is_viewer else None
+    peer_client_id = None if is_viewer else session["viewerDeviceId"]
+    connection = connection_config(session["signalingChannelArn"], role, client_id)
+    return response(200, stream_response(session, connection, peer_client_id))
 
 
 def pending_stream_session(principal: Principal, server_device_id: str):
@@ -245,11 +303,7 @@ def pending_stream_session(principal: Principal, server_device_id: str):
 
 
 def end_stream_session(principal: Principal, session_id: str):
-    session = table.get_item(Key={"pk": f"STREAM_SESSION#{session_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
-    if not session or session.get("tenantId") != principal.tenant_id:
-        raise AccessDenied("not_found")
-    if principal.device_id not in {session.get("viewerDeviceId"), session.get("serverDeviceId")}:
-        raise AccessDenied("device_mismatch")
+    session = participating_session(principal, session_id)
     now = int(datetime.now(timezone.utc).timestamp())
     table.update_item(Key={"pk": session["pk"], "sk": session["sk"]}, UpdateExpression="SET #state=:state, endedAt=:now", ExpressionAttributeNames={"#state": "state"}, ExpressionAttributeValues={":state": "ENDED", ":now": now})
     table.delete_item(Key={"pk": f"DEVICE#{session['serverDeviceId']}", "sk": f"STREAM_SESSION#{session_id}"})
@@ -305,6 +359,10 @@ def handler(event, _context):
             return pending_stream_session(principal, parts[2])
         if method == "DELETE" and len(parts) == 3 and parts[:2] == ["v1", "stream-sessions"]:
             return end_stream_session(principal, parts[2])
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "stream-sessions"] and parts[3] == "lease":
+            return renew_stream_lease(principal, parts[2])
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "stream-sessions"] and parts[3] == "connection":
+            return refresh_stream_connection(principal, parts[2])
         if method == "GET" and parts == ["v1", "entitlement"]:
             return entitlement(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":

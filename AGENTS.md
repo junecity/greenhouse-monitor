@@ -90,6 +90,7 @@
 - Kinesis single-master negotiation is viewer-initiated. Incoming sender IDs are retained so master answers/ICE target only the requesting viewer; backend session payloads now assign peer IDs by role.
 - Viewer rendering uses `SurfaceViewRenderer` with the existing pinch-zoom/pan interaction, is scoped to the visible lifecycle, retries peer/network failures up to five times, and ends the backend session in a non-cancellable cleanup. A process-wide camera lease prevents CameraX and libwebrtc from opening the front camera simultaneously.
 - Configured AWS builds keep the legacy encrypted JPEG server available only on the LAN and disable UPnP/public router mapping. Unconfigured local-only builds retain the previous migration behavior.
+- Streaming sessions now have a four-hour absolute cap plus a two-minute renewable authorization lease. The Viewer revalidates its backend Premium entitlement every minute; the Server independently checks that lease, so abandoned/modified/revoked viewers stop receiving video. Both roles request fresh SigV4 connection/ICE data before reconnecting after the original 299-second URL ages.
 
 ## Sensor provider boundary
 
@@ -108,9 +109,9 @@
 
 ## Next implementation steps
 
-1. Add renewable streaming leases/connection URLs so long viewing sessions and late reconnects remain authorized beyond the initial signed URL lifetime.
-2. Add tenant-aware AWS alert delivery/acknowledgement and approved reboot recovery.
-3. Add backend-verified subscription lifecycle handling after Google Play product/service-account configuration is approved.
+1. Add tenant-aware AWS alert delivery/acknowledgement and approved reboot recovery.
+2. Add backend-verified subscription lifecycle handling after Google Play product/service-account configuration is approved.
+3. Validate the deployed stack and physical A71/Pixel camera/network/background matrix.
 
 ## Deployment status
 
@@ -118,7 +119,7 @@
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
-- AWS camera activation checkpoint: 54 Android JVM tests, lint, and debug assembly passed. Cognito, QR pairing, Kinesis signaling, TURN/direct ICE, camera handoff, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
+- Renewable streaming checkpoint: 54 Android JVM tests, lint, debug assembly, 20 Python tests, and Python compilation passed. Cognito, QR pairing, Kinesis signaling, TURN/direct ICE, camera handoff, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 
 ## Project memory / handoff log

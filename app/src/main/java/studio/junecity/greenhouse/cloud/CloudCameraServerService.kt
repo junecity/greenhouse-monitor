@@ -87,8 +87,18 @@ class CloudCameraServerService : Service() {
         val profile = CameraStreamProfile.from(AppPreferencesStore(this).load().cameraStreamQuality)
         try {
             var attempt = 0
-            while (scope.isActive && attempt < MAX_ATTEMPTS && System.currentTimeMillis() < session.expiresAtEpochMs) {
+            var activeSession = session
+            while (scope.isActive && attempt < MAX_ATTEMPTS && System.currentTimeMillis() < activeSession.expiresAtEpochMs) {
                 val disconnected = CompletableDeferred<String>()
+                val leaseJob = scope.launch {
+                    while (isActive) {
+                        delay(LEASE_RENEWAL_INTERVAL_MS)
+                        if (runCatching { gateway.renewRemoteStreamingLease(activeSession.id) }.isFailure) {
+                            disconnected.complete("authorization_lease_failed")
+                            break
+                        }
+                    }
+                }
                 val peer = LibWebRtcPeer(this, WebRtcRole.Master, KinesisWebSocketSignaling(), object : WebRtcPeerEvents {
                     override fun onConnected() = showNotification("Encrypted live view active", cameraActive = true)
                     override fun onDisconnected(reason: String) { disconnected.complete(reason) }
@@ -96,17 +106,21 @@ class CloudCameraServerService : Service() {
                 }, profile)
                 currentPeer = peer
                 try {
-                    peer.connect(session)
-                    val remaining = (session.expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(1L)
+                    peer.connect(activeSession)
+                    val remaining = (activeSession.expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(1L)
                     if (withTimeoutOrNull(remaining) { disconnected.await() } == null) break
                 } catch (_: Throwable) {
                     // A bounded retry below handles camera, signaling, and network-transition failures.
                 } finally {
+                    leaseJob.cancel()
                     peer.close()
                     if (currentPeer === peer) currentPeer = null
                 }
                 attempt++
-                if (attempt < MAX_ATTEMPTS) delay((1_000L shl attempt.coerceAtMost(4)).coerceAtMost(15_000L))
+                if (attempt < MAX_ATTEMPTS) {
+                    delay((1_000L shl attempt.coerceAtMost(4)).coerceAtMost(15_000L))
+                    activeSession = runCatching { gateway.refreshRemoteStreamingConnection(activeSession.id) }.getOrElse { break }
+                }
             }
         } finally {
             withContext(NonCancellable) { runCatching { gateway.endRemoteStreamingSession(session.id) } }
@@ -129,6 +143,7 @@ class CloudCameraServerService : Service() {
         private const val CHANNEL = "greenhouse_cloud_camera"
         private const val NOTIFICATION_ID = 4173
         private const val POLL_INTERVAL_MS = 5_000L
+        private const val LEASE_RENEWAL_INTERVAL_MS = 60_000L
         private const val MAX_ATTEMPTS = 5
         fun sync(context: Context, enabled: Boolean) {
             val intent = Intent(context, CloudCameraServerService::class.java)
