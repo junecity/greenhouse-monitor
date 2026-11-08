@@ -94,14 +94,15 @@
 
 - `cloud/MonitoringAlerts.kt` keeps critical-temperature and server-offline events separate from ordinary informational notification preferences and defines an authenticated heartbeat reporter boundary.
 - The scheduled backend scans sharded heartbeat records, paginates results, atomically deduplicates an offline incident, and publishes one internal SNS event. A fresh authenticated server heartbeat clears the incident marker.
-- This is a foundation, not an end-user alarm guarantee. Customer push delivery, acknowledgement synchronization, a foreground server service, Do Not Disturb behavior, and physical Android background testing remain incomplete.
+- `CloudHeartbeatService` is a non-exported, user-visible special-use foreground service. In server mode with a valid encrypted cloud session it reports cached sensor/critical health every minute and applies bounded retries; it stops when the token expires or the phone changes to viewer mode.
+- This is not an end-user alarm guarantee. Cognito refresh, reboot start, customer push delivery, acknowledgement synchronization, Play special-use review, Do Not Disturb behavior, and physical Android background testing remain incomplete.
 - Stage 6 verification: 8 Python policy tests and Python compilation passed. After rebasing the pre-existing premium-access scaffold, Android unit/lint/build passed with 37 JVM tests.
 
 ## Next implementation steps
 
 1. Add Cognito in-app sign-up/sign-in/refresh and use it to populate the encrypted cloud session.
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
-3. Add the foreground heartbeat service and tenant-aware push/acknowledgement worker.
+3. Add tenant-aware push/acknowledgement delivery and approved reboot recovery.
 
 ## Deployment status
 

@@ -23,8 +23,8 @@ The Android WebRTC peer, signaling client, HTTPS cloud gateway, and encrypted to
 7. Validate server-side Kinesis allocation, endpoint signing, ICE retrieval, and termination; then add production quotas, metrics, and audit retention.
 8. Validate the implemented single-use hashed pairing flow and add device-list/revocation endpoints.
 9. Configure Google Play products only after approval. Verify purchase tokens through the Play Developer API and process Real-time Developer Notifications; never accept a client entitlement flag.
-10. Configure FCM/APNs-style customer delivery separately from the internal SNS topic, with device-token rotation and tenant-scoped acknowledgement.
-11. Run the physical test matrix on the Galaxy A71 and Pixel 10 across same-LAN, separate Wi-Fi, cellular, TURN-only, public-IP change, lock/background, server restart, and AWS failure conditions.
+10. Configure FCM-style customer delivery separately from the internal SNS topic, with device-token rotation and tenant-scoped acknowledgement.
+11. Review the Android special-use foreground-service declaration against current Play policy and run the physical test matrix on the Galaxy A71 and Pixel 10 across same-LAN, separate Wi-Fi, cellular, TURN-only, public-IP change, lock/background, battery optimization, server restart, and AWS failure conditions.
 12. Confirm rollback: leave the encrypted JPEG/local path enabled until WebRTC passes; keep UPnP disabled unless explicitly needed for the legacy test path.
 
 ## Deployment commands after approval
