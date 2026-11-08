@@ -83,7 +83,7 @@ UPnP must be disabled by default after WebRTC verification and removed only afte
 ## Phase 1 delivered
 - `RemoteCameraAccessPolicy.kt`: pure entitlement decision logic for future UI/service integration.
 - `RemoteCameraAccessPolicyTest.kt`: local/free/premium/complimentary/expired/unverified cases.
-- **Not delivered:** authenticated AWS backend, Play Billing integration, signaling/TURN credentials, WebRTC sender/receiver, UI integration, or deployed infrastructure.
+- Later phases added the authenticated backend contracts, signed signaling/TURN issuance, WebRTC sender/receiver, cloud gateway, and heartbeat runtime. Still not delivered or activated: Cognito onboarding/refresh, verified Play Billing lifecycle, FCM alert delivery, approved-screen WebRTC activation, deployed infrastructure, release signing, or physical-device verification.
 
 The sensor path now uses a provider-neutral boundary. This is intentionally independent of remote streaming, so future BLE or local-Wi-Fi Junecity providers can continue local monitoring even when AWS is unavailable.
 

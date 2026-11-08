@@ -50,7 +50,7 @@
 - Local history uses SQLite. Background refresh uses WorkManager's 15-minute minimum.
 - Server camera capture uses CameraX and `CameraFrameHub`. Existing viewer transport polls AES-256-GCM encrypted JPEG frames from `CameraStreamServer` using a QR-distributed token/key.
 - `CameraStreamServer` currently attempts UPnP mapping. This is migration-only and must not be treated as the commercial remote architecture.
-- No customer identity, backend tenant isolation, verified subscription entitlement, heartbeat backend, or deployed AWS WebRTC channel exists yet.
+- Customer identity/tenant/entitlement contracts, heartbeat backend, and WebRTC channel/session code exist, but no AWS stack, Cognito application, Play product, or live signaling channel has been deployed.
 
 ## Validated external constraints
 
@@ -110,7 +110,8 @@
 - `docs/AWS_DEPLOYMENT.md` is the approval-gated deployment, cost, rollback, and physical-test checklist.
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
-- Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains the universal WebRTC native libraries). SHA-256 at the post-rebase 2026-11-08 checkpoint: `acbecc053421b70607946ee206c46e6ec081bd69fe29fbab6c819ef797884ae7`.
+- Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
+- Final credential-free checkpoint: 43 Android JVM tests, lint, debug assembly, 12 Python policy tests, and Python compilation passed. Production completion is blocked by external deployment/configuration and physical-device validation, not additional safe offline implementation.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory

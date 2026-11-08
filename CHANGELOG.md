@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Final credential-free checkpoint
+
+- Completed every safe offline component through the cloud activation boundary without changing the approved five-screen design or deploying billable services.
+- Final tests: 43 Android JVM tests, Android lint, debug assembly, 12 Python policy tests, Python byte-compilation, and diff checks passed.
+- Debug APK SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
+- External gates remain: approved AWS dev deployment, Cognito and Play/FCM configuration, release signing, and Galaxy A71/Pixel 10 network/background/camera validation.
+
 ## 2026-11-08 — Correct Kinesis single-master negotiation
 
 - Corrected WebRTC negotiation so the viewer creates the offer and the greenhouse master answers it.
