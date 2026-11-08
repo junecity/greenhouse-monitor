@@ -8,9 +8,10 @@ No AWS resources have been deployed from this repository. The SAM template is a 
 - JWT-authorized API Gateway HTTP API with access logging.
 - Two reserved-concurrency Lambda functions for tenant APIs and scheduled heartbeat monitoring.
 - Encrypted, point-in-time-recoverable, on-demand DynamoDB table with TTL and a sharded heartbeat index.
-- Encrypted SNS internal critical-alert topic and one-minute EventBridge schedule.
+- Encrypted SNS internal critical-alert and operations topics, one-minute EventBridge schedule, bounded retries, and an encrypted dead-letter queue.
+- Thirty-day API/Lambda log retention, API throttling, and CloudWatch alarms for API errors/throttling/5xx responses, heartbeat-monitor errors, and dead-lettered checks.
 
-The Android WebRTC peer, signaling client, HTTPS cloud gateway, and encrypted token/config store are present. The backend contains account-scoped pairing plus authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, and session termination, with the corresponding undeployed IAM actions. Cognito onboarding/token refresh, subscription verification, end-user push delivery, and alert acknowledgement remain incomplete. Do not connect the approved camera screen to this backend until the stack is validated in development and physical-device tests pass.
+The Android WebRTC peer, signaling client, HTTPS cloud gateway, encrypted token/config store, Cognito onboarding/token refresh, account-scoped QR pairing, AWS alert polling, local high-priority notification, and alert acknowledgement paths are present. The backend contains authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, session termination, alert persistence, and acknowledgement with the corresponding undeployed IAM actions. Google Play subscription verification and live AWS/device validation remain incomplete. Keep the legacy local camera path available until the AWS path passes development and physical-device tests.
 
 ## Approval checklist before deployment
 
@@ -18,12 +19,12 @@ The Android WebRTC peer, signaling client, HTTPS cloud gateway, and encrypted to
 2. Review Cognito Plus pricing. Threat protection requires Plus; change this only through a documented security decision.
 3. Establish separate `dev`, `staging`, and `production` stacks, budgets, cost-anomaly alerts, and resource tags.
 4. Create a least-privilege deployment role; do not use an administrator credential in CI or the Android app.
-5. Install AWS SAM CLI and run `sam validate --lint -t infrastructure/template.yaml` with the intended account and Region. SAM validation was not available in the current environment.
+5. Run `cfn-lint infrastructure/template.yaml` and install AWS SAM CLI to run `sam validate --lint -t infrastructure/template.yaml` with the intended account and Region. `cfn-lint` 1.46.0 passes locally; SAM CLI remains unavailable in the current environment.
 6. Add backend integration tests against an isolated local/emulated or dev table, including conditional writes, pagination, throttling, and tenant denial.
 7. Validate server-side Kinesis allocation, endpoint signing, ICE retrieval, and termination; then add production quotas, metrics, and audit retention.
-8. Validate the implemented single-use hashed pairing flow and add device-list/revocation endpoints.
+8. Validate the implemented single-use hashed pairing flow; add device-list/revocation administration before a commercial launch.
 9. Configure Google Play products only after approval. Verify purchase tokens through the Play Developer API and process Real-time Developer Notifications; never accept a client entitlement flag.
-10. Configure FCM-style customer delivery separately from the internal SNS topic, with device-token rotation and tenant-scoped acknowledgement.
+10. Subscribe an approved AWS-native operations destination to the operations topic. If SMS/email/voice escalation is approved, route it through dedicated tenant-aware AWS notification workers; do not expose the internal topics directly to arbitrary customers. Android currently polls its Cognito-authorized alert inbox about once per minute and does not use Firebase.
 11. Review the Android special-use foreground-service declaration against current Play policy and run the physical test matrix on the Galaxy A71 and Pixel 10 across same-LAN, separate Wi-Fi, cellular, TURN-only, public-IP change, lock/background, battery optimization, server restart, and AWS failure conditions.
 12. Confirm rollback: leave the encrypted JPEG/local path enabled until WebRTC passes; keep UPnP disabled unless explicitly needed for the legacy test path.
 
@@ -47,6 +48,7 @@ The design is usage-based, but it is not zero-cost:
 - One server heartbeat per minute is about 43,200 API calls, Lambda invocations, and DynamoDB writes per 30-day month. A one-minute scheduled monitor adds another 43,200 Lambda invocations and about 691,200 sharded index queries before retries/pagination.
 - Cognito Plus has no MAU free tier; the template deliberately selects Plus because enforced threat protection requires it.
 - API Gateway, Lambda, DynamoDB on-demand, CloudWatch Logs/X-Ray, SNS, KMS requests, and data transfer add usage-based charges. Email/SMS/voice escalation is not included and would add provider charges.
+- The operations alarms, SQS dead-letter queue, and 30-day log retention add small usage-based charges; subscribe an operations destination after deployment or alarm state changes will have no human recipient.
 
 For planning, calculate at least three scenarios (pilot, 1,000 customers, peak incident) in the AWS Pricing Calculator using measured TURN percentage, session duration, heartbeat volume, authentication MAUs, log retention, and data transfer. Set budgets before creating the stack. Prices can change; the AWS pricing pages are authoritative.
 

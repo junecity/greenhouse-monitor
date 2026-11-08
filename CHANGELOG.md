@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS operational safeguards and template validation
+
+- Added HTTP API throttling, explicit 30-day Lambda log retention, an encrypted operations SNS topic, and CloudWatch alarms for API errors/throttling/5xx responses and heartbeat-monitor errors.
+- Added bounded EventBridge retries, an encrypted heartbeat dead-letter queue, and an alarm for exhausted scheduled checks.
+- Added `cfn-lint` to backend development dependencies and CI so the transformed SAM template is checked without AWS credentials.
+- Updated deployment guidance to describe the implemented Cognito onboarding, WebRTC, AWS alert inbox/acknowledgement, AWS-only Android polling, operations-topic subscription, and remaining deployment gates accurately.
+- Tests: `cfn-lint` 1.46.0 passed for `infrastructure/template.yaml`; 25 Python tests and Python byte-compilation passed. AWS SAM CLI/account-aware validation and live alarm delivery remain unverified because no AWS stack is deployed.
+
 ## 2026-11-08 — AWS-only alert delivery and reboot recovery
 
 - Added account/tenant-isolated DynamoDB alerts for server-offline, sensor-communication, and critical-temperature incidents with 90-day TTL retention.

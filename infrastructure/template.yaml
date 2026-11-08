@@ -111,6 +111,9 @@ Resources:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: !Ref EnvironmentName
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 40
+        ThrottlingRateLimit: 20
       CorsConfiguration:
         AllowHeaders: [authorization, content-type, x-greenhouse-device-id]
         AllowMethods: [GET, POST, DELETE]
@@ -133,8 +136,17 @@ Resources:
       LogGroupName: !Sub /aws/greenhouse-monitor/${EnvironmentName}/api
       RetentionInDays: 30
 
+  ApiFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/greenhouse-monitor-${EnvironmentName}-api
+      RetentionInDays: 30
+
   ApiFunction:
     Type: AWS::Serverless::Function
+    DependsOn: ApiFunctionLogGroup
     Properties:
       FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-api
       CodeUri: ../backend/src/
@@ -168,8 +180,30 @@ Resources:
       TopicName: !Sub greenhouse-monitor-${EnvironmentName}-critical-alerts
       KmsMasterKeyId: alias/aws/sns
 
+  OperationsAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub greenhouse-monitor-${EnvironmentName}-operations
+      KmsMasterKeyId: alias/aws/sns
+
+  HeartbeatMonitorDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub greenhouse-monitor-${EnvironmentName}-heartbeat-dlq
+      KmsMasterKeyId: alias/aws/sqs
+      MessageRetentionPeriod: 1209600
+
+  HeartbeatMonitorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/greenhouse-monitor-${EnvironmentName}-heartbeat-monitor
+      RetentionInDays: 30
+
   HeartbeatMonitorFunction:
     Type: AWS::Serverless::Function
+    DependsOn: HeartbeatMonitorLogGroup
     Properties:
       FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-heartbeat-monitor
       CodeUri: ../backend/src/
@@ -188,8 +222,105 @@ Resources:
           Type: ScheduleV2
           Properties:
             ScheduleExpression: rate(1 minute)
+            DeadLetterConfig:
+              Arn: !GetAtt HeartbeatMonitorDeadLetterQueue.Arn
+            RetryPolicy:
+              MaximumEventAgeInSeconds: 3600
+              MaximumRetryAttempts: 2
             FlexibleTimeWindow:
               Mode: 'OFF'
+
+  ApiFunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Greenhouse API Lambda returned an error
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsAlertTopic]
+
+  ApiFunctionThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Greenhouse API Lambda is being throttled
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsAlertTopic]
+
+  ApiServerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Greenhouse HTTP API is returning server errors
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref Api
+        - Name: Stage
+          Value: !Ref EnvironmentName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsAlertTopic]
+
+  HeartbeatMonitorErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scheduled greenhouse heartbeat monitor returned an error
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref HeartbeatMonitorFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsAlertTopic]
+
+  HeartbeatDeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: A scheduled heartbeat check exhausted its retries
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt HeartbeatMonitorDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsAlertTopic]
 
 Outputs:
   ApiUrl:
@@ -198,4 +329,7 @@ Outputs:
     Value: !Ref UserPool
   AndroidClientId:
     Value: !Ref AndroidUserPoolClient
+  OperationsAlertTopicArn:
+    Description: Subscribe an approved operations destination after deployment
+    Value: !Ref OperationsAlertTopic
 

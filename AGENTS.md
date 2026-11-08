@@ -113,7 +113,7 @@
 ## Next implementation steps
 
 1. Add backend-verified subscription lifecycle handling after Google Play product/service-account configuration is approved.
-2. Validate the AWS SAM template offline and tighten production alarms/cost controls where possible.
+2. Add authenticated device listing/revocation without altering the approved monitoring screens.
 3. Validate the deployed stack and physical A71/Pixel camera/network/background/reboot matrix.
 
 ## Deployment status
@@ -124,6 +124,7 @@
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
 - AWS alert/recovery checkpoint: 56 Android JVM tests, lint, debug assembly, 25 Python tests, and Python compilation passed. Cognito, QR pairing, Kinesis signaling, TURN/direct ICE, camera handoff, alert delivery, boot recovery, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
+- `cfn-lint` 1.46.0 validates the SAM template locally and in CI. The undeployed template now includes bounded HTTP API throttling, explicit 30-day API/Lambda log retention, encrypted operations SNS and heartbeat DLQ resources, scheduled retry limits, and alarms for API/Lambda/heartbeat failures. SAM CLI/account-aware validation is still pending.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
