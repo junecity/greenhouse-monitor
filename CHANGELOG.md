@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS Cognito Android authentication foundation
+
+- Added programmatic AWS Amplify/Cognito configuration with SRP sign-up, confirmation, sign-in, sign-out, automatically refreshed access-token retrieval, and authenticated cloud-gateway creation.
+- Added strict AWS region, user-pool, app-client, and HTTPS API configuration validation; no AWS credentials or Firebase services are embedded.
+- Enabled Android core-library desugaring required by the pinned Amplify Auth dependency.
+- Tests: 46 Android JVM tests, Android lint, and debug assembly passed. Live Cognito registration and token refresh remain unverified until a development stack is deployed; the onboarding UI and backend account bootstrap are separate next tasks.
+
 ## 2026-11-08 — Reproducible CI verification
 
 - Added a least-permission GitHub Actions workflow for Android unit tests, lint, debug assembly, backend tests, Python compilation, APK checksumming, and short-lived artifact upload.

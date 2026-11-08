@@ -17,6 +17,7 @@ android {
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -24,6 +25,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     val composeBom = platform("androidx.compose:compose-bom:2026.04.01")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.12.3")
@@ -43,6 +45,7 @@ dependencies {
     implementation("com.google.zxing:core:3.5.4")
     implementation("io.github.webrtc-sdk:android:150.7871.04")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.amplifyframework:aws-auth-cognito:2.43.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")

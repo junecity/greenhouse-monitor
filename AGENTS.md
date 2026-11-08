@@ -72,7 +72,8 @@
 - `infrastructure/template.yaml` defines isolated Cognito, HTTP API, DynamoDB, Lambda, SNS, and scheduled heartbeat-monitor resources. It has not been deployed.
 - Stage 2 verification: Android unit/lint/build passed with 19 JVM tests; 6 Python authorization tests and Python byte-compilation passed. SAM CLI was unavailable, so SAM template validation is pending.
 - Backend pairing now issues 256-bit, five-minute challenges, stores only their SHA-256 digest, restricts claims to the authenticated account/tenant and requested viewer device, and atomically rejects reuse/expiry. It does not replace the legacy local QR until account onboarding is connected.
-- `AuthenticatedCloudGateway` now covers entitlement, cloud pairing, heartbeat, viewer-session creation, server polling, and session termination over HTTPS bearer authentication. Cloud API/device/token state is encrypted with Android Keystore; Cognito sign-in/refresh still must populate it.
+- `AuthenticatedCloudGateway` now covers entitlement, cloud pairing, heartbeat, viewer-session creation, server polling, and session termination over HTTPS bearer authentication. Cloud API/device/token state is encrypted with Android Keystore.
+- `CognitoAuthManager` configures Amplify Auth programmatically from AWS deployment outputs, supports SRP sign-up/confirmation/sign-in/sign-out, obtains automatically refreshed Cognito access tokens, and creates the authenticated gateway without embedding AWS credentials. The separate onboarding UI and backend account bootstrap still need to call it.
 
 ## WebRTC migration implementation
 
@@ -101,9 +102,9 @@
 
 ## Next implementation steps
 
-1. Add Cognito in-app sign-up/sign-in/refresh and use it to populate the encrypted cloud session.
+1. Add backend idempotent account/device bootstrap and a separate in-app Cognito onboarding flow that calls the implemented auth manager.
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
-3. Add tenant-aware push/acknowledgement delivery and approved reboot recovery.
+3. Add tenant-aware AWS alert delivery/acknowledgement and approved reboot recovery.
 
 ## Deployment status
 
@@ -111,7 +112,7 @@
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
-- Final credential-free checkpoint: 43 Android JVM tests, lint, debug assembly, 12 Python policy tests, and Python compilation passed. Production completion is blocked by external deployment/configuration and physical-device validation, not additional safe offline implementation.
+- Cognito auth checkpoint: 46 Android JVM tests, lint, and debug assembly passed. AWS account outputs and live Cognito behavior remain unverified because no stack is deployed.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 
 ## Project memory / handoff log
