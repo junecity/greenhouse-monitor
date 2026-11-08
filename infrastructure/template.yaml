@@ -166,7 +166,7 @@ Resources:
         Variables:
           ALERT_TOPIC_ARN: !Ref CriticalAlertTopic
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt CriticalAlertTopic.TopicName

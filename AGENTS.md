@@ -87,11 +87,18 @@
 - No Junecity hardware protocol is assumed or implemented.
 - Stage 7 verification: Android unit/lint/build passed with 30 JVM tests; live Govee API regression requires a real API key and H5179 devices.
 
+## Heartbeat and emergency monitoring
+
+- `cloud/MonitoringAlerts.kt` keeps critical-temperature and server-offline events separate from ordinary informational notification preferences and defines an authenticated heartbeat reporter boundary.
+- The scheduled backend scans sharded heartbeat records, paginates results, atomically deduplicates an offline incident, and publishes one internal SNS event. A fresh authenticated server heartbeat clears the incident marker.
+- This is a foundation, not an end-user alarm guarantee. Customer push delivery, acknowledgement synchronization, a foreground server service, Do Not Disturb behavior, and physical Android background testing remain incomplete.
+- Stage 6 verification: 8 Python policy tests and Python compilation passed. Android revalidation was attempted, but this host currently has no Android SDK configured; the prior 30-test Android checkpoint remains the last successful app build.
+
 ## Next implementation steps
 
 1. Complete one-time pairing persistence and signed Kinesis WSS/ICE issuance in the backend.
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
-3. Add heartbeat/emergency Android worker and customer-authenticated cloud gateway.
+3. Add the customer-authenticated HTTP gateway, foreground heartbeat service, and tenant-aware push/acknowledgement worker.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory

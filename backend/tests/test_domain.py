@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 
-from domain import AccessDenied, Principal, authorize_stream
+from domain import AccessDenied, Principal, authorize_stream, is_missing_heartbeat
 
 
 class AuthorizationTests(unittest.TestCase):
@@ -42,6 +42,15 @@ class AuthorizationTests(unittest.TestCase):
         self.entitlement["features"] = []
         with self.assertRaisesRegex(AccessDenied, "premium_required"):
             authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
+
+class HeartbeatPolicyTests(unittest.TestCase):
+    def test_enabled_stale_server_is_missing(self):
+        self.assertTrue(is_missing_heartbeat({"enabled": True, "lastHeartbeat": 100}, 101))
+
+    def test_disabled_or_recent_server_is_not_missing(self):
+        self.assertFalse(is_missing_heartbeat({"enabled": False, "lastHeartbeat": 100}, 101))
+        self.assertFalse(is_missing_heartbeat({"enabled": True, "lastHeartbeat": 101}, 101))
 
 
 if __name__ == "__main__":

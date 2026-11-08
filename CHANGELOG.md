@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Stage 6 heartbeat and alert foundations
+
+- Added Android-domain heartbeat reporting and explicit critical/high/normal alert policy without modifying the approved monitoring UI.
+- Added paginated, sharded offline detection with atomic incident deduplication; a subsequent authenticated heartbeat clears the incident marker.
+- Expanded backend heartbeat policy coverage and corrected the monitor Lambda's DynamoDB write permission.
+- Tests: 8 Python unit tests and Python compilation passed. Android revalidation was attempted but could not run because the current host has no Android SDK configured; the preceding 30-test Android checkpoint remains the last successful app verification.
+
 ## 2026-11-08 — Stage 7 sensor-provider extensibility
 
 - Added a vendor-neutral sensor device/measurement/provider boundary with optional battery, connectivity, identity, and timestamp fields.

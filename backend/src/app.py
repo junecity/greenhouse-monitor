@@ -72,7 +72,7 @@ def heartbeat(event, principal: Principal, device_id: str):
     shard = sum(device_id.encode()) % 16
     table.update_item(
         Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
-        UpdateExpression="SET lastHeartbeat=:now, heartbeatShard=:shard, sensorConnectionHealthy=:sensor, criticalTemperature=:critical",
+        UpdateExpression="SET lastHeartbeat=:now, heartbeatShard=:shard, sensorConnectionHealthy=:sensor, criticalTemperature=:critical REMOVE offlineAlertedAt",
         ExpressionAttributeValues={":now": now, ":shard": shard, ":sensor": bool(body.get("sensorConnectionHealthy")), ":critical": bool(body.get("criticalTemperature")), ":tenant": principal.tenant_id},
         ConditionExpression="tenantId=:tenant",
     )

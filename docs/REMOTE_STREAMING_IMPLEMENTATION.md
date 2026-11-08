@@ -86,3 +86,5 @@ UPnP must be disabled by default after WebRTC verification and removed only afte
 - **Not delivered:** authenticated AWS backend, Play Billing integration, signaling/TURN credentials, WebRTC sender/receiver, UI integration, or deployed infrastructure.
 
 The sensor path now uses a provider-neutral boundary. This is intentionally independent of remote streaming, so future BLE or local-Wi-Fi Junecity providers can continue local monitoring even when AWS is unavailable.
+
+Heartbeat monitoring is also independent of video. The scheduled backend uses a configurable offline timeout (initially 180 seconds), deduplicates an incident until the server reports again, and emits an internal tenant-tagged event. End-user push routing and acknowledgement are intentionally not represented as complete until authenticated delivery and physical-device background tests exist.
