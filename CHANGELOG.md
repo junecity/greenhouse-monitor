@@ -7,13 +7,14 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Added an approval-gated AWS deployment, rollback, cost, and physical-device validation checklist.
 - Made the Cognito Plus cost/security choice explicit and enabled user-pool deletion protection.
 - No infrastructure was deployed. SAM validation remains pending because the SAM CLI and AWS configuration are not available in the current environment.
+- Final local verification: Android `testDebugUnitTest`, `lintDebug`, and `assembleDebug` passed with 33 JVM tests after provisioning temporary build tooling; 8 Python tests and Python compilation passed. The debug APK SHA-256 is `7486024835ad62ee5bbe9b404cbdee9ae9b1edf09a0d3787f4d2858de489828a`.
 
 ## 2026-11-08 — Stage 6 heartbeat and alert foundations
 
 - Added Android-domain heartbeat reporting and explicit critical/high/normal alert policy without modifying the approved monitoring UI.
 - Added paginated, sharded offline detection with atomic incident deduplication; a subsequent authenticated heartbeat clears the incident marker.
 - Expanded backend heartbeat policy coverage and corrected the monitor Lambda's DynamoDB write permission.
-- Tests: 8 Python unit tests and Python compilation passed. Android revalidation was attempted but could not run because the current host has no Android SDK configured; the preceding 30-test Android checkpoint remains the last successful app verification.
+- Tests: 8 Python unit tests and Python compilation passed. The subsequent final Android checkpoint passed unit tests, lint, and assembly with 33 JVM tests.
 
 ## 2026-11-08 — Stage 7 sensor-provider extensibility
 
