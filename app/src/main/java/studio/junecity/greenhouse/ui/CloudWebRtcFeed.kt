@@ -73,7 +73,7 @@ fun CloudWebRtcFeed(
     val gateway = remember(authResult, enrollment.deviceId) { authResult.getOrNull()?.gateway(enrollment.deviceId) }
     var remoteTrack by remember { mutableStateOf<VideoTrack?>(null) }
     var connected by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf(authResult.exceptionOrNull()?.message ?: "Authorizing secure live view…") }
+    var message by remember { mutableStateOf(if (authResult.isFailure) "Secure live view unavailable" else "Authorizing secure live view…") }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
@@ -130,7 +130,7 @@ fun CloudWebRtcFeed(
                         override fun onConnected() {
                             callbackScope.launch {
                                 connected = true
-                                message = "Encrypted AWS live view"
+                                message = "Secure junecity.studio live view"
                                 onStatus(true, null)
                             }
                         }

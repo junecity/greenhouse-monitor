@@ -1,10 +1,16 @@
 package studio.junecity.greenhouse.cloud
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -30,6 +37,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,12 +95,19 @@ fun CloudOnboardingGate(
     val secure = remember { SecureSettingsStore(context) }
     var enrollment by remember { mutableStateOf(secure.cloudEnrollment()) }
     var sessionValidated by remember { mutableStateOf(false) }
+    val showMonitoring = configurationError == null &&
+        (configuration == null || (enrollment != null && sessionValidated))
+
+    AppOrientation(monitoring = showMonitoring)
 
     when {
-        configurationError != null -> CloudSetupShell("AWS configuration error", configurationError)
-        configuration == null || (enrollment != null && sessionValidated) -> content()
+        configurationError != null -> CloudSetupShell(
+            "Service unavailable",
+            "This build cannot connect to junecity.studio account services."
+        )
+        showMonitoring -> content()
         else -> CloudOnboarding(
-            configuration = configuration,
+            configuration = requireNotNull(configuration),
             secure = secure,
             existingEnrollment = enrollment,
             onAuthenticated = { sessionValidated = true },
@@ -129,7 +144,7 @@ private fun CloudOnboarding(
     var pendingServer by remember { mutableStateOf<CloudEnrollment?>(null) }
     var challenge by remember { mutableStateOf<PairingChallenge?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(authResult.exceptionOrNull()?.message) }
+    var message by remember { mutableStateOf<String?>(authResult.exceptionOrNull()?.let(::accountErrorMessage)) }
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { pairingCodeFromPayload(it) }?.let { pairingCode = it }
@@ -138,7 +153,7 @@ private fun CloudOnboarding(
         scope.launch {
             busy = true
             message = null
-            runCatching { action() }.onFailure { message = it.message ?: "AWS request failed" }
+            runCatching { action() }.onFailure { message = accountErrorMessage(it) }
             busy = false
         }
     }
@@ -151,22 +166,22 @@ private fun CloudOnboarding(
                     gateway.bootstrap()
                     if (existingEnrollment != null) onAuthenticated() else step = OnboardingStep.Mode
                 }
-            }.onFailure { message = it.message }
+            }.onFailure { message = accountErrorMessage(it) }
             busy = false
         }
     }
 
     CloudSetupShell(
         title = when (step) {
-            OnboardingStep.Auth -> "Secure AWS account"
+            OnboardingStep.Auth -> "Your greenhouse account"
             OnboardingStep.Confirm -> "Verify your email"
             OnboardingStep.Mode -> "Choose this phone's role"
             OnboardingStep.ServerPair -> "Pair your client phone"
             OnboardingStep.ClientPair -> "Connect to your greenhouse"
         },
         subtitle = when (step) {
-            OnboardingStep.Auth -> "Sign in or create an account. Identity and remote access are protected by Amazon Cognito."
-            OnboardingStep.Confirm -> "Enter the verification code sent by Amazon Cognito."
+            OnboardingStep.Auth -> "Sign in to monitor your greenhouse securely from this phone or another device."
+            OnboardingStep.Confirm -> "Enter the verification code sent to your email."
             OnboardingStep.Mode -> "Use the older greenhouse phone as Server and your everyday phone as Client."
             OnboardingStep.ServerPair -> "On the client phone, sign in to this same account and scan this one-use code."
             OnboardingStep.ClientPair -> "Scan the QR code shown by the greenhouse Server phone."
@@ -178,19 +193,30 @@ private fun CloudOnboarding(
             OnboardingStep.Auth -> {
                 CloudField(email, { email = it }, "Email", KeyboardType.Email)
                 CloudField(password, { password = it }, "Password", KeyboardType.Password, password = true)
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    PrimaryButton("Sign in", Modifier.weight(1f), busy) {
+                Text(
+                    "For a new account: 12+ characters with uppercase, lowercase, a number, and a symbol.",
+                    color = DashboardTokens.Muted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(bottom = 14.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PrimaryButton("Sign in", Modifier.fillMaxWidth(), busy) {
                         val manager = auth ?: return@PrimaryButton
                         val api = gateway ?: return@PrimaryButton
                         runAction {
                             val result = manager.signIn(email, password)
-                            if (!result.isSignedIn) error("Additional Cognito verification is required")
+                            if (!result.isSignedIn) error("Additional account verification is required")
                             api.bootstrap()
                             if (existingEnrollment != null) onAuthenticated() else step = OnboardingStep.Mode
                         }
                     }
-                    SecondaryButton("Create account", Modifier.weight(1f), busy) {
+                    SecondaryButton("Create account", Modifier.fillMaxWidth(), busy) {
                         val manager = auth ?: return@SecondaryButton
+                        newAccountPasswordIssue(password)?.let {
+                            message = it
+                            return@SecondaryButton
+                        }
                         runAction {
                             val result = manager.signUp(email, password)
                             step = if (result.isSignUpComplete) OnboardingStep.Auth else OnboardingStep.Confirm
@@ -212,8 +238,8 @@ private fun CloudOnboarding(
                 }
             }
             OnboardingStep.Mode -> {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    RoleButton("Greenhouse Server", "Uses this phone's sensors and front camera.", Modifier.weight(1f), busy) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    RoleButton("Greenhouse Server", "Uses this phone's sensors and front camera.", Modifier.fillMaxWidth(), busy) {
                         val api = gateway ?: return@RoleButton
                         runAction {
                             api.registerServerDevice(greenhouseId)
@@ -222,7 +248,7 @@ private fun CloudOnboarding(
                             step = OnboardingStep.ServerPair
                         }
                     }
-                    RoleButton("Viewer Client", "Views your greenhouse locally and remotely.", Modifier.weight(1f), busy) {
+                    RoleButton("Viewer Client", "Views your greenhouse locally and remotely.", Modifier.fillMaxWidth(), busy) {
                         step = OnboardingStep.ClientPair
                     }
                 }
@@ -231,9 +257,9 @@ private fun CloudOnboarding(
                 val current = challenge
                 if (current != null) {
                     val payload = pairingPayload(current.displayCode)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        Image(qrBitmap(payload).asImageBitmap(), "One-use greenhouse pairing QR code", Modifier.size(190.dp).clip(RoundedCornerShape(14.dp)))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val compact = maxWidth < 520.dp
+                        val details: @Composable ColumnScope.() -> Unit = {
                             Text("Expires in 5 minutes", color = DashboardTokens.Green, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             Text(current.displayCode, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             SecondaryButton("Refresh code", Modifier.fillMaxWidth(), busy) {
@@ -244,16 +270,27 @@ private fun CloudOnboarding(
                                 pendingServer?.let(onComplete)
                             }
                         }
+                        if (compact) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                                Image(qrBitmap(payload).asImageBitmap(), "One-use greenhouse pairing QR code", Modifier.size(180.dp).clip(RoundedCornerShape(14.dp)))
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), content = details)
+                            }
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                                Image(qrBitmap(payload).asImageBitmap(), "One-use greenhouse pairing QR code", Modifier.size(190.dp).clip(RoundedCornerShape(14.dp)))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp), content = details)
+                            }
+                        }
                     }
                 }
             }
             OnboardingStep.ClientPair -> {
                 CloudField(pairingCode, { pairingCode = it }, "Pairing code", KeyboardType.Ascii)
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SecondaryButton("Scan QR code", Modifier.weight(1f), busy) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SecondaryButton("Scan QR code", Modifier.fillMaxWidth(), busy) {
                         scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the greenhouse Server code").setBeepEnabled(false).setOrientationLocked(false))
                     }
-                    PrimaryButton("Pair client", Modifier.weight(1f), busy) {
+                    PrimaryButton("Pair client", Modifier.fillMaxWidth(), busy) {
                         val api = gateway ?: return@PrimaryButton
                         runAction {
                             val code = pairingCodeFromPayload(pairingCode) ?: error("Enter or scan a valid pairing code")
@@ -278,34 +315,107 @@ private fun CloudSetupShell(
     content: @Composable ColumnScope.() -> Unit = {}
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().background(DashboardTokens.BackgroundDeep)) {
-        val outer = if (maxWidth < 900.dp) 24.dp else 48.dp
-        Row(Modifier.fillMaxSize().padding(outer), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(.42f).fillMaxHeight().padding(22.dp), verticalArrangement = Arrangement.Center) {
-                Text("Greenhouse Monitor", color = DashboardTokens.Amber, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                Spacer(Modifier.height(14.dp))
-                Text(title, color = Color.White, fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black)
-                if (subtitle.isNotBlank()) {
-                    Spacer(Modifier.height(14.dp))
-                    Text(subtitle, color = DashboardTokens.Muted, fontSize = 17.sp, lineHeight = 23.sp)
-                }
-                Spacer(Modifier.height(18.dp))
-                Text("AWS encrypted • Tenant isolated • No router setup", color = DashboardTokens.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
+        val portrait = maxHeight > maxWidth
+        if (portrait) {
             Column(
-                Modifier.weight(.58f).fillMaxHeight().clip(RoundedCornerShape(28.dp))
-                    .background(DashboardTokens.Panel).border(1.dp, DashboardTokens.PanelEdge, RoundedCornerShape(28.dp))
-                    .padding(30.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                if (busy) CircularProgressIndicator(color = DashboardTokens.Amber, modifier = Modifier.size(34.dp))
-                if (message != null) {
-                    Text(message, color = DashboardTokens.Danger, fontSize = 15.sp, modifier = Modifier.padding(bottom = 12.dp))
-                }
-                content()
+                OnboardingHeader(title, subtitle, Modifier.fillMaxWidth().widthIn(max = 560.dp).padding(horizontal = 6.dp), 34)
+                Spacer(Modifier.height(24.dp))
+                OnboardingCard(Modifier.fillMaxWidth().widthIn(max = 560.dp), busy, message, content)
+            }
+        } else {
+            val outer = if (maxWidth < 900.dp) 24.dp else 48.dp
+            Row(Modifier.fillMaxSize().padding(outer), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                OnboardingHeader(title, subtitle, Modifier.weight(.42f).fillMaxHeight().padding(22.dp), 36)
+                OnboardingCard(Modifier.weight(.58f).fillMaxHeight(), busy, message, content)
             }
         }
     }
 }
+
+@Composable
+private fun OnboardingHeader(title: String, subtitle: String, modifier: Modifier, titleSize: Int) {
+    Column(modifier, verticalArrangement = Arrangement.Center) {
+        Text("junecity.studio", color = DashboardTokens.Amber, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+        Text("Greenhouse Monitor", color = DashboardTokens.Muted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(14.dp))
+        Text(title, color = Color.White, fontSize = titleSize.sp, lineHeight = (titleSize + 4).sp, fontWeight = FontWeight.Black)
+        if (subtitle.isNotBlank()) {
+            Spacer(Modifier.height(14.dp))
+            Text(subtitle, color = DashboardTokens.Muted, fontSize = 17.sp, lineHeight = 23.sp)
+        }
+        Spacer(Modifier.height(18.dp))
+        Text("Private • Encrypted • Easy pairing", color = DashboardTokens.Green, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun OnboardingCard(
+    modifier: Modifier,
+    busy: Boolean,
+    message: String?,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier.clip(RoundedCornerShape(28.dp))
+            .background(DashboardTokens.Panel).border(1.dp, DashboardTokens.PanelEdge, RoundedCornerShape(28.dp))
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        if (busy) CircularProgressIndicator(color = DashboardTokens.Amber, modifier = Modifier.size(34.dp))
+        if (message != null) {
+            Text(message, color = DashboardTokens.Danger, fontSize = 15.sp, lineHeight = 20.sp, modifier = Modifier.padding(bottom = 12.dp))
+        }
+        content()
+    }
+}
+
+@Composable
+private fun AppOrientation(monitoring: Boolean) {
+    val activity = androidx.compose.ui.platform.LocalContext.current.findActivity()
+    val orientation = if (monitoring) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    SideEffect {
+        if (activity != null && activity.requestedOrientation != orientation) activity.requestedOrientation = orientation
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+internal fun accountErrorMessage(error: Throwable): String {
+    val raw = error.message.orEmpty()
+    return when {
+        raw.contains("incorrect username or password", ignoreCase = true) ||
+            raw.contains("user does not exist", ignoreCase = true) ||
+            raw.contains("not authorized", ignoreCase = true) ->
+            "Email or password not recognized. New here? Choose Create account."
+        raw.contains("password given is invalid", ignoreCase = true) ||
+            raw.contains("password", ignoreCase = true) &&
+            (raw.contains("policy", ignoreCase = true) || raw.contains("minimum", ignoreCase = true) || raw.contains("invalid", ignoreCase = true)) ->
+            "Use at least 12 characters with uppercase, lowercase, a number, and a symbol."
+        raw.contains("already exists", ignoreCase = true) ->
+            "An account already exists for this email. Sign in with the password you created."
+        raw.contains("code", ignoreCase = true) &&
+            (raw.contains("expired", ignoreCase = true) || raw.contains("mismatch", ignoreCase = true) || raw.contains("invalid", ignoreCase = true)) ->
+            "That verification code is invalid or expired. Request a new code and try again."
+        raw.contains("network", ignoreCase = true) || raw.contains("timeout", ignoreCase = true) ->
+            "Unable to connect. Check your internet connection and try again."
+        else -> "We couldn't complete that request. Please try again."
+    }
+}
+
+internal fun newAccountPasswordIssue(password: String): String? =
+    if (password.length < 12 || password.none(Char::isUpperCase) || password.none(Char::isLowerCase) ||
+        password.none(Char::isDigit) || password.none { !it.isLetterOrDigit() }) {
+        "Use at least 12 characters with uppercase, lowercase, a number, and a symbol."
+    } else null
 
 @Composable
 private fun CloudField(value: String, onValue: (String) -> Unit, label: String, keyboard: KeyboardType, password: Boolean = false) {

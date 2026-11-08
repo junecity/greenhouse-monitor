@@ -14,7 +14,7 @@
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
-        android:label="Greenhouse Monitor"
+        android:label="junecity.studio"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.GreenhouseMonitor"
         android:supportsRtl="true">
@@ -58,8 +58,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
             android:maxAspectRatio="3.0"
-            android:resizeableActivity="true"
-            android:screenOrientation="sensorLandscape">
+            android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -61,7 +61,7 @@ object CameraStreamServer {
                     val updated = stored.copy(publicHost = null)
                     pairing = updated
                     CameraPairingStore(context).save(updated)
-                    status = Status(true, host, null, "Available on local Wi-Fi · AWS remote access")
+                    status = Status(true, host, null, "Available on local Wi-Fi · Secure remote access")
                 }
             }
         }

@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — junecity.studio portrait account onboarding
+
+- Changed account creation, email verification, role selection, and pairing to a portrait-first responsive flow; the five approved monitoring screens still switch to and remain in sensor landscape.
+- Replaced customer-facing AWS/Cognito references with junecity.studio product language across onboarding, camera status, live view, foreground alert text, and the launcher label. Internal service identifiers and architecture remain unchanged.
+- Added local validation for the deployed 12-character password policy and translated raw identity-provider failures into actionable account, password, verification-code, and network guidance.
+- Bumped the Android test build to version 2.6.2 (version code 10).
+- Validation: 60 JVM tests passed with zero failures/errors; Android lint and debug assembly passed; the configured build cold-launched on the emulator at 1080×2270 portrait; the local monitoring build switched to 2270×1080 landscape. Configured APK SHA-256: `e775b98fb0ff377e85c859593132bfb85e32a79d185226d2c4dbf7d95dfd53ba`. Physical Galaxy/Moto/Pixel typography, account creation, email delivery, and post-confirmation rotation still require device testing.
+
 ## 2026-11-08 — AWS development deployment
 
 - Deployed the dedicated `greenhouse-monitor-deployment-bootstrap` and `greenhouse-monitor-dev` CloudFormation stacks in `us-east-1`; no junecity.studio resources were touched.
