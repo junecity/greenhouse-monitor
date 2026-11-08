@@ -67,7 +67,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-private enum class OnboardingStep { Auth, Confirm, Mode, ServerPair, ClientPair }
+private enum class OnboardingStep { Auth, Confirm, ResetPassword, Mode, ServerPair, ClientPair }
 
 fun pairingCodeFromPayload(payload: String): String? {
     val value = payload.trim()
@@ -175,6 +175,7 @@ private fun CloudOnboarding(
         title = when (step) {
             OnboardingStep.Auth -> "Your greenhouse account"
             OnboardingStep.Confirm -> "Verify your email"
+            OnboardingStep.ResetPassword -> "Reset your password"
             OnboardingStep.Mode -> "Choose this phone's role"
             OnboardingStep.ServerPair -> "Pair your client phone"
             OnboardingStep.ClientPair -> "Connect to your greenhouse"
@@ -182,6 +183,7 @@ private fun CloudOnboarding(
         subtitle = when (step) {
             OnboardingStep.Auth -> "Sign in to monitor your greenhouse securely from this phone or another device."
             OnboardingStep.Confirm -> "Enter the verification code sent to your email."
+            OnboardingStep.ResetPassword -> "Enter the code sent to your email and choose a new password."
             OnboardingStep.Mode -> "Use the older greenhouse phone as Server and your everyday phone as Client."
             OnboardingStep.ServerPair -> "On the client phone, sign in to this same account and scan this one-use code."
             OnboardingStep.ClientPair -> "Scan the QR code shown by the greenhouse Server phone."
@@ -223,6 +225,20 @@ private fun CloudOnboarding(
                             message = if (result.isSignUpComplete) "Account created. Sign in to continue." else null
                         }
                     }
+                    SecondaryButton("Forgot password?", Modifier.fillMaxWidth(), busy) {
+                        val manager = auth ?: return@SecondaryButton
+                        if (email.isBlank()) {
+                            message = "Enter your email, then choose Forgot password."
+                            return@SecondaryButton
+                        }
+                        runAction {
+                            manager.resetPassword(email)
+                            password = ""
+                            confirmationCode = ""
+                            step = OnboardingStep.ResetPassword
+                            message = "We sent a password reset code to your email."
+                        }
+                    }
                 }
             }
             OnboardingStep.Confirm -> {
@@ -234,6 +250,39 @@ private fun CloudOnboarding(
                         manager.confirmSignUp(email, confirmationCode)
                         step = OnboardingStep.Auth
                         message = "Email verified. Sign in to continue."
+                    }
+                }
+            }
+            OnboardingStep.ResetPassword -> {
+                Text(email, color = DashboardTokens.Muted, fontSize = 16.sp)
+                CloudField(confirmationCode, { confirmationCode = it }, "Reset code", KeyboardType.Number)
+                CloudField(password, { password = it }, "New password", KeyboardType.Password, password = true)
+                Text(
+                    "Use 12+ characters with uppercase, lowercase, a number, and a symbol.",
+                    color = DashboardTokens.Muted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(bottom = 14.dp)
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PrimaryButton("Save new password", Modifier.fillMaxWidth(), busy) {
+                        val manager = auth ?: return@PrimaryButton
+                        newAccountPasswordIssue(password)?.let {
+                            message = it
+                            return@PrimaryButton
+                        }
+                        runAction {
+                            manager.confirmResetPassword(email, password, confirmationCode)
+                            confirmationCode = ""
+                            step = OnboardingStep.Auth
+                            message = "Password updated. Sign in with your new password."
+                        }
+                    }
+                    SecondaryButton("Back to sign in", Modifier.fillMaxWidth(), busy) {
+                        confirmationCode = ""
+                        password = ""
+                        message = null
+                        step = OnboardingStep.Auth
                     }
                 }
             }
@@ -390,18 +439,19 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 internal fun accountErrorMessage(error: Throwable): String {
-    val raw = error.message.orEmpty()
+    val raw = listOfNotNull(error.message, error.cause?.message, error::class.simpleName).joinToString(" ")
     return when {
         raw.contains("incorrect username or password", ignoreCase = true) ||
             raw.contains("user does not exist", ignoreCase = true) ||
-            raw.contains("not authorized", ignoreCase = true) ->
-            "Email or password not recognized. New here? Choose Create account."
+            raw.contains("not authorized", ignoreCase = true) ||
+            raw.contains("NotAuthorized", ignoreCase = true) ->
+            "Email or password not recognized. Use Forgot password if this account already exists."
         raw.contains("password given is invalid", ignoreCase = true) ||
             raw.contains("password", ignoreCase = true) &&
             (raw.contains("policy", ignoreCase = true) || raw.contains("minimum", ignoreCase = true) || raw.contains("invalid", ignoreCase = true)) ->
             "Use at least 12 characters with uppercase, lowercase, a number, and a symbol."
-        raw.contains("already exists", ignoreCase = true) ->
-            "An account already exists for this email. Sign in with the password you created."
+        raw.contains("already exists", ignoreCase = true) || raw.contains("UsernameExists", ignoreCase = true) ->
+            "An account already exists for this email. Sign in or use Forgot password."
         raw.contains("code", ignoreCase = true) &&
             (raw.contains("expired", ignoreCase = true) || raw.contains("mismatch", ignoreCase = true) || raw.contains("invalid", ignoreCase = true)) ->
             "That verification code is invalid or expired. Request a new code and try again."

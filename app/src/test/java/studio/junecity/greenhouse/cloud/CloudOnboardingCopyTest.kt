@@ -9,9 +9,17 @@ class CloudOnboardingCopyTest {
     fun invalidPasswordExplainsHowToCreateAnAccountWithoutProviderBranding() {
         val message = accountErrorMessage(IllegalArgumentException("Incorrect username or password."))
 
-        assertTrue(message.contains("Create account"))
+        assertTrue(message.contains("Forgot password"))
         assertFalse(message.contains("AWS", ignoreCase = true))
         assertFalse(message.contains("Cognito", ignoreCase = true))
+    }
+
+    @Test
+    fun existingAccountDirectsCustomerToPasswordRecovery() {
+        val message = accountErrorMessage(IllegalStateException("UsernameExistsException"))
+
+        assertTrue(message.contains("already exists"))
+        assertTrue(message.contains("Forgot password"))
     }
 
     @Test

@@ -10,6 +10,8 @@ The development portal, administrator API, identity stack, and private static ho
 
 The first Owner is enabled and has received Cognito's temporary-password email. The Owner must set a permanent password and enroll a TOTP authenticator during the first sign-in; no password is stored in source or deployment documentation.
 
+The live callback is guarded against duplicate authorization-code processing. If Cognito accepts a login but the browser returns to the entry screen, start a fresh sign-in from the portal root; stale callbacks are intentionally rejected.
+
 The approved Android Dashboard, Zones, History, Cameras, Settings, and bottom navigation were not changed.
 
 ## Architecture

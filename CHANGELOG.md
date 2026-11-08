@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Administrator callback and customer password recovery
+
+- Fixed a live administrator-login race: Cognito successfully authenticated the Owner, but the callback component could consume the same one-time authorization code twice when context initialization rerendered. The callback now depends only on the stable completion function, with a rerender regression test, and the corrected static portal is deployed through CloudFront.
+- Added an in-app customer “Forgot password?” flow that requests an emailed code, validates a new password against the deployed policy, confirms the reset, and returns to sign-in. Existing-account and invalid-credential errors now point customers to recovery instead of account recreation.
+- Released Android 2.6.3 (version code 11) and updated the live admin backend's current-version marker. Cloud customer and admin identities remain intentionally isolated; matching email addresses do not share passwords.
+- Validation: 61 Android JVM tests passed with zero failures/errors; Android lint and debug assembly passed; 12 portal tests, ESLint, and the live-configured Next.js build passed. The cloud-configured APK is v2 signed and has SHA-256 `17fb83725808c858d9833021648086c058bd45721827c184d02534121cecfc88`.
+- Live checks confirmed the prior administrator authentication succeeded and the failure occurred before any authenticated API request. The physical Android reset-code round trip and the corrected portal's authenticated dashboard still require the account owner to retry with private credentials.
+
 ## 2026-11-08 — Private administration portal development deployment
 
 - Deployed the reviewed application-table update, restricted bootstrap-role update, and dedicated `greenhouse-monitor-admin-dev` stack in `us-east-1`; all stacks completed successfully without replacing application data resources.

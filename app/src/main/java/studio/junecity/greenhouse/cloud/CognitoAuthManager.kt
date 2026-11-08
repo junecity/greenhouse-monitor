@@ -6,6 +6,7 @@ import com.amplifyframework.auth.cognito.AWSCognitoAuthPlugin
 import com.amplifyframework.auth.cognito.AWSCognitoAuthSession
 import com.amplifyframework.auth.result.AuthSignInResult
 import com.amplifyframework.auth.result.AuthSignUpResult
+import com.amplifyframework.auth.result.AuthResetPasswordResult
 import com.amplifyframework.auth.options.AuthSignUpOptions
 import com.amplifyframework.core.Amplify
 import com.amplifyframework.core.configuration.AmplifyOutputsData
@@ -57,6 +58,20 @@ class CognitoAuthManager(private val context: Context, private val configuration
 
     suspend fun signIn(email: String, password: String): AuthSignInResult = callback { success, failure ->
         Amplify.Auth.signIn(email.trim(), password, success, failure)
+    }
+
+    suspend fun resetPassword(email: String): AuthResetPasswordResult = callback { success, failure ->
+        Amplify.Auth.resetPassword(email.trim(), success, failure)
+    }
+
+    suspend fun confirmResetPassword(email: String, newPassword: String, code: String) = suspendCancellableCoroutine { continuation ->
+        Amplify.Auth.confirmResetPassword(
+            email.trim(),
+            newPassword,
+            code.trim(),
+            { if (continuation.isActive) continuation.resume(Unit) },
+            { if (continuation.isActive) continuation.resumeWithException(it) }
+        )
     }
 
     suspend fun signOut() = suspendCancellableCoroutine { continuation ->
