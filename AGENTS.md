@@ -80,6 +80,7 @@
 - `KinesisWebSocketSignaling` implements the Kinesis SDP/ICE message envelope over a backend-issued WSS URL. It contains no AWS access key.
 - These components compile but are not connected to the approved camera UI because the backend does not yet issue signed Kinesis URLs and no AWS stack is deployed. Existing encrypted JPEG viewing remains active.
 - Stage 3/4 verification: Android unit/lint/build passed with 28 JVM tests. Codec and lifecycle behavior are unit-tested; physical A71/Pixel, H.264, direct ICE, TURN, handoff, and AWS signaling remain unverified.
+- The backend now creates/reuses deterministic single-master Kinesis channels only after entitlement/tenant authorization, returns 299-second SigV4 WSS URLs and AWS ICE/TURN configuration, lets the authenticated server poll pending sessions, and lets either participating device terminate a session. No live AWS call has been made.
 
 ## Sensor provider boundary
 
@@ -97,9 +98,9 @@
 
 ## Next implementation steps
 
-1. Complete signed Kinesis WSS/ICE issuance in the backend.
+1. Add the customer-authenticated Android HTTP gateway and token storage.
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
-3. Add the customer-authenticated HTTP gateway, foreground heartbeat service, and tenant-aware push/acknowledgement worker.
+3. Add the foreground heartbeat service and tenant-aware push/acknowledgement worker.
 
 ## Deployment status
 

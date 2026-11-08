@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 
-from domain import AccessDenied, Principal, authorize_stream, is_missing_heartbeat, pairing_code_hash, require_device_id
+from domain import AccessDenied, Principal, authorize_stream, is_missing_heartbeat, pairing_code_hash, require_device_id, signaling_channel_name
 
 
 class AuthorizationTests(unittest.TestCase):
@@ -69,6 +69,15 @@ class PairingPolicyTests(unittest.TestCase):
         self.assertEqual("viewer-12345678", require_device_id("viewer-12345678"))
         with self.assertRaisesRegex(AccessDenied, "invalid_device_id"):
             require_device_id("bad id")
+
+
+class SignalingChannelTests(unittest.TestCase):
+    def test_channel_name_is_deterministic_safe_and_separates_ids(self):
+        first = signaling_channel_name("Dev Environment", "Greenhouse / North")
+        self.assertEqual(first, signaling_channel_name("Dev Environment", "Greenhouse / North"))
+        self.assertNotEqual(first, signaling_channel_name("Dev Environment", "Greenhouse - North"))
+        self.assertRegex(first, r"^[a-z0-9_-]+$")
+        self.assertLessEqual(len(first), 256)
 
 
 if __name__ == "__main__":

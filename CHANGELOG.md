@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Backend-issued Kinesis sessions
+
+- Added deterministic per-greenhouse Kinesis signaling-channel allocation after tenant and Premium authorization.
+- Added short-lived SigV4 WebSocket URLs, AWS ICE/TURN configuration, authenticated server polling, and participant-only session termination.
+- Added least-privilege-intended Kinesis actions to the undeployed API role and deterministic channel-name tests.
+- Tests: 12 Python policy tests and Python byte-compilation passed. Live Kinesis, IAM, TURN, and device interoperability remain unverified without an approved development deployment.
+
 ## 2026-11-08 — Account-scoped cloud pairing
 
 - Added five-minute, cryptographically random pairing challenges; only a SHA-256 digest is persisted.

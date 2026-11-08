@@ -143,6 +143,17 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable
+        - Statement:
+            - Sid: ManageGreenhouseSignalingChannels
+              Effect: Allow
+              Action:
+                - kinesisvideo:CreateSignalingChannel
+                - kinesisvideo:DescribeSignalingChannel
+                - kinesisvideo:GetSignalingChannelEndpoint
+                - kinesisvideo:GetIceServerConfig
+                - kinesisvideo:ConnectAsViewer
+                - kinesisvideo:ConnectAsMaster
+              Resource: '*'
       Events:
         Proxy:
           Type: HttpApi

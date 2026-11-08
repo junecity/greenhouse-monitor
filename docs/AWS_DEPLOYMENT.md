@@ -10,7 +10,7 @@ No AWS resources have been deployed from this repository. The SAM template is a 
 - Encrypted, point-in-time-recoverable, on-demand DynamoDB table with TTL and a sharded heartbeat index.
 - Encrypted SNS internal critical-alert topic and one-minute EventBridge schedule.
 
-The Android WebRTC peer and signaling client are present, but the template intentionally does **not** yet create Kinesis signaling channels or grant Kinesis permissions. The API currently records an authorized stream request; it does not yet return a signed WSS endpoint or temporary ICE credentials. Pairing, subscription verification, end-user push delivery, and alert acknowledgement endpoints are also incomplete. Do not connect the approved camera screen to this backend until those pieces and physical-device tests pass.
+The Android WebRTC peer and signaling client are present. The backend now contains account-scoped pairing plus authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, and session termination, with the corresponding undeployed IAM actions. Subscription verification, end-user push delivery, and alert acknowledgement remain incomplete. Do not connect the approved camera screen to this backend until the stack is validated in development and physical-device tests pass.
 
 ## Approval checklist before deployment
 
@@ -20,8 +20,8 @@ The Android WebRTC peer and signaling client are present, but the template inten
 4. Create a least-privilege deployment role; do not use an administrator credential in CI or the Android app.
 5. Install AWS SAM CLI and run `sam validate --lint -t infrastructure/template.yaml` with the intended account and Region. SAM validation was not available in the current environment.
 6. Add backend integration tests against an isolated local/emulated or dev table, including conditional writes, pagination, throttling, and tenant denial.
-7. Implement server-side Kinesis channel allocation, `GetSignalingChannelEndpoint`, `GetIceServerConfig`, short-lived authorization, session termination, quotas, and audit records.
-8. Implement QR pairing with single-use, short-lived, hashed challenges and device revocation.
+7. Validate server-side Kinesis allocation, endpoint signing, ICE retrieval, and termination; then add production quotas, metrics, and audit retention.
+8. Validate the implemented single-use hashed pairing flow and add device-list/revocation endpoints.
 9. Configure Google Play products only after approval. Verify purchase tokens through the Play Developer API and process Real-time Developer Notifications; never accept a client entitlement flag.
 10. Configure FCM/APNs-style customer delivery separately from the internal SNS topic, with device-token rotation and tenant-scoped acknowledgement.
 11. Run the physical test matrix on the Galaxy A71 and Pixel 10 across same-LAN, separate Wi-Fi, cellular, TURN-only, public-IP change, lock/background, server restart, and AWS failure conditions.
@@ -44,7 +44,7 @@ After deployment, record stack outputs in an encrypted CI secret/configuration s
 The design is usage-based, but it is not zero-cost:
 
 - Kinesis WebRTC is charged by active signaling channel, signaling messages, and TURN relay minutes. AWS's current US-East example uses **$0.03 per active channel-month**, **$2.25 per million signaling messages**, and **$0.12 per 1,000 TURN minutes**, plus applicable internet data transfer. Direct peer-to-peer media avoids TURN-minute charges.
-- One server heartbeat per minute is about 43,200 API calls, Lambda invocations, and DynamoDB writes per 30-day month. The scheduled monitor adds about 1,440 Lambda invocations and 23,040 sharded index queries before retries/pagination.
+- One server heartbeat per minute is about 43,200 API calls, Lambda invocations, and DynamoDB writes per 30-day month. A one-minute scheduled monitor adds another 43,200 Lambda invocations and about 691,200 sharded index queries before retries/pagination.
 - Cognito Plus has no MAU free tier; the template deliberately selects Plus because enforced threat protection requires it.
 - API Gateway, Lambda, DynamoDB on-demand, CloudWatch Logs/X-Ray, SNS, KMS requests, and data transfer add usage-based charges. Email/SMS/voice escalation is not included and would add provider charges.
 

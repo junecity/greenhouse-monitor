@@ -25,6 +25,7 @@ class Principal:
 
 
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$")
+CHANNEL_PART_PATTERN = re.compile(r"[^a-z0-9_-]+")
 
 
 def require_device_id(device_id: str) -> str:
@@ -38,6 +39,13 @@ def pairing_code_hash(code: str) -> str:
     if len(normalized) < 24 or len(normalized) > 128:
         raise AccessDenied("invalid_pairing_code")
     return sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def signaling_channel_name(environment: str, greenhouse_id: str) -> str:
+    readable = CHANNEL_PART_PATTERN.sub("-", greenhouse_id.lower()).strip("-")[:120] or "greenhouse"
+    digest = sha256(greenhouse_id.encode("utf-8")).hexdigest()[:12]
+    prefix = CHANNEL_PART_PATTERN.sub("-", environment.lower()).strip("-")[:24] or "dev"
+    return f"greenhouse-{prefix}-{readable}-{digest}"[:256]
 
 
 def require_same_tenant(principal: Principal, *tenant_ids: str) -> None:

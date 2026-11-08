@@ -8,6 +8,7 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from domain import AccessDenied, Principal, authorize_stream, pairing_code_hash, require_device_id
+from kinesis_session import connection_config, ensure_channel
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
@@ -82,7 +83,12 @@ def claim_pairing_challenge(event, principal: Principal):
         "role": "VIEWER_CLIENT", "enabled": True,
         "pairedServerDeviceId": challenge["serverDeviceId"], "createdAt": now,
     }
-    table.put_item(Item=device, ConditionExpression="attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)", ExpressionAttributeValues={":tenant": principal.tenant_id, ":account": principal.account_id})
+    table.put_item(
+        Item=device,
+        ConditionExpression="attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:viewerRole)",
+        ExpressionAttributeNames={"#role": "role"},
+        ExpressionAttributeValues={":tenant": principal.tenant_id, ":account": principal.account_id, ":viewerRole": "VIEWER_CLIENT"},
+    )
     return response(201, {"id": viewer_device_id, "role": "VIEWER_CLIENT", "enabled": True})
 
 
@@ -94,21 +100,70 @@ def create_stream_session(event, principal: Principal, greenhouse_id: str):
     entitlement = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {})
     authorize_stream(principal, viewer, server, greenhouse, entitlement)
 
-    # Channel creation, short-lived STS session policy, and ICE retrieval are intentionally
-    # performed only after authorization. Live calls require deployed resources and are
-    # completed during the deployment stage, not with developer credentials in the APK.
     session_id = body.get("requestId")
     if not session_id or len(session_id) > 80:
         return response(400, {"error": "valid requestId required"})
     now = int(datetime.now(timezone.utc).timestamp())
+    channel_arn = ensure_channel(greenhouse_id)
+    viewer_connection = connection_config(channel_arn, "VIEWER", principal.device_id)
     item = {
         "pk": f"STREAM_SESSION#{session_id}", "sk": "METADATA", "tenantId": principal.tenant_id,
         "accountId": principal.account_id, "greenhouseId": greenhouse_id,
         "viewerDeviceId": principal.device_id, "serverDeviceId": server["deviceId"],
-        "state": "REQUESTED", "createdAt": now, "expiresAt": now + 300,
+        "signalingChannelArn": channel_arn, "state": "REQUESTED", "createdAt": now, "expiresAt": now + 300,
     }
     table.put_item(Item=item, ConditionExpression="attribute_not_exists(pk)")
-    return response(202, {"sessionId": session_id, "state": "REQUESTED", "expiresAt": item["expiresAt"]})
+    table.put_item(Item={
+        "pk": f"DEVICE#{server['deviceId']}", "sk": f"STREAM_SESSION#{session_id}",
+        "tenantId": principal.tenant_id, "sessionId": session_id, "greenhouseId": greenhouse_id,
+        "viewerDeviceId": principal.device_id, "signalingChannelArn": channel_arn,
+        "createdAt": now, "expiresAt": now + 300,
+    })
+    return response(201, stream_response(item, viewer_connection, principal.device_id))
+
+
+def stream_response(item: dict, connection: dict, peer_client_id: str | None):
+    return {
+        "id": item["pk"].split("#", 1)[1], "greenhouseId": item["greenhouseId"],
+        "serverDeviceId": item["serverDeviceId"], "viewerDeviceId": item["viewerDeviceId"],
+        "signalingChannelArn": item["signalingChannelArn"], "region": os.environ.get("AWS_REGION", "us-east-1"),
+        "iceServers": connection["iceServers"], "expiresAtEpochMs": int(item["expiresAt"]) * 1000,
+        "signalingWebSocketUrl": connection["signalingWebSocketUrl"], "peerClientId": peer_client_id,
+    }
+
+
+def pending_stream_session(principal: Principal, server_device_id: str):
+    if principal.device_id != server_device_id:
+        raise AccessDenied("device_mismatch")
+    server = get_owned("DEVICE", server_device_id, principal.tenant_id)
+    if server.get("role") != "GREENHOUSE_SERVER" or not server.get("enabled"):
+        raise AccessDenied("server_device")
+    now = int(datetime.now(timezone.utc).timestamp())
+    result = table.query(
+        KeyConditionExpression=Key("pk").eq(f"DEVICE#{server_device_id}") & Key("sk").begins_with("STREAM_SESSION#"),
+        ScanIndexForward=True, Limit=5,
+    )
+    pending = next((value for value in result.get("Items", []) if int(value.get("expiresAt", 0)) > now), None)
+    if not pending:
+        return response(204, {})
+    session = table.get_item(Key={"pk": f"STREAM_SESSION#{pending['sessionId']}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    if not session or session.get("tenantId") != principal.tenant_id:
+        raise AccessDenied("not_found")
+    connection = connection_config(session["signalingChannelArn"], "MASTER", None)
+    table.update_item(Key={"pk": session["pk"], "sk": session["sk"]}, UpdateExpression="SET #state=:state", ExpressionAttributeNames={"#state": "state"}, ExpressionAttributeValues={":state": "CONNECTING"})
+    return response(200, stream_response(session, connection, None))
+
+
+def end_stream_session(principal: Principal, session_id: str):
+    session = table.get_item(Key={"pk": f"STREAM_SESSION#{session_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
+    if not session or session.get("tenantId") != principal.tenant_id:
+        raise AccessDenied("not_found")
+    if principal.device_id not in {session.get("viewerDeviceId"), session.get("serverDeviceId")}:
+        raise AccessDenied("device_mismatch")
+    now = int(datetime.now(timezone.utc).timestamp())
+    table.update_item(Key={"pk": session["pk"], "sk": session["sk"]}, UpdateExpression="SET #state=:state, endedAt=:now", ExpressionAttributeNames={"#state": "state"}, ExpressionAttributeValues={":state": "ENDED", ":now": now})
+    table.delete_item(Key={"pk": f"DEVICE#{session['serverDeviceId']}", "sk": f"STREAM_SESSION#{session_id}"})
+    return response(204, {})
 
 
 def heartbeat(event, principal: Principal, device_id: str):
@@ -141,6 +196,10 @@ def handler(event, _context):
             return claim_pairing_challenge(event, principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "stream-sessions":
             return create_stream_session(event, principal, parts[2])
+        if method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "stream-sessions":
+            return pending_stream_session(principal, parts[2])
+        if method == "DELETE" and len(parts) == 3 and parts[:2] == ["v1", "stream-sessions"]:
+            return end_stream_session(principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":
             return heartbeat(event, principal, parts[2])
         return response(404, {"error": "not_found"})
