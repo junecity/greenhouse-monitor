@@ -24,7 +24,7 @@
 - `CameraPairing.kt`: QR pairing includes device ID, token, symmetric key, local/public hosts, port.
 - Public-IP changes can break remote access; UPnP fails on some routers, CGNAT, and restricted networks. Existing pairing and encryption must be preserved until secure migration is tested.
 
-## Next planned upgrade — AWS remote camera discovery and fallback (NOT YET IMPLEMENTED)
+## Historical AWS remote-camera migration plan (implemented in code; not deployed)
 1. Add a dedicated authenticated AWS device-discovery API (e.g. API Gateway/Lambda/DynamoDB) with per-customer/device authorization, least-privilege IAM, short-lived records and heartbeat/last-seen timestamps.
 2. Server phone periodically reports current reachable endpoint and mapping status securely, plus reports changes immediately. Never store tokens, encryption keys, or camera frame content in a public registry. Never trust a self-reported address without suitable validation; defend against SSRF and unauthorized endpoint substitution.
 3. Client first uses direct LAN streaming; for remote access fetches the latest authorized endpoint, verifies freshness, and attempts a secure direct connection. Handle public IP changes without re-pairing.
@@ -126,7 +126,7 @@
 - Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains universal WebRTC native libraries). Final credential-free checkpoint SHA-256: `6eabba9fd09d20da0c4389fe1f65329b35cfce82879049137ce7a732e1b05fc1`.
 - AWS device-security checkpoint: 57 Android JVM tests, lint, debug assembly, 26 Python tests, and Python compilation passed. Cognito, QR pairing, inventory/revocation, Kinesis signaling, TURN/direct ICE, camera handoff, alert delivery, boot recovery, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
-- GitHub Actions run `42488729170` passed all Android, backend, AWS template-lint, checksum, and artifact steps for commit `1c68f87`. The workflow uses official Node 24-compatible action majors and cancels superseded runs on the same ref to limit CI waste.
+- GitHub Actions runs `42488729170` and `42489260140` passed all Android, backend, AWS template-lint, checksum, and artifact steps. The workflow now uses official Node 24-compatible action majors (including `upload-artifact@v7`) and cancels superseded runs on the same ref to limit CI waste.
 - `cfn-lint` 1.46.0 validates the SAM template locally and in CI. The undeployed template now includes bounded HTTP API throttling, explicit 30-day API/Lambda log retention, encrypted operations SNS and heartbeat DLQ resources, scheduled retry limits, and alarms for API/Lambda/heartbeat failures. SAM CLI/account-aware validation is still pending.
 - AWS-only owner activation is prepared through the undeployed IAM-restricted entitlement Lambda. Its complimentary grant/revoke/reset state machine has backend tests, but IAM invocation, CloudTrail audit, and lease revocation require a deployed development stack.
 

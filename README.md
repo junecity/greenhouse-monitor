@@ -4,7 +4,7 @@ Native Kotlin/Jetpack Compose greenhouse dashboard for Android 10+ (API 29). The
 
 ## Included
 
-- Professional charcoal-and-amber dashboard with a circular climate gauge, environmental cards, 24-hour trend, compact sensor list, whole-number display values, and a live front-camera card.
+- Professional charcoal-and-amber dashboard with a circular climate gauge, large environmental readings, a compact sensor list, and a live front-camera card.
 - Govee H5179 discovery and readings through Govee's authenticated cloud API.
 - Encrypted API-key storage backed by Android Keystore.
 - Multiple greenhouses with editable names and physical dimensions.
@@ -12,7 +12,9 @@ Native Kotlin/Jetpack Compose greenhouse dashboard for Android 10+ (API 29). The
 - Coordinate-based inverse-distance-weighted temperature, humidity, VPD, and dew-point maps, including center and area-average estimates.
 - Local SQLite history and 7-day graphs for all four metrics.
 - Live front-camera preview on both Dashboard and Cameras using CameraX, with rear-camera fallback and an in-app permission retry.
-- Paired phone-to-phone camera streaming with QR setup, AES-256-GCM encrypted frames, a random viewer token, local Wi-Fi access, and automatic UPnP remote access on compatible routers.
+- AWS Cognito in-app account setup and expiring, one-use QR pairing for greenhouse Server and Viewer phones when AWS deployment outputs are configured.
+- On-demand AWS Kinesis Video Streams WebRTC remote camera sessions with encrypted media, direct ICE where possible, managed TURN fallback, renewable Premium authorization, bounded reconnects, and no router port forwarding.
+- Legacy AES-256-GCM JPEG streaming remains available on the local network as the rollback path. AWS-configured builds disable its public UPnP mapping.
 - Selectable camera stream profiles: Data Saver (480×270 at 4 fps), Balanced (640×360 at 7 fps), and High (1280×720 at 10 fps). Frame capture is throttled before JPEG compression to reduce server-phone CPU use and latency.
 - ZIP-code weather through Open-Meteo. No GPS or location permission is used.
 - Background sensor checks, locally configurable alert categories, quiet defaults, repeat control, and snooze.
@@ -31,6 +33,18 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Launch **Greenhouse Monitor** and keep the phone in landscape orientation.
 
+An all-blank AWS configuration produces the local-only rollback build. After an approved AWS deployment, build the cloud-enabled APK with all four non-secret stack outputs together:
+
+```bash
+./gradlew assembleDebug \
+  -PGREENHOUSE_AWS_REGION=<region> \
+  -PGREENHOUSE_COGNITO_USER_POOL_ID=<user-pool-id> \
+  -PGREENHOUSE_COGNITO_APP_CLIENT_ID=<android-client-id> \
+  -PGREENHOUSE_AWS_API_BASE_URL=<https-api-url>
+```
+
+Partial AWS configuration fails the app closed. Never put AWS access keys, IAM credentials, or entitlement-administration permission in the APK.
+
 ## Connect Govee H5179 sensors
 
 1. Add every H5179 in Govee Home and connect it to Wi-Fi.
@@ -43,28 +57,30 @@ Launch **Greenhouse Monitor** and keep the phone in landscape orientation.
 
 Set a five-digit ZIP code under **Settings → General**. Weather lookup geocodes only that ZIP. Notification defaults are intentionally quiet: pop-ups, sound, vibration, and repeat alerts start disabled. Monitoring and history continue even when notifications are disabled.
 
-## Pair a camera server and viewer
+## Pair an AWS camera server and viewer
 
-1. On the greenhouse phone, open **Settings → Camera** and select **Greenhouse Server**.
-2. Allow camera access and leave the app open. The status reports whether local-only or local-and-remote access is ready.
-3. On the other phone, select **Viewer Client**, tap **Scan server QR**, and scan the QR displayed by the greenhouse phone.
-4. Open **Dashboard** or **Cameras** on the viewer. It tries the local Wi-Fi address first, then the mapped public address.
-5. In the live viewer, pinch to zoom up to 5x, drag to pan, and double-tap to reset the image.
-6. Use **Revoke viewers & make new QR** on the server at any time to invalidate the previous token and encryption key.
+1. Install an APK built with the four AWS stack outputs on both phones.
+2. Create and confirm the Cognito account in the app, then sign in on both phones.
+3. Choose **Server** on the greenhouse phone. It registers the greenhouse and displays a five-minute, one-use pairing QR.
+4. Choose **Client** on the other phone and scan the Server QR or enter its code. The backend binds it to the same account and greenhouse.
+5. Grant the account verified Premium or IAM-administered complimentary access. Free accounts retain local monitoring but cannot obtain remote signaling/TURN access.
+6. Open **Dashboard** or **Cameras** on the Viewer. Video starts only while the live view is open and stops when the view closes or backgrounds.
+7. In the live viewer, pinch to zoom up to 5x, drag to pan, and double-tap to reset the image.
 
-The video payload is encrypted before being sent. Treat the pairing QR like a camera password and only scan it with trusted phones. Remote access requires UPnP on the router and a publicly reachable IPv4 address. If the ISP changes that public address while both phones are away from the home network, pair again after returning to the local network.
+AWS remote video uses authenticated Kinesis signaling and encrypted WebRTC media. AWS-managed TURN is used only when a direct connection cannot be established. Public-IP changes do not require re-pairing, and router port forwarding is not required. The legacy local QR contains a camera secret and must still be treated like a password when using the rollback path.
 
 ## Deliberate limitations
 
-- The camera server runs while the Greenhouse Monitor app is open. Playback and Timelapse remain unconfigured because the app does not record or upload video.
-- Email alerts require an email delivery service and credentials; the app marks them unavailable instead of pretending delivery is configured.
-- Background polling uses Android WorkManager's 15-minute platform minimum; one-minute refresh applies while the app is open.
+- Remote camera capture is on demand; playback and Timelapse remain unconfigured because the app does not continuously record or upload video.
+- AWS heartbeat and alert services use foreground-service notifications. Android/OEM background limits and Do Not Disturb can still affect delivery; physical A71/Pixel testing is required before making alarm guarantees.
+- Customer SMS/email/voice escalation is not configured. The Android app polls its Cognito-authorized AWS alert inbox about once per minute and uses local high-priority notifications without Firebase.
+- The AWS stack, release signing, Google Play products, and physical cross-network camera matrix have not been deployed or validated from this repository.
 
 ## Rollback and deliverables
 
 - Working Stage 3 rollback tag: `codex-stage3-baseline`
 - Upgrade branch: `codex/greenhouse-complete-upgrade`
-- Latest APK: `deliverables/geometry-settings-v2.6/Greenhouse Monitor 2.6.1-debug.apk`
+- Latest locally verified APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, local-only until rebuilt with deployed AWS outputs).
 - Version 2.6.1 renders the Zones footprint at a uniform feet-to-pixels scale, so equally sized attached greenhouse sections remain visually proportional, and uses a minimalist summary-first Settings layout with advanced editing hidden until requested.
 - Version 2.6 makes Settings typography larger, derives the Zones footprint directly from the saved greenhouse plan, calculates section area and bounding dimensions accurately, and safely reprojects sensor positions when geometry changes.
 - Version 2.6 Moto G7 screenshots and validation: `deliverables/geometry-settings-v2.6/`

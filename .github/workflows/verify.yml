@@ -38,7 +38,7 @@ jobs:
         run: cfn-lint infrastructure/template.yaml
       - name: APK checksum
         run: sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/outputs/apk/debug/app-debug.apk.sha256
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: greenhouse-monitor-debug
           path: |

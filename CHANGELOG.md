@@ -2,10 +2,17 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Current AWS architecture documentation
+
+- Replaced the README's obsolete public-IP/UPnP remote-camera instructions with the implemented Cognito, one-use cloud pairing, Premium authorization, Kinesis WebRTC, direct ICE/TURN fallback, and on-demand lifecycle.
+- Documented all-or-nothing AWS build outputs, the AWS-only alert inbox/polling path, complimentary IAM administration, and the distinction between the LAN rollback build and the undeployed AWS configuration.
+- Updated the remote-streaming contract from “scaffold only” to the accurate connected/build-tested state while retaining explicit deployment, Play Billing, release-signing, and physical-device limitations.
+- Validation: documentation was reconciled against current Android, backend, infrastructure, and CI behavior; no runtime code changed.
+
 ## 2026-11-08 — Current GitHub Actions runtime
 
 - Verified pushed commit `1c68f87` in GitHub Actions run `42488729170`: Android tests/lint/APK, 29 backend tests, Python compilation, AWS template lint, APK checksum, and artifact upload all passed.
-- Updated checkout, Java, Python, Gradle, and artifact actions to their official Node 24-compatible major releases after GitHub flagged the prior runtimes as deprecated.
+- Updated checkout, Java, Python, Gradle, and artifact actions to their official Node 24-compatible major releases after GitHub flagged the prior runtimes as deprecated. The artifact action was corrected from v5 to Node 24-based v7 after run `42489260140` exposed the remaining warning.
 - Added per-ref concurrency cancellation so superseded pushes do not consume overlapping CI time.
 - Validation: each referenced official major tag was resolved from its upstream Git repository before editing. The updated workflow requires a fresh pushed run.
 
