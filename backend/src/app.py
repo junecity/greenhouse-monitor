@@ -120,7 +120,7 @@ def create_stream_session(event, principal: Principal, greenhouse_id: str):
         "viewerDeviceId": principal.device_id, "signalingChannelArn": channel_arn,
         "createdAt": now, "expiresAt": now + 300,
     })
-    return response(201, stream_response(item, viewer_connection, principal.device_id))
+    return response(201, stream_response(item, viewer_connection, None))
 
 
 def stream_response(item: dict, connection: dict, peer_client_id: str | None):
@@ -152,7 +152,7 @@ def pending_stream_session(principal: Principal, server_device_id: str):
         raise AccessDenied("not_found")
     connection = connection_config(session["signalingChannelArn"], "MASTER", None)
     table.update_item(Key={"pk": session["pk"], "sk": session["sk"]}, UpdateExpression="SET #state=:state", ExpressionAttributeNames={"#state": "state"}, ExpressionAttributeValues={":state": "CONNECTING"})
-    return response(200, stream_response(session, connection, None))
+    return response(200, stream_response(session, connection, session["viewerDeviceId"]))
 
 
 def end_stream_session(principal: Principal, session_id: str):

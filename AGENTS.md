@@ -82,6 +82,7 @@
 - These components compile but are not connected to the approved camera UI because the backend does not yet issue signed Kinesis URLs and no AWS stack is deployed. Existing encrypted JPEG viewing remains active.
 - Stage 3/4 verification: Android unit/lint/build passed with 28 JVM tests. Codec and lifecycle behavior are unit-tested; physical A71/Pixel, H.264, direct ICE, TURN, handoff, and AWS signaling remain unverified.
 - The backend now creates/reuses deterministic single-master Kinesis channels only after entitlement/tenant authorization, returns 299-second SigV4 WSS URLs and AWS ICE/TURN configuration, lets the authenticated server poll pending sessions, and lets either participating device terminate a session. No live AWS call has been made.
+- Kinesis single-master negotiation is viewer-initiated. Incoming sender IDs are retained so master answers/ICE target only the requesting viewer; backend session payloads now assign peer IDs by role.
 
 ## Sensor provider boundary
 

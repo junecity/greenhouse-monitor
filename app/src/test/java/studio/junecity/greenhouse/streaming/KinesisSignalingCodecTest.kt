@@ -6,6 +6,10 @@ import org.junit.Test
 import java.util.Base64
 
 class KinesisSignalingCodecTest {
+    @Test fun singleMasterViewerInitiatesOffer() {
+        assertEquals(true, WebRtcRole.Viewer.initiatesOffer())
+        assertEquals(false, WebRtcRole.Master.initiatesOffer())
+    }
     @Test fun offerUsesKinesisEnvelopeAndRoundTrips() {
         val description = SignalingDescription("offer", "v=0\r\n")
         val outgoing = JSONObject(KinesisSignalingCodec.outgoingDescription(description, "viewer-1"))
@@ -31,6 +35,13 @@ class KinesisSignalingCodecTest {
     @Test(expected = IllegalArgumentException::class)
     fun malformedPayloadIsRejected() {
         KinesisSignalingCodec.incoming(JSONObject().put("messageType", "SDP_OFFER").put("messagePayload", Base64.getEncoder().encodeToString("bad".toByteArray())).toString())
+    }
+
+    @Test fun incomingOfferPreservesSenderForMasterReply() {
+        val payload = Base64.getEncoder().encodeToString("{\"type\":\"offer\",\"sdp\":\"v=0\"}".toByteArray())
+        val incoming = KinesisSignalingCodec.incoming(JSONObject().put("messageType", "SDP_OFFER").put("senderClientId", "viewer-12345678").put("messagePayload", payload).toString())
+        assertEquals("viewer-12345678", incoming.senderClientId)
+        assertEquals("offer", incoming.description?.type)
     }
 }
 

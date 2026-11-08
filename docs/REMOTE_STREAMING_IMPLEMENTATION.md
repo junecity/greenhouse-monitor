@@ -93,6 +93,8 @@ Cloud pairing now uses an authenticated, single-use, five-minute challenge. The 
 
 After successful authorization, the backend now creates or reuses a deterministic single-master Kinesis signaling channel and returns a 299-second SigV4-signed WSS endpoint plus AWS-managed ICE/TURN servers. The greenhouse server polls its own pending-session partition and receives a freshly signed master endpoint; either participating device may terminate the session. These code paths are build-time foundations only until the SAM stack is validated/deployed and exercised against live Kinesis.
 
+Kinesis negotiation follows the single-master contract: the viewer initiates the SDP offer, the master answers, and master SDP/ICE messages target the viewer's authenticated client ID. The signaling decoder retains AWS `senderClientId` for this routing.
+
 The Android cloud gateway now consumes those contracts over HTTPS with a bearer token and device identifier. API configuration and Cognito-style access/refresh tokens are encrypted with Android Keystore. The gateway does not manufacture entitlements or AWS credentials. A separate in-app Cognito onboarding/refresh flow is still required before the gateway can be activated.
 
 In greenhouse-server mode, a non-exported special-use foreground service starts only when an encrypted cloud session exists. It posts cached sensor-connection and critical-temperature state every minute, retries transient failures, and stops on token expiry or viewer mode. Reboot recovery and long-running OEM/Play behavior are deliberately not claimed until physical and policy testing is complete.

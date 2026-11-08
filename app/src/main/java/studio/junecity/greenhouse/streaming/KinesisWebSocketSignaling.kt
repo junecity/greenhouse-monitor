@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 object KinesisSignalingCodec {
-    data class Incoming(val type: String, val description: SignalingDescription? = null, val candidate: SignalingIceCandidate? = null)
+    data class Incoming(val type: String, val senderClientId: String? = null, val description: SignalingDescription? = null, val candidate: SignalingIceCandidate? = null)
 
     fun outgoingDescription(description: SignalingDescription, recipientClientId: String?): String = envelope(
         when (description.type.lowercase()) { "offer" -> "SDP_OFFER"; "answer" -> "SDP_ANSWER"; else -> error("Unsupported SDP type") },
@@ -29,11 +29,12 @@ object KinesisSignalingCodec {
     fun incoming(text: String): Incoming = runCatching {
         val envelope = JSONObject(text)
         val type = envelope.getString("messageType")
+        val sender = envelope.optString("senderClientId").takeIf { it.isNotBlank() && it != "null" }
         val payload = JSONObject(String(Base64.getDecoder().decode(envelope.getString("messagePayload"))))
         when (type) {
-            "SDP_OFFER", "SDP_ANSWER" -> Incoming(type, description = SignalingDescription(payload.getString("type"), payload.getString("sdp")))
-            "ICE_CANDIDATE" -> Incoming(type, candidate = SignalingIceCandidate(payload.optString("sdpMid").takeIf { it.isNotBlank() && it != "null" }, payload.getInt("sdpMLineIndex"), payload.getString("candidate")))
-            else -> Incoming(type)
+            "SDP_OFFER", "SDP_ANSWER" -> Incoming(type, sender, description = SignalingDescription(payload.getString("type"), payload.getString("sdp")))
+            "ICE_CANDIDATE" -> Incoming(type, sender, candidate = SignalingIceCandidate(payload.optString("sdpMid").takeIf { it.isNotBlank() && it != "null" }, payload.getInt("sdpMLineIndex"), payload.getString("candidate")))
+            else -> Incoming(type, sender)
         }
     }.getOrElse { throw IllegalArgumentException("Invalid Kinesis signaling message", it) }
 
@@ -68,6 +69,7 @@ class KinesisWebSocketSignaling(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 runCatching { KinesisSignalingCodec.incoming(text) }
                     .onSuccess { message ->
+                        if (recipientClientId == null && message.senderClientId != null) recipientClientId = message.senderClientId
                         message.description?.let(listener::onDescription)
                         message.candidate?.let(listener::onIceCandidate)
                     }

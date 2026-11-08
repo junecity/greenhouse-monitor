@@ -25,6 +25,7 @@ import studio.junecity.greenhouse.cloud.RemoteStreamingSession
 import java.util.concurrent.atomic.AtomicBoolean
 
 enum class WebRtcRole { Master, Viewer }
+internal fun WebRtcRole.initiatesOffer() = this == WebRtcRole.Viewer
 
 data class SignalingDescription(val type: String, val sdp: String)
 data class SignalingIceCandidate(val sdpMid: String?, val sdpMLineIndex: Int, val candidate: String)
@@ -95,7 +96,7 @@ class LibWebRtcPeer(
     }
 
     override fun onConnected() {
-        if (role == WebRtcRole.Master) createOffer()
+        if (role.initiatesOffer()) createOffer()
     }
 
     override fun onDescription(description: SignalingDescription) {
