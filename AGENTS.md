@@ -154,6 +154,14 @@
 - Current test checkpoint: 45 Python tests, Python 3.13 compilation, 11 portal tests, ESLint, static production build, zero npm audit findings, SAM validation/build, CloudFormation lint, and prior unchanged Android regression with 60 JVM tests/lint/debug assembly. Authenticated portal/API mutations, TOTP, Google Play, and physical mobile-browser checks still require the Owner's first sign-in and/or external credentials/devices.
 - Deployment, migration, rollback, costs, live endpoints, and owner-first-sign-in steps are in `docs/ADMIN_PORTAL.md`. Future deployments must continue using reviewed change sets and the restricted CloudFormation service role.
 
+## Live account/API repair checkpoint (2026-11-08)
+
+- HTTP API events include the named deployment stage in `rawPath`; both customer and administrator handlers now remove that exact leading stage before route matching. Tests cover `/dev/v1/bootstrap` and `/dev/admin/v1/session` so deployed routes cannot silently fall through again.
+- DynamoDB resource clients accept native Python values for `TransactWriteItems`. The bootstrap, device, pairing, heartbeat, administrator-revocation, and offline-monitor transactions no longer pre-serialize values, which previously double-encoded keys as maps. The application and heartbeat roles now explicitly include the required `dynamodb:TransactWriteItems` permission.
+- The admin API accepts Chromium's `cache-control` and `pragma` preflight headers. An explicit unauthenticated `OPTIONS /admin/v1/{proxy+}` route returns 204 before administrator claim parsing; all data methods remain protected by the JWT authorizer.
+- The repaired application and admin stacks are deployed and `UPDATE_COMPLETE`. A disposable real Cognito SRP customer received HTTP 201 from the live staged bootstrap, and its Cognito/DynamoDB test data was removed. The live admin preflight returns 204 with the configured origin/method/header policy, and the deployed staged admin session route returned 200 in a role-claim Lambda smoke test.
+- Current automated checkpoint: 48 Python tests passed, both CloudFormation templates passed `cfn-lint`, and the admin template passed account-aware SAM validation/build. The existing confirmed customer identity remains intentionally unmapped until its next authenticated app bootstrap; no customer password, token, or account record was fabricated by administration.
+
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).

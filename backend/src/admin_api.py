@@ -13,7 +13,6 @@ from typing import Iterable
 
 import boto3
 from boto3.dynamodb.conditions import Key
-from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
 from google_play_verifier import GooglePlayVerificationError, verify_google_play_purchase
@@ -23,7 +22,6 @@ table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 cognito = boto3.client("cognito-idp")
 cloudwatch = boto3.client("cloudwatch")
 cost_explorer = boto3.client("ce", region_name="us-east-1")
-serializer = TypeSerializer()
 
 ADMIN_INDEX = os.environ.get("ADMIN_INDEX_NAME", "admin")
 CUSTOMER_USER_POOL_ID = os.environ.get("CUSTOMER_USER_POOL_ID", "")
@@ -105,10 +103,6 @@ def admin_principal_from(event: dict, now: int | None = None) -> AdminPrincipal:
 def require_permission(principal: AdminPrincipal, permission: str) -> None:
     if principal.role not in WRITE_ROLES.get(permission, set()):
         raise AdminAccessDenied("insufficient_role")
-
-
-def _serialized(item: dict) -> dict:
-    return {key: serializer.serialize(value) for key, value in item.items()}
 
 
 def _query_all(**kwargs) -> list[dict]:
@@ -496,16 +490,16 @@ def revoke_device(principal: AdminPrincipal, device_id: str, request_id: str) ->
     values = {":enabled": False, ":now": now, ":actor": principal.subject, ":account": device["accountId"], ":tenant": device["tenantId"]}
     table.meta.client.transact_write_items(TransactItems=[
         {"Update": {
-            "TableName": table.name, "Key": _serialized({"pk": f"DEVICE#{device_id}", "sk": "METADATA"}),
+            "TableName": table.name, "Key": {"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
             "UpdateExpression": "SET enabled=:enabled, revokedAt=:now, revokedBy=:actor",
             "ConditionExpression": "accountId=:account AND tenantId=:tenant",
-            "ExpressionAttributeValues": _serialized(values),
+            "ExpressionAttributeValues": values,
         }},
         {"Update": {
-            "TableName": table.name, "Key": _serialized({"pk": f"ACCOUNT#{device['accountId']}", "sk": f"DEVICE#{device_id}"}),
+            "TableName": table.name, "Key": {"pk": f"ACCOUNT#{device['accountId']}", "sk": f"DEVICE#{device_id}"},
             "UpdateExpression": "SET enabled=:enabled, revokedAt=:now, revokedBy=:actor",
             "ConditionExpression": "accountId=:account AND tenantId=:tenant",
-            "ExpressionAttributeValues": _serialized(values),
+            "ExpressionAttributeValues": values,
         }},
     ])
     audit(principal, "DEVICE_SESSION_REVOKED", "DEVICE", device_id, "SUCCESS", request_id)
@@ -571,13 +565,26 @@ def _query(event: dict, name: str) -> str:
     return str((event.get("queryStringParameters") or {}).get(name) or "")
 
 
+def route_parts(event: dict) -> list[str]:
+    """Return administrator route segments for both local and staged HTTP API events."""
+    parts = [value for value in event.get("rawPath", "").split("/") if value]
+    stage = str(event.get("requestContext", {}).get("stage") or "").strip("/")
+    if stage and parts and parts[0] == stage:
+        return parts[1:]
+    return parts
+
+
 def handler(event, context):
     principal = None
     request_id = getattr(context, "aws_request_id", None) or event.get("requestContext", {}).get("requestId", "local")
     try:
-        principal = admin_principal_from(event)
         method = event.get("requestContext", {}).get("http", {}).get("method")
-        parts = [value for value in event.get("rawPath", "").split("/") if value]
+        # The browser's CORS preflight is intentionally unauthenticated. API
+        # Gateway applies the configured CORS response headers to this 204.
+        if method == "OPTIONS":
+            return response(204, {})
+        principal = admin_principal_from(event)
+        parts = route_parts(event)
         if method == "GET" and parts == ["admin", "v1", "session"]:
             return response(200, {"role": principal.role, "email": principal.email})
         if method == "GET" and parts == ["admin", "v1", "dashboard"]:

@@ -66,7 +66,7 @@ class HeartbeatMonitorTests(unittest.TestCase):
         self.assertEqual(1, result["alerts"])
         self.assertEqual(2, len(fake_table.client.transactions[0]))
         alert = fake_table.client.transactions[0][1]["Put"]["Item"]
-        self.assertEqual({"S": "SERVER_OFFLINE"}, alert["type"])
+        self.assertEqual("SERVER_OFFLINE", alert["type"])
         self.assertEqual(1, len(fake_sns.messages))
 
 

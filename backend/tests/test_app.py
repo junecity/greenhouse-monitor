@@ -16,7 +16,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 import app
 
 
-def event(path, method="POST", subject="cognito-subject", device_id=None, body=None):
+def event(path, method="POST", subject="cognito-subject", device_id=None, body=None, stage=None):
     headers = {}
     if device_id:
         headers["x-greenhouse-device-id"] = device_id
@@ -25,6 +25,7 @@ def event(path, method="POST", subject="cognito-subject", device_id=None, body=N
         "headers": headers,
         "body": json.dumps(body) if body is not None else None,
         "requestContext": {
+            "stage": stage,
             "http": {"method": method},
             "authorizer": {"jwt": {"claims": {"sub": subject}}},
         },
@@ -80,8 +81,17 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual(1, len(fake.client.transactions))
         self.assertEqual(3, len(fake.client.transactions[0]))
         entitlement = fake.client.transactions[0][2]["Put"]["Item"]
-        self.assertEqual({"S": "FREE"}, entitlement["plan"])
-        self.assertEqual({"L": []}, entitlement["features"])
+        self.assertEqual("FREE", entitlement["plan"])
+        self.assertEqual([], entitlement["features"])
+
+    def test_live_stage_prefix_is_removed_before_bootstrap_routing(self):
+        fake = FakeTable()
+        app.table = fake
+
+        result = app.handler(event("/dev/v1/bootstrap", stage="dev"), None)
+
+        self.assertEqual(201, result["statusCode"])
+        self.assertEqual(1, len(fake.client.transactions))
 
     def test_bootstrap_is_idempotent(self):
         fake = FakeTable({
@@ -117,7 +127,7 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual(204, result["statusCode"])
         transaction = fake.client.transactions[0]
         self.assertEqual(3, len(transaction))
-        alert_types = {item["Put"]["Item"]["type"]["S"] for item in transaction[1:]}
+        alert_types = {item["Put"]["Item"]["type"] for item in transaction[1:]}
         self.assertEqual({"SENSOR_COMMUNICATION_FAILURE", "CRITICAL_TEMPERATURE"}, alert_types)
 
     def test_pending_alerts_are_account_scoped_and_hide_acknowledged(self):
@@ -185,9 +195,9 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual(3, len(fake.client.transactions[0]))
         device = fake.client.transactions[0][0]["Put"]["Item"]
         greenhouse = fake.client.transactions[0][1]["Put"]["Item"]
-        self.assertEqual({"S": "tenant-existing"}, device["tenantId"])
-        self.assertEqual({"S": "account-existing"}, greenhouse["accountId"])
-        self.assertEqual({"S": "greenhouse-12345678"}, device["greenhouseId"])
+        self.assertEqual("tenant-existing", device["tenantId"])
+        self.assertEqual("account-existing", greenhouse["accountId"])
+        self.assertEqual("greenhouse-12345678", device["greenhouseId"])
 
     def test_device_inventory_and_revocation_are_account_scoped(self):
         fake = FakeTable({
@@ -224,8 +234,8 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertFalse(json.loads(changed["body"])["enabled"])
         transaction = fake.client.transactions[0]
         self.assertEqual(2, len(transaction))
-        self.assertEqual({"S": "DEVICE#viewer-87654321"}, transaction[0]["Update"]["Key"]["pk"])
-        self.assertEqual({"S": "ACCOUNT#account-existing"}, transaction[1]["Update"]["Key"]["pk"])
+        self.assertEqual("DEVICE#viewer-87654321", transaction[0]["Update"]["Key"]["pk"])
+        self.assertEqual("ACCOUNT#account-existing", transaction[1]["Update"]["Key"]["pk"])
 
     def test_server_registration_rejects_header_body_mismatch(self):
         fake = FakeTable({

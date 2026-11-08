@@ -4,7 +4,6 @@ import time
 
 import boto3
 from boto3.dynamodb.conditions import Key
-from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
 from alerts import new_alert
@@ -13,11 +12,6 @@ from domain import is_missing_heartbeat
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 sns = boto3.client("sns")
-serializer = TypeSerializer()
-
-
-def _serialized(item: dict) -> dict:
-    return {key: serializer.serialize(value) for key, value in item.items() if value is not None}
 
 
 def handler(_event, _context):
@@ -49,14 +43,14 @@ def handler(_event, _context):
                     table.meta.client.transact_write_items(TransactItems=[
                         {"Update": {
                             "TableName": table.name,
-                            "Key": _serialized({"pk": device["pk"], "sk": device["sk"]}),
+                            "Key": {"pk": device["pk"], "sk": device["sk"]},
                             "UpdateExpression": "SET offlineAlertedAt=:now",
                             "ConditionExpression": "attribute_not_exists(offlineAlertedAt) AND lastHeartbeat < :cutoff",
-                            "ExpressionAttributeValues": _serialized({":now": now, ":cutoff": cutoff}),
+                            "ExpressionAttributeValues": {":now": now, ":cutoff": cutoff},
                         }},
                         {"Put": {
                             "TableName": table.name,
-                            "Item": _serialized(alert),
+                            "Item": alert,
                             "ConditionExpression": "attribute_not_exists(pk)",
                         }},
                     ])

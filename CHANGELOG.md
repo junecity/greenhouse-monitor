@@ -2,6 +2,15 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Live customer bootstrap and admin data loading repair
+
+- Fixed deployed customer and administrator route matching by normalizing the API Gateway stage prefix before dispatch. The prior `/dev` prefix caused valid customer bootstrap and administrator data routes to fall through.
+- Fixed all DynamoDB resource-client transactions to use native Python values instead of double-serialized AttributeValue maps, and added explicit `dynamodb:TransactWriteItems` permissions to the application and heartbeat roles. This restores atomic customer account/tenant/Free-entitlement creation and the related device, pairing, heartbeat, admin-revocation, and offline-monitor transactions.
+- Fixed the administrator portal's browser preflight by allowing Chromium `cache-control`/`pragma` request headers and adding an unauthenticated 204 OPTIONS route while retaining JWT authorization on every data route.
+- Added safe dependency-error diagnostics containing only route/AWS error codes and transaction cancellation reasons; no customer data, credentials, or tokens are logged.
+- Deployed both repaired stacks to the existing development environment. Live verification passed: both stacks are `UPDATE_COMPLETE`; a disposable Cognito SRP customer received HTTP 201 from `/dev/v1/bootstrap` and all test records were cleaned up; admin CORS preflight returned 204 with the expected origin/method/header policy; and the deployed `/dev/admin/v1/session` route returned 200 in a role-claim Lambda smoke test.
+- Validation: 48 Python tests passed; both infrastructure templates passed `cfn-lint`; SAM validation/build passed for the updated admin template. A full administrator browser retry and the existing customer's authenticated phone retry still require the owner's private credentials/session.
+
 ## 2026-11-08 — Administrator callback and customer password recovery
 
 - Fixed a live administrator-login race: Cognito successfully authenticated the Owner, but the callback component could consume the same one-time authorization code twice when context initialization rerendered. The callback now depends only on the stable completion function, with a rerender regression test, and the corrected static portal is deployed through CloudFront.

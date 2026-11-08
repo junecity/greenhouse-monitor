@@ -10,7 +10,6 @@ from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
-from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
 from alerts import new_alert
@@ -20,7 +19,6 @@ from google_play_verifier import GooglePlayVerificationError, verify_google_play
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
-serializer = TypeSerializer()
 PENDING_SESSION_SECONDS = 300
 AUTHORIZATION_LEASE_SECONDS = 120
 MAXIMUM_SESSION_SECONDS = 4 * 60 * 60
@@ -55,8 +53,13 @@ def principal_from(event) -> Principal:
     return Principal(account["accountId"], account["tenantId"], device_id)
 
 
-def _serialized(item: dict) -> dict:
-    return {key: serializer.serialize(value) for key, value in item.items()}
+def route_parts(event: dict) -> list[str]:
+    """Return application route segments for both local and staged HTTP API events."""
+    parts = [value for value in event.get("rawPath", "").split("/") if value]
+    stage = str(event.get("requestContext", {}).get("stage") or "").strip("/")
+    if stage and parts and parts[0] == stage:
+        return parts[1:]
+    return parts
 
 
 def account_device_record(device: dict) -> dict:
@@ -107,7 +110,7 @@ def bootstrap_account(event):
         table.meta.client.transact_write_items(TransactItems=[
             {"Put": {
                 "TableName": table.name,
-                "Item": _serialized(item),
+                "Item": item,
                 "ConditionExpression": "attribute_not_exists(pk)",
             }} for item in records
         ])
@@ -142,30 +145,28 @@ def register_server_device(event, principal: Principal):
         "serverDeviceId": device_id, "enabled": True, "createdAt": now,
         "adminEntity": "GREENHOUSE", "adminSort": f"{now:020d}#{greenhouse_id}",
     }
-    tenant_value = serializer.serialize(principal.tenant_id)
-    account_value = serializer.serialize(principal.account_id)
     table.meta.client.transact_write_items(TransactItems=[
         {"Put": {
-            "TableName": table.name, "Item": _serialized(device),
+            "TableName": table.name, "Item": device,
             "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:role)",
             "ExpressionAttributeNames": {"#role": "role"},
             "ExpressionAttributeValues": {
-                ":tenant": tenant_value, ":account": account_value,
-                ":role": serializer.serialize("GREENHOUSE_SERVER"),
+                ":tenant": principal.tenant_id, ":account": principal.account_id,
+                ":role": "GREENHOUSE_SERVER",
             },
         }},
         {"Put": {
-            "TableName": table.name, "Item": _serialized(greenhouse),
+            "TableName": table.name, "Item": greenhouse,
             "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND serverDeviceId=:device)",
             "ExpressionAttributeValues": {
-                ":tenant": tenant_value, ":account": account_value,
-                ":device": serializer.serialize(device_id),
+                ":tenant": principal.tenant_id, ":account": principal.account_id,
+                ":device": device_id,
             },
         }},
         {"Put": {
-            "TableName": table.name, "Item": _serialized(account_device_record(device)),
+            "TableName": table.name, "Item": account_device_record(device),
             "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
-            "ExpressionAttributeValues": {":tenant": tenant_value, ":account": account_value},
+            "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id},
         }},
     ])
     return response(201, {
@@ -229,15 +230,15 @@ def claim_pairing_challenge(event, principal: Principal):
     }
     table.meta.client.transact_write_items(TransactItems=[
         {"Put": {
-            "TableName": table.name, "Item": _serialized(device),
+            "TableName": table.name, "Item": device,
             "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:viewerRole)",
             "ExpressionAttributeNames": {"#role": "role"},
-            "ExpressionAttributeValues": _serialized({":tenant": principal.tenant_id, ":account": principal.account_id, ":viewerRole": "VIEWER_CLIENT"}),
+            "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id, ":viewerRole": "VIEWER_CLIENT"},
         }},
         {"Put": {
-            "TableName": table.name, "Item": _serialized(account_device_record(device)),
+            "TableName": table.name, "Item": account_device_record(device),
             "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
-            "ExpressionAttributeValues": _serialized({":tenant": principal.tenant_id, ":account": principal.account_id}),
+            "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id},
         }},
     ])
     return response(201, {"id": viewer_device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "enabled": True, "greenhouseId": server.get("greenhouseId")})
@@ -287,17 +288,17 @@ def set_device_state(event, principal: Principal, device_id: str):
     table.meta.client.transact_write_items(TransactItems=[
         {"Update": {
             "TableName": table.name,
-            "Key": _serialized({"pk": f"DEVICE#{device_id}", "sk": "METADATA"}),
+            "Key": {"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
             "UpdateExpression": expression,
             "ConditionExpression": "tenantId=:tenant AND accountId=:account",
-            "ExpressionAttributeValues": _serialized(values),
+            "ExpressionAttributeValues": values,
         }},
         {"Update": {
             "TableName": table.name,
-            "Key": _serialized({"pk": f"ACCOUNT#{principal.account_id}", "sk": f"DEVICE#{device_id}"}),
+            "Key": {"pk": f"ACCOUNT#{principal.account_id}", "sk": f"DEVICE#{device_id}"},
             "UpdateExpression": expression,
             "ConditionExpression": "tenantId=:tenant AND accountId=:account",
-            "ExpressionAttributeValues": _serialized(values),
+            "ExpressionAttributeValues": values,
         }},
     ])
     return response(200, {
@@ -606,13 +607,13 @@ def heartbeat(event, principal: Principal, device_id: str):
         condition += " AND " + " AND ".join(marker_conditions)
     transaction = [{"Update": {
         "TableName": table.name,
-        "Key": _serialized({"pk": f"DEVICE#{device_id}", "sk": "METADATA"}),
+        "Key": {"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
         "UpdateExpression": f"SET {', '.join(set_parts)} REMOVE {', '.join(remove_parts)}",
-        "ExpressionAttributeValues": _serialized(expression_values),
+        "ExpressionAttributeValues": expression_values,
         "ConditionExpression": condition,
     }}]
     transaction.extend({"Put": {
-        "TableName": table.name, "Item": _serialized(alert),
+        "TableName": table.name, "Item": alert,
         "ConditionExpression": "attribute_not_exists(pk)",
     }} for alert in alert_records)
     table.meta.client.transact_write_items(TransactItems=transaction)
@@ -622,8 +623,7 @@ def heartbeat(event, principal: Principal, device_id: str):
 def handler(event, _context):
     try:
         method = event.get("requestContext", {}).get("http", {}).get("method")
-        path = event.get("rawPath", "")
-        parts = [value for value in path.split("/") if value]
+        parts = route_parts(event)
         if method == "POST" and parts == ["v1", "bootstrap"]:
             return bootstrap_account(event)
         principal = principal_from(event)
@@ -661,8 +661,23 @@ def handler(event, _context):
     except AccessDenied as error:
         return response(403, {"error": str(error)})
     except ClientError as error:
-        if error.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+        aws_error = error.response.get("Error", {})
+        if aws_error.get("Code") == "ConditionalCheckFailedException":
             return response(409, {"error": "expired_used_or_conflicting"})
+        print(json.dumps({
+            "level": "ERROR",
+            "event": "aws_dependency_error",
+            "route": "/".join(route_parts(event)),
+            "code": str(aws_error.get("Code") or "Unknown"),
+            "message": str(aws_error.get("Message") or "")[:300],
+            "cancellationReasons": [
+                {
+                    "code": str(reason.get("Code") or "Unknown"),
+                    "message": str(reason.get("Message") or "")[:300],
+                }
+                for reason in error.response.get("CancellationReasons", [])
+            ],
+        }))
         return response(503, {"error": "dependency_error"})
     except GooglePlayVerificationError as error:
         return response(503, {"error": error.safe_code})

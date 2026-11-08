@@ -199,7 +199,10 @@ Resources:
         ThrottlingBurstLimit: 20
         ThrottlingRateLimit: 10
       CorsConfiguration:
-        AllowHeaders: [authorization, content-type]
+        # Chromium may add these cache headers when fetch uses cache: no-store.
+        # They must be accepted or the browser blocks the authenticated request
+        # before it reaches the Lambda integration.
+        AllowHeaders: [authorization, content-type, cache-control, pragma]
         AllowMethods: [GET, POST, DELETE, OPTIONS]
         AllowOrigins: [!Ref PortalAllowedOrigin]
         MaxAge: 600
@@ -276,6 +279,14 @@ Resources:
                 Resource: !Ref GooglePlayCredentialsSecretArn
           - !Ref AWS::NoValue
       Events:
+        CorsPreflight:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AdminApi
+            Path: /admin/v1/{proxy+}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
         Proxy:
           Type: HttpApi
           Properties:

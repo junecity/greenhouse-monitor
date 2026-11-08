@@ -17,7 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 import admin_api
 
 
-def event(path="/admin/v1/dashboard", method="GET", role="Owner", exp=None, body=None, query=None):
+def event(path="/admin/v1/dashboard", method="GET", role="Owner", exp=None, body=None, query=None, stage=None):
     claims = {
         "sub": "admin-subject", "email": "owner@example.test",
         "cognito:groups": role, "exp": str(exp or int(time.time()) + 300),
@@ -27,6 +27,7 @@ def event(path="/admin/v1/dashboard", method="GET", role="Owner", exp=None, body
         "body": json.dumps(body) if body is not None else None,
         "queryStringParameters": query,
         "requestContext": {
+            "stage": stage,
             "requestId": "request-1", "http": {"method": method},
             "authorizer": {"jwt": {"claims": claims}},
         },
@@ -68,6 +69,12 @@ class FakeTable:
 
 
 class AdminAuthorizationTests(unittest.TestCase):
+    def test_cors_preflight_does_not_require_admin_claims(self):
+        preflight = event(method="OPTIONS")
+        preflight["requestContext"].pop("authorizer")
+        result = admin_api.handler(preflight, SimpleNamespace(aws_request_id="request"))
+        self.assertEqual(204, result["statusCode"])
+
     def test_owner_group_is_accepted(self):
         principal = admin_api.admin_principal_from(event())
         self.assertEqual("Owner", principal.role)
@@ -148,7 +155,10 @@ class AdminDataTests(unittest.TestCase):
         principal = admin_api.AdminPrincipal("support", "support@example.test", "Support")
         result = admin_api.revoke_device(principal, "server-12345678", "request")
         self.assertFalse(result["enabled"])
-        self.assertEqual(2, len(self.fake.meta.client.transactions[0]))
+        transaction = self.fake.meta.client.transactions[0]
+        self.assertEqual(2, len(transaction))
+        self.assertEqual("DEVICE#server-12345678", transaction[0]["Update"]["Key"]["pk"])
+        self.assertEqual(False, transaction[0]["Update"]["ExpressionAttributeValues"][":enabled"])
         self.assertEqual("DEVICE_SESSION_REVOKED", self.fake.puts[0]["action"])
         with self.assertRaisesRegex(admin_api.AdminAccessDenied, "insufficient_role"):
             admin_api.set_complimentary(principal, "account-12345678", None, "request")
@@ -174,6 +184,15 @@ class AdminDataTests(unittest.TestCase):
         result = admin_api.handler(event("/admin/v1/session"), SimpleNamespace(aws_request_id="request"))
         self.assertEqual(200, result["statusCode"])
         self.assertEqual("DENY", result["headers"]["x-frame-options"])
+        self.assertEqual("Owner", json.loads(result["body"])["role"])
+
+    def test_live_stage_prefix_is_removed_before_admin_routing(self):
+        result = admin_api.handler(
+            event("/dev/admin/v1/session", stage="dev"),
+            SimpleNamespace(aws_request_id="request"),
+        )
+
+        self.assertEqual(200, result["statusCode"])
         self.assertEqual("Owner", json.loads(result["body"])["role"])
 
 

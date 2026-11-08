@@ -199,6 +199,14 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable
+        # SAM's DynamoDBCrudPolicy does not include transactional writes.
+        # Account bootstrap, device registration, pairing, revocation, and
+        # incident persistence all depend on atomic multi-item operations.
+        - Statement:
+            - Sid: WriteAtomicGreenhouseRecords
+              Effect: Allow
+              Action: dynamodb:TransactWriteItems
+              Resource: !GetAtt ApplicationTable.Arn
         - Statement:
             - Sid: ManageGreenhouseSignalingChannels
               Effect: Allow
@@ -307,6 +315,11 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable
+        - Statement:
+            - Sid: WriteAtomicHeartbeatIncidents
+              Effect: Allow
+              Action: dynamodb:TransactWriteItems
+              Resource: !GetAtt ApplicationTable.Arn
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt CriticalAlertTopic.TopicName
       Events:
