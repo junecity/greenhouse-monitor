@@ -37,6 +37,40 @@ Status: **Phase 1 scaffold only**. No AWS services deployed; no WebRTC media tra
 - `UpnpPortMapper.kt` configures router UPnP mapping.
 - `CameraPairing.kt` holds local/public hosts and pairing credentials.
 
+This implementation is retained as a migration/local fallback. It is not commercially scalable because pairing embeds network addresses, public IP changes break remote access, UPnP exposes a device port, and there is no customer identity or server-side entitlement check.
+
+## Target architecture
+
+1. Cognito user-pool identity authenticates customers in the Android application.
+2. A Greenhouse API authorizer derives the tenant from validated JWT claims. Clients never submit an authoritative tenant ID.
+3. The backend stores accounts, devices, greenhouse membership, pairing challenges, entitlements, heartbeats, and short-lived streaming sessions in dedicated DynamoDB tables.
+4. An authorized Premium client requests a viewing session. The backend verifies tenant/device access and entitlement before returning short-lived Kinesis signaling configuration.
+5. The greenhouse server receives an on-demand request, starts CameraX/WebRTC capture, and joins as master. The viewer joins with a unique client ID.
+6. ICE prefers direct connectivity; AWS-managed STUN/TURN data is returned by Kinesis. No router forwarding is required.
+7. Closing/backgrounding the viewer ends the session. The server stops capture when no authorized viewer remains or the lease expires.
+8. Local same-network viewing remains available independently of AWS and does not require Premium.
+
+## Verified SDK facts
+
+- AWS's Android repository release v1.3.0 targets API 29+ and demonstrates Kinesis signaling with AWS Android SDK 2.81.1.
+- The AWS repository does not publish a complete drop-in media artifact. Its documented setup requires importing a compatible `libwebrtc` AAR.
+- Physical Android devices must verify H.264 encode/decode support; emulator success is insufficient.
+- AWS temporary credentials or backend-minted signed signaling data replace embedded long-lived keys.
+
+## Migration gates
+
+Do not retire the existing remote path until all of these pass on the Galaxy A71 and Pixel 10: authenticated session creation, direct ICE, TURN fallback, network handoff, reconnect, viewer close/background termination, server restart, expired/revoked entitlement denial, cross-tenant denial, and AWS outage fallback to local monitoring.
+
+UPnP must be disabled by default after WebRTC verification and removed only after a rollback release is available.
+
+## Current status
+
+- Existing local/encrypted-JPEG path: implemented; previously device-rendered, not revalidated in this stage.
+- Identity, tenant/device authorization, backend entitlement, pairing, heartbeat, and WebRTC session contracts: implemented as credential-free foundations.
+- Backend authorization denies Free, expired, revoked, disabled-device, wrong-role, unverified-source, and cross-tenant requests. Live AWS integration is not yet verified.
+- AWS Cognito/API Gateway/DynamoDB/Lambda/SNS/scheduled-monitor resources: defined in SAM but not created or deployed.
+- Kinesis WebRTC media: not implemented; requires a pinned WebRTC AAR and live AWS/device testing.
+
 ## Phase 1 delivered
 - `RemoteCameraAccessPolicy.kt`: pure entitlement decision logic for future UI/service integration.
 - `RemoteCameraAccessPolicyTest.kt`: local/free/premium/complimentary/expired/unverified cases.

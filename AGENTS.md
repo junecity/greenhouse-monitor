@@ -42,6 +42,42 @@
 - Phase 1 created `RemoteCameraAccessPolicy.kt`, unit tests, and `docs/REMOTE_STREAMING_IMPLEMENTATION.md`. These are scaffolding only, NOT deployed WebRTC.
 - Next steps: backend customer identity, Google Play entitlement verification, signaling/TURN authorization, Android WebRTC media transport, network and hardware tests. No AWS deployment without separate cost/security review and deployment approval.
 
+## Current Android architecture
+
+- Kotlin/Jetpack Compose, Android API 29+, landscape-only monitoring UI.
+- `GreenhouseViewModel` owns Govee refresh, weather, local history, alerts, greenhouse layout, and UI state.
+- Govee H5179 uses the supported cloud API; the API key is encrypted with Android Keystore.
+- Local history uses SQLite. Background refresh uses WorkManager's 15-minute minimum.
+- Server camera capture uses CameraX and `CameraFrameHub`. Existing viewer transport polls AES-256-GCM encrypted JPEG frames from `CameraStreamServer` using a QR-distributed token/key.
+- `CameraStreamServer` currently attempts UPnP mapping. This is migration-only and must not be treated as the commercial remote architecture.
+- No customer identity, backend tenant isolation, verified subscription entitlement, heartbeat backend, or deployed AWS WebRTC channel exists yet.
+
+## Validated external constraints
+
+- AWS Kinesis Video Streams WebRTC Android SDK v1.3.0 is an AWS sample/source integration, not a complete Maven media dependency. It requires a compatible `libwebrtc` AAR and AWS signaling dependencies.
+- Never place long-lived AWS keys in the APK. Authenticated users obtain short-lived authorization through the Greenhouse backend.
+- Google Play subscription benefits require backend verification and lifecycle processing; local flags are not authoritative.
+
+## Rollback and verification
+
+- Rollback tag: `codex-stage3-baseline`.
+- Current upgrade branch: `codex/greenhouse-complete-upgrade`.
+- Baseline on 2026-11-08: `testDebugUnitTest`, `lintDebug`, and `assembleDebug` passed; 12 JVM tests passed.
+
+## Implemented cloud foundation
+
+- `cloud/CloudContracts.kt` defines authenticated principals, tenant-bound devices and greenhouses, backend entitlement states/sources, pairing, heartbeat, and remote-session contracts.
+- `RemoteAccessPolicy` denies unauthenticated, cross-tenant, disabled, wrong-role, free, expired, and revoked access. Complimentary access is accepted only as a backend grant.
+- `backend/src/domain.py` mirrors the authoritative backend policy. `backend/src/app.py` contains JWT-derived tenant lookup, tenant-owned resource lookup, heartbeat, and authorized stream-session request foundations.
+- `infrastructure/template.yaml` defines isolated Cognito, HTTP API, DynamoDB, Lambda, SNS, and scheduled heartbeat-monitor resources. It has not been deployed.
+- Stage 2 verification: Android unit/lint/build passed with 19 JVM tests; 6 Python authorization tests and Python byte-compilation passed. SAM CLI was unavailable, so SAM template validation is pending.
+
+## Next implementation steps
+
+1. Complete one-time pairing persistence and short-lived Kinesis session credential issuance in the backend.
+2. Add Android signaling/media integration only with a pinned, reproducible WebRTC binary and live-device validation plan.
+3. Add heartbeat/emergency Android worker and provider-neutral sensor interfaces.
+
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).

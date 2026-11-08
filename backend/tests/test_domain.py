@@ -1,0 +1,49 @@
+import pathlib
+import sys
+import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
+
+from domain import AccessDenied, Principal, authorize_stream
+
+
+class AuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 1_800_000_000
+        self.principal = Principal("account-a", "tenant-a", "viewer-a")
+        self.viewer = {"deviceId": "viewer-a", "tenantId": "tenant-a", "role": "VIEWER_CLIENT", "enabled": True}
+        self.server = {"deviceId": "server-a", "tenantId": "tenant-a", "role": "GREENHOUSE_SERVER", "enabled": True}
+        self.greenhouse = {"greenhouseId": "greenhouse-a", "tenantId": "tenant-a"}
+        self.entitlement = {"accountId": "account-a", "state": "ACTIVE", "source": "GOOGLE_PLAY_VERIFIED", "features": ["REMOTE_LIVE_VIDEO"], "expiresAt": self.now + 60}
+
+    def test_verified_premium_is_allowed(self):
+        authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
+    def test_complimentary_backend_grant_is_allowed(self):
+        self.entitlement.update(source="COMPLIMENTARY_BACKEND_GRANT", expiresAt=None)
+        authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
+    def test_cross_tenant_is_denied(self):
+        self.server["tenantId"] = "tenant-b"
+        with self.assertRaisesRegex(AccessDenied, "cross_tenant"):
+            authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
+    def test_expired_is_denied(self):
+        self.entitlement["expiresAt"] = self.now
+        with self.assertRaisesRegex(AccessDenied, "expired"):
+            authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
+    def test_revoked_is_denied(self):
+        self.entitlement["state"] = "REVOKED"
+        with self.assertRaisesRegex(AccessDenied, "revoked"):
+            authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
+    def test_free_access_is_denied(self):
+        self.entitlement["features"] = []
+        with self.assertRaisesRegex(AccessDenied, "premium_required"):
+            authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
+
+if __name__ == "__main__":
+    unittest.main()
+

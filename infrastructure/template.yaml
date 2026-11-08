@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Dedicated Greenhouse Monitor backend foundation. Not deployed by this repository.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedPattern: '[a-z0-9-]+'
+  OfflineTimeoutSeconds:
+    Type: Number
+    Default: 180
+    MinValue: 120
+    MaxValue: 900
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures: [arm64]
+    Timeout: 15
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref ApplicationTable
+        ENVIRONMENT_NAME: !Ref EnvironmentName
+        OFFLINE_TIMEOUT_SECONDS: !Ref OfflineTimeoutSeconds
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub greenhouse-monitor-${EnvironmentName}-users
+      AutoVerifiedAttributes: [email]
+      UsernameAttributes: [email]
+      MfaConfiguration: OPTIONAL
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      UserPoolAddOns:
+        AdvancedSecurityMode: ENFORCED
+
+  AndroidUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub greenhouse-monitor-${EnvironmentName}-android
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 15
+      IdTokenValidity: 15
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+
+  ApplicationTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub greenhouse-monitor-${EnvironmentName}
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: heartbeatShard
+          AttributeType: N
+        - AttributeName: lastHeartbeat
+          AttributeType: N
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: heartbeats
+          KeySchema:
+            - AttributeName: heartbeatShard
+              KeyType: HASH
+            - AttributeName: lastHeartbeat
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes: [tenantId, deviceId, greenhouseId, enabled]
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref EnvironmentName
+      CorsConfiguration:
+        AllowHeaders: [authorization, content-type, x-greenhouse-device-id]
+        AllowMethods: [GET, POST, DELETE]
+        AllowOrigins: ['https://invalid.local']
+      Auth:
+        DefaultAuthorizer: CognitoJwt
+        Authorizers:
+          CognitoJwt:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+              audience: [!Ref AndroidUserPoolClient]
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiAccessLogs.Arn
+        Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLength":"$context.responseLength"}'
+
+  ApiAccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/greenhouse-monitor/${EnvironmentName}/api
+      RetentionInDays: 30
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-api
+      CodeUri: ../backend/src/
+      Handler: app.handler
+      ReservedConcurrentExecutions: 20
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ApplicationTable
+      Events:
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /v1/{proxy+}
+            Method: ANY
+
+  CriticalAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub greenhouse-monitor-${EnvironmentName}-critical-alerts
+      KmsMasterKeyId: alias/aws/sns
+
+  HeartbeatMonitorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-heartbeat-monitor
+      CodeUri: ../backend/src/
+      Handler: heartbeat_monitor.handler
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          ALERT_TOPIC_ARN: !Ref CriticalAlertTopic
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ApplicationTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt CriticalAlertTopic.TopicName
+      Events:
+        MinuteCheck:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(1 minute)
+            FlexibleTimeWindow:
+              Mode: 'OFF'
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${EnvironmentName}
+  UserPoolId:
+    Value: !Ref UserPool
+  AndroidClientId:
+    Value: !Ref AndroidUserPoolClient
+

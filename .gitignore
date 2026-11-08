@@ -4,3 +4,7 @@ local.properties
 **/build/
 *.iml
 captures/
+__pycache__/
+*.pyc
+.aws-sam/
+infrastructure/samconfig.toml
