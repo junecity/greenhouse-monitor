@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 
-from domain import AccessDenied, Principal, authorize_stream, is_missing_heartbeat
+from domain import AccessDenied, Principal, authorize_stream, is_missing_heartbeat, pairing_code_hash, require_device_id
 
 
 class AuthorizationTests(unittest.TestCase):
@@ -51,6 +51,24 @@ class HeartbeatPolicyTests(unittest.TestCase):
     def test_disabled_or_recent_server_is_not_missing(self):
         self.assertFalse(is_missing_heartbeat({"enabled": False, "lastHeartbeat": 100}, 101))
         self.assertFalse(is_missing_heartbeat({"enabled": True, "lastHeartbeat": 101}, 101))
+
+
+class PairingPolicyTests(unittest.TestCase):
+    def test_pairing_code_is_hashed_and_stable(self):
+        code = "long-single-use-pairing-secret"
+        value = pairing_code_hash(code)
+        self.assertEqual(64, len(value))
+        self.assertEqual(value, pairing_code_hash(f"  {code}  "))
+        self.assertNotIn(code, value)
+
+    def test_short_pairing_code_is_rejected(self):
+        with self.assertRaisesRegex(AccessDenied, "invalid_pairing_code"):
+            pairing_code_hash("123456")
+
+    def test_device_id_validation(self):
+        self.assertEqual("viewer-12345678", require_device_id("viewer-12345678"))
+        with self.assertRaisesRegex(AccessDenied, "invalid_device_id"):
+            require_device_id("bad id")
 
 
 if __name__ == "__main__":

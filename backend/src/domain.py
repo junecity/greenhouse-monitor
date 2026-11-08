@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
+from hashlib import sha256
+import re
 from time import time
 from typing import Optional
 
@@ -20,6 +22,22 @@ class Principal:
     account_id: str
     tenant_id: str
     device_id: str
+
+
+DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$")
+
+
+def require_device_id(device_id: str) -> str:
+    if not DEVICE_ID_PATTERN.fullmatch(device_id or ""):
+        raise AccessDenied("invalid_device_id")
+    return device_id
+
+
+def pairing_code_hash(code: str) -> str:
+    normalized = (code or "").strip()
+    if len(normalized) < 24 or len(normalized) > 128:
+        raise AccessDenied("invalid_pairing_code")
+    return sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def require_same_tenant(principal: Principal, *tenant_ids: str) -> None:

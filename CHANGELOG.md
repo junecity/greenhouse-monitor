@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Account-scoped cloud pairing
+
+- Added five-minute, cryptographically random pairing challenges; only a SHA-256 digest is persisted.
+- Added authenticated same-account/same-tenant viewer claims with one-use conditional writes, expiry enforcement, device-ID validation, and safe conflict responses.
+- Kept the existing local QR pairing active until Cognito onboarding and a deployed backend are available.
+- Tests: 11 Python policy tests and Python byte-compilation passed. DynamoDB integration remains unverified without a deployed development stack.
+
 ## 2026-11-08 — Deployment and cost handoff
 
 - Added an approval-gated AWS deployment, rollback, cost, and physical-device validation checklist.

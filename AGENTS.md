@@ -71,6 +71,7 @@
 - `backend/src/domain.py` mirrors the authoritative backend policy. `backend/src/app.py` contains JWT-derived tenant lookup, tenant-owned resource lookup, heartbeat, and authorized stream-session request foundations.
 - `infrastructure/template.yaml` defines isolated Cognito, HTTP API, DynamoDB, Lambda, SNS, and scheduled heartbeat-monitor resources. It has not been deployed.
 - Stage 2 verification: Android unit/lint/build passed with 19 JVM tests; 6 Python authorization tests and Python byte-compilation passed. SAM CLI was unavailable, so SAM template validation is pending.
+- Backend pairing now issues 256-bit, five-minute challenges, stores only their SHA-256 digest, restricts claims to the authenticated account/tenant and requested viewer device, and atomically rejects reuse/expiry. It does not replace the legacy local QR until account onboarding is connected.
 
 ## WebRTC migration implementation
 
@@ -96,7 +97,7 @@
 
 ## Next implementation steps
 
-1. Complete one-time pairing persistence and signed Kinesis WSS/ICE issuance in the backend.
+1. Complete signed Kinesis WSS/ICE issuance in the backend.
 2. Wire the WebRTC coordinator behind the existing camera view after a deployed test stack is available.
 3. Add the customer-authenticated HTTP gateway, foreground heartbeat service, and tenant-aware push/acknowledgement worker.
 

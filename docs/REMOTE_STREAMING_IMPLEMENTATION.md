@@ -88,3 +88,5 @@ UPnP must be disabled by default after WebRTC verification and removed only afte
 The sensor path now uses a provider-neutral boundary. This is intentionally independent of remote streaming, so future BLE or local-Wi-Fi Junecity providers can continue local monitoring even when AWS is unavailable.
 
 Heartbeat monitoring is also independent of video. The scheduled backend uses a configurable offline timeout (initially 180 seconds), deduplicates an incident until the server reports again, and emits an internal tenant-tagged event. End-user push routing and acknowledgement are intentionally not represented as complete until authenticated delivery and physical-device background tests exist.
+
+Cloud pairing now uses an authenticated, single-use, five-minute challenge. The backend stores only a SHA-256 digest and binds a claimed viewer to the same account and tenant as the greenhouse server. The high-entropy code is sent in the HTTPS request body, not a URL path. This flow is not activated in the legacy camera UI until Cognito onboarding is configured.
