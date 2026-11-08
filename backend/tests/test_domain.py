@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1] / "src"))
 
-from domain import AccessDenied, Principal, authorize_stream, is_missing_heartbeat, pairing_code_hash, require_device_id, signaling_channel_name
+from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, is_missing_heartbeat, pairing_code_hash, require_device_id, require_resource_id, signaling_channel_name
 
 
 class AuthorizationTests(unittest.TestCase):
@@ -69,6 +69,23 @@ class PairingPolicyTests(unittest.TestCase):
         self.assertEqual("viewer-12345678", require_device_id("viewer-12345678"))
         with self.assertRaisesRegex(AccessDenied, "invalid_device_id"):
             require_device_id("bad id")
+
+    def test_resource_id_validation(self):
+        self.assertEqual("greenhouse-123", require_resource_id("greenhouse-123"))
+        with self.assertRaisesRegex(AccessDenied, "invalid_resource_id"):
+            require_resource_id("short")
+
+
+class AccountBootstrapTests(unittest.TestCase):
+    def test_bootstrap_creates_free_tenant_scoped_records_without_personal_data(self):
+        records = account_bootstrap_records("cognito-subject", "account-12345678", "tenant-12345678", 123)
+        user, account, entitlement = records
+        self.assertEqual("account-12345678", user["accountId"])
+        self.assertTrue(all(value["tenantId"] == "tenant-12345678" for value in records))
+        self.assertEqual("FREE", entitlement["plan"])
+        self.assertEqual([], entitlement["features"])
+        self.assertEqual("ACTIVE", account["state"])
+        self.assertFalse(any("email" in value for value in records))
 
 
 class SignalingChannelTests(unittest.TestCase):

@@ -25,6 +25,7 @@ class Principal:
 
 
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$")
+RESOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$")
 CHANNEL_PART_PATTERN = re.compile(r"[^a-z0-9_-]+")
 
 
@@ -32,6 +33,34 @@ def require_device_id(device_id: str) -> str:
     if not DEVICE_ID_PATTERN.fullmatch(device_id or ""):
         raise AccessDenied("invalid_device_id")
     return device_id
+
+
+def require_resource_id(resource_id: str) -> str:
+    if not RESOURCE_ID_PATTERN.fullmatch(resource_id or ""):
+        raise AccessDenied("invalid_resource_id")
+    return resource_id
+
+
+def account_bootstrap_records(subject: str, account_id: str, tenant_id: str, created_at: int) -> tuple[dict, dict, dict]:
+    """Create the three records needed before an authenticated user can register devices."""
+    if not subject or len(subject) > 128:
+        raise AccessDenied("unauthenticated")
+    require_resource_id(account_id)
+    require_resource_id(tenant_id)
+    user = {
+        "pk": f"USER#{subject}", "sk": "ACCOUNT", "accountId": account_id,
+        "tenantId": tenant_id, "createdAt": created_at,
+    }
+    account = {
+        "pk": f"ACCOUNT#{account_id}", "sk": "METADATA", "accountId": account_id,
+        "tenantId": tenant_id, "state": "ACTIVE", "createdAt": created_at,
+    }
+    entitlement = {
+        "pk": f"ACCOUNT#{account_id}", "sk": "ENTITLEMENT", "accountId": account_id,
+        "tenantId": tenant_id, "plan": "FREE", "state": "ACTIVE", "source": "NONE",
+        "features": [], "verifiedAt": created_at,
+    }
+    return user, account, entitlement
 
 
 def pairing_code_hash(code: str) -> str:

@@ -1,29 +1,39 @@
+from __future__ import annotations
+
 import json
 import os
 import secrets
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
-from domain import AccessDenied, Principal, authorize_stream, pairing_code_hash, require_device_id
+from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
+serializer = TypeSerializer()
 
 
 def response(status: int, body: dict):
     return {"statusCode": status, "headers": {"content-type": "application/json", "cache-control": "no-store"}, "body": json.dumps(body, default=lambda value: int(value) if isinstance(value, Decimal) else str(value))}
 
 
-def principal_from(event) -> Principal:
+def subject_from(event) -> str:
     claims = event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
     subject = claims.get("sub")
     if not subject:
         raise AccessDenied("unauthenticated")
+    return subject
+
+
+def principal_from(event) -> Principal:
+    subject = subject_from(event)
     account = table.get_item(Key={"pk": f"USER#{subject}", "sk": "ACCOUNT"}, ConsistentRead=True).get("Item")
     if not account:
         raise AccessDenied("account_missing")
@@ -31,6 +41,84 @@ def principal_from(event) -> Principal:
     if not device_id:
         raise AccessDenied("device_missing")
     return Principal(account["accountId"], account["tenantId"], device_id)
+
+
+def _serialized(item: dict) -> dict:
+    return {key: serializer.serialize(value) for key, value in item.items()}
+
+
+def bootstrap_account(event):
+    subject = subject_from(event)
+    existing = table.get_item(Key={"pk": f"USER#{subject}", "sk": "ACCOUNT"}, ConsistentRead=True).get("Item")
+    if existing:
+        return response(200, {"accountId": existing["accountId"], "tenantId": existing["tenantId"]})
+
+    now = int(datetime.now(timezone.utc).timestamp())
+    account_id = f"account-{uuid.uuid4().hex}"
+    tenant_id = f"tenant-{uuid.uuid4().hex}"
+    records = account_bootstrap_records(subject, account_id, tenant_id, now)
+    try:
+        table.meta.client.transact_write_items(TransactItems=[
+            {"Put": {
+                "TableName": table.name,
+                "Item": _serialized(item),
+                "ConditionExpression": "attribute_not_exists(pk)",
+            }} for item in records
+        ])
+        return response(201, {"accountId": account_id, "tenantId": tenant_id})
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") != "TransactionCanceledException":
+            raise
+        existing = table.get_item(Key={"pk": f"USER#{subject}", "sk": "ACCOUNT"}, ConsistentRead=True).get("Item")
+        if not existing:
+            raise
+        return response(200, {"accountId": existing["accountId"], "tenantId": existing["tenantId"]})
+
+
+def register_server_device(event, principal: Principal):
+    body = json.loads(event.get("body") or "{}")
+    device_id = require_device_id(body.get("deviceId", ""))
+    greenhouse_id = require_resource_id(body.get("greenhouseId", ""))
+    if principal.device_id != device_id:
+        raise AccessDenied("device_mismatch")
+    if body.get("role") != "GREENHOUSE_SERVER":
+        raise AccessDenied("invalid_device_role")
+    now = int(datetime.now(timezone.utc).timestamp())
+    device = {
+        "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
+        "tenantId": principal.tenant_id, "accountId": principal.account_id,
+        "role": "GREENHOUSE_SERVER", "enabled": True, "createdAt": now,
+    }
+    greenhouse = {
+        "pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA", "greenhouseId": greenhouse_id,
+        "tenantId": principal.tenant_id, "accountId": principal.account_id,
+        "serverDeviceId": device_id, "enabled": True, "createdAt": now,
+    }
+    tenant_value = serializer.serialize(principal.tenant_id)
+    account_value = serializer.serialize(principal.account_id)
+    table.meta.client.transact_write_items(TransactItems=[
+        {"Put": {
+            "TableName": table.name, "Item": _serialized(device),
+            "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:role)",
+            "ExpressionAttributeNames": {"#role": "role"},
+            "ExpressionAttributeValues": {
+                ":tenant": tenant_value, ":account": account_value,
+                ":role": serializer.serialize("GREENHOUSE_SERVER"),
+            },
+        }},
+        {"Put": {
+            "TableName": table.name, "Item": _serialized(greenhouse),
+            "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND serverDeviceId=:device)",
+            "ExpressionAttributeValues": {
+                ":tenant": tenant_value, ":account": account_value,
+                ":device": serializer.serialize(device_id),
+            },
+        }},
+    ])
+    return response(201, {
+        "deviceId": device_id, "greenhouseId": greenhouse_id,
+        "tenantId": principal.tenant_id, "role": "GREENHOUSE_SERVER", "enabled": True,
+    })
 
 
 def get_owned(kind: str, object_id: str, tenant_id: str):
@@ -198,10 +286,14 @@ def heartbeat(event, principal: Principal, device_id: str):
 
 def handler(event, _context):
     try:
-        principal = principal_from(event)
         method = event.get("requestContext", {}).get("http", {}).get("method")
         path = event.get("rawPath", "")
         parts = [value for value in path.split("/") if value]
+        if method == "POST" and parts == ["v1", "bootstrap"]:
+            return bootstrap_account(event)
+        principal = principal_from(event)
+        if method == "POST" and parts == ["v1", "devices"]:
+            return register_server_device(event, principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "pairing-challenges":
             return create_pairing_challenge(principal, parts[2])
         if method == "POST" and parts == ["v1", "pairing-challenges", "claim"]:

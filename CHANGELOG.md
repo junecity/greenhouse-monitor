@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Atomic AWS account and server-device bootstrap
+
+- Added an idempotent Cognito-subject bootstrap endpoint that atomically creates an isolated account, tenant, and active Free entitlement without storing email or trusting client tenant identifiers.
+- Added atomic authenticated greenhouse-server and initial-greenhouse registration; viewer creation remains restricted to the same-account single-use pairing claim.
+- Added API/domain tests for first-run bootstrap, retry idempotency, tenant binding, device mismatch rejection, resource validation, and Free defaults.
+- Added the AWS SDK as a CI-only backend test dependency; Lambda continues to use its managed runtime SDK.
+- Tests: 18 Python tests and Python byte-compilation passed. DynamoDB transaction behavior and JWT authorizer integration remain unverified until deployment.
+
 ## 2026-11-08 — AWS Cognito Android authentication foundation
 
 - Added programmatic AWS Amplify/Cognito configuration with SRP sign-up, confirmation, sign-in, sign-out, automatically refreshed access-token retrieval, and authenticated cloud-gateway creation.
