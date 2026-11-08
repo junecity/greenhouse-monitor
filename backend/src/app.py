@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import secrets
 import uuid
@@ -15,6 +16,7 @@ from botocore.exceptions import ClientError
 from alerts import new_alert
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
+from google_play_verifier import GooglePlayVerificationError, verify_google_play_purchase
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
@@ -42,6 +44,11 @@ def principal_from(event) -> Principal:
     account = table.get_item(Key={"pk": f"USER#{subject}", "sk": "ACCOUNT"}, ConsistentRead=True).get("Item")
     if not account:
         raise AccessDenied("account_missing")
+    account_metadata = table.get_item(
+        Key={"pk": f"ACCOUNT#{account['accountId']}", "sk": "METADATA"}, ConsistentRead=True
+    ).get("Item")
+    if account_metadata and account_metadata.get("state", "ACTIVE") != "ACTIVE":
+        raise AccessDenied("account_suspended")
     device_id = event.get("headers", {}).get("x-greenhouse-device-id", "")
     if not device_id:
         raise AccessDenied("device_missing")
@@ -59,19 +66,43 @@ def account_device_record(device: dict) -> dict:
         "accountId": device["accountId"], "role": device["role"],
         "greenhouseId": device.get("greenhouseId"), "enabled": bool(device.get("enabled")),
         "createdAt": int(device["createdAt"]),
+        "adminEntity": "ACCOUNT_DEVICE",
+        "adminSort": f"{int(device['createdAt']):020d}#{device['deviceId']}",
     }
 
 
 def bootstrap_account(event):
     subject = subject_from(event)
+    claims = event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
     existing = table.get_item(Key={"pk": f"USER#{subject}", "sk": "ACCOUNT"}, ConsistentRead=True).get("Item")
     if existing:
+        created_at = int(existing.get("createdAt", int(datetime.now(timezone.utc).timestamp())))
+        updates = ["cognitoSubject=:subject", "adminEntity=:entity", "adminSort=:sort"]
+        values = {
+            ":subject": subject, ":entity": "ACCOUNT",
+            ":sort": f"{created_at:020d}#{existing['accountId']}",
+        }
+        if claims.get("email"):
+            updates.append("email=:email")
+            values[":email"] = str(claims["email"]).strip().lower()[:320]
+        if claims.get("name"):
+            updates.append("displayName=:name")
+            values[":name"] = str(claims["name"]).strip()[:120]
+        table.update_item(
+            Key={"pk": f"ACCOUNT#{existing['accountId']}", "sk": "METADATA"},
+            UpdateExpression=f"SET {', '.join(updates)}",
+            ConditionExpression="tenantId=:tenant",
+            ExpressionAttributeValues={**values, ":tenant": existing["tenantId"]},
+        )
         return response(200, {"accountId": existing["accountId"], "tenantId": existing["tenantId"]})
 
     now = int(datetime.now(timezone.utc).timestamp())
     account_id = f"account-{uuid.uuid4().hex}"
     tenant_id = f"tenant-{uuid.uuid4().hex}"
-    records = account_bootstrap_records(subject, account_id, tenant_id, now)
+    records = account_bootstrap_records(
+        subject, account_id, tenant_id, now,
+        email=claims.get("email"), display_name=claims.get("name"),
+    )
     try:
         table.meta.client.transact_write_items(TransactItems=[
             {"Put": {
@@ -103,11 +134,13 @@ def register_server_device(event, principal: Principal):
         "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
         "role": "GREENHOUSE_SERVER", "greenhouseId": greenhouse_id, "enabled": True, "createdAt": now,
+        "adminEntity": "DEVICE", "adminSort": f"{now:020d}#{device_id}",
     }
     greenhouse = {
         "pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA", "greenhouseId": greenhouse_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
         "serverDeviceId": device_id, "enabled": True, "createdAt": now,
+        "adminEntity": "GREENHOUSE", "adminSort": f"{now:020d}#{greenhouse_id}",
     }
     tenant_value = serializer.serialize(principal.tenant_id)
     account_value = serializer.serialize(principal.account_id)
@@ -192,6 +225,7 @@ def claim_pairing_challenge(event, principal: Principal):
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
         "role": "VIEWER_CLIENT", "enabled": True,
         "pairedServerDeviceId": challenge["serverDeviceId"], "greenhouseId": server.get("greenhouseId"), "createdAt": now,
+        "adminEntity": "DEVICE", "adminSort": f"{now:020d}#{viewer_device_id}",
     }
     table.meta.client.transact_write_items(TransactItems=[
         {"Put": {
@@ -293,6 +327,7 @@ def create_stream_session(event, principal: Principal, greenhouse_id: str):
         "signalingChannelArn": channel_arn, "state": "REQUESTED", "createdAt": now,
         "authorizationExpiresAt": now + AUTHORIZATION_LEASE_SECONDS,
         "expiresAt": now + MAXIMUM_SESSION_SECONDS,
+        "adminEntity": "STREAM_SESSION", "adminSort": f"{now:020d}#{session_id}",
     }
     table.put_item(Item=item, ConditionExpression="attribute_not_exists(pk)")
     table.put_item(Item={
@@ -408,6 +443,46 @@ def entitlement(principal: Principal):
     })
 
 
+def verify_google_play_subscription(event, principal: Principal):
+    require_enabled_requester(principal)
+    body = json.loads(event.get("body") or "{}")
+    product_id = str(body.get("productId") or "")[:160]
+    purchase_token = str(body.get("purchaseToken") or "")
+    if not product_id or len(purchase_token) < 16 or len(purchase_token) > 4096:
+        return response(400, {"error": "valid_google_play_purchase_required"})
+    verification = verify_google_play_purchase(product_id, purchase_token)
+    now = int(datetime.now(timezone.utc).timestamp())
+    state = "ACTIVE" if verification["active"] else "EXPIRED"
+    features = ["REMOTE_LIVE_VIDEO"] if verification["active"] else []
+    account = table.get_item(
+        Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "METADATA"}, ConsistentRead=True
+    ).get("Item", {})
+    table.update_item(
+        Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"},
+        UpdateExpression=(
+            "SET plan=:plan, #state=:state, #source=:source, features=:features, verifiedAt=:now, "
+            "expiresAt=:expires, productId=:product, purchaseToken=:token, purchaseTokenHash=:tokenHash, "
+            "verificationStatus=:verification, adminEntity=:entity, adminSort=:sort REMOVE verificationError"
+        ),
+        ConditionExpression="accountId=:account AND tenantId=:tenant",
+        ExpressionAttributeNames={"#state": "state", "#source": "source"},
+        ExpressionAttributeValues={
+            ":plan": "PREMIUM", ":state": state, ":source": "GOOGLE_PLAY_VERIFIED",
+            ":features": features, ":now": now, ":expires": verification["expiresAt"],
+            ":product": product_id, ":token": purchase_token,
+            ":tokenHash": hashlib.sha256(purchase_token.encode("utf-8")).hexdigest(),
+            ":verification": "VERIFIED", ":entity": "ENTITLEMENT",
+            ":sort": f"{int(account.get('createdAt', now)):020d}#{principal.account_id}",
+            ":account": principal.account_id, ":tenant": principal.tenant_id,
+        },
+    )
+    return response(200, {
+        "plan": "PREMIUM", "state": state, "source": "GOOGLE_PLAY_VERIFIED",
+        "features": features, "verifiedAtEpochMs": now * 1000,
+        "expiresAtEpochMs": int(verification["expiresAt"]) * 1000,
+    })
+
+
 def pending_alerts(principal: Principal):
     device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
     if not device.get("enabled") or device.get("accountId") != principal.account_id:
@@ -469,11 +544,39 @@ def heartbeat(event, principal: Principal, device_id: str):
     shard = sum(device_id.encode()) % 16
     sensor_healthy = bool(body.get("sensorConnectionHealthy"))
     critical_temperature = bool(body.get("criticalTemperature"))
+    app_version = str(body.get("appVersion", ""))[:32]
+    sensor_count = body.get("sensorCount")
+    sensor_provider = str(body.get("sensorProvider", ""))[:64]
+    camera_status = str(body.get("cameraStatus", ""))[:32]
+    connection_error = str(body.get("connectionError", ""))[:240]
     set_parts = [
         "lastHeartbeat=:now", "heartbeatShard=:shard", "sensorConnectionHealthy=:sensor",
-        "criticalTemperature=:critical",
+        "criticalTemperature=:critical", "adminEntity=:adminEntity", "adminSort=:adminSort",
     ]
     remove_parts = ["offlineAlertedAt"]
+    expression_values = {
+        ":now": now, ":shard": shard, ":sensor": sensor_healthy,
+        ":critical": critical_temperature, ":tenant": principal.tenant_id,
+        ":adminEntity": "DEVICE",
+        ":adminSort": f"{int(device.get('createdAt', now)):020d}#{device_id}",
+    }
+    if app_version:
+        set_parts.append("appVersion=:appVersion")
+        expression_values[":appVersion"] = app_version
+    if isinstance(sensor_count, int) and 0 <= sensor_count <= 10000:
+        set_parts.append("sensorCount=:sensorCount")
+        expression_values[":sensorCount"] = sensor_count
+    if sensor_provider:
+        set_parts.append("sensorProvider=:sensorProvider")
+        expression_values[":sensorProvider"] = sensor_provider
+    if camera_status:
+        set_parts.append("cameraStatus=:cameraStatus")
+        expression_values[":cameraStatus"] = camera_status
+    if connection_error:
+        set_parts.append("connectionError=:connectionError")
+        expression_values[":connectionError"] = connection_error
+    else:
+        remove_parts.append("connectionError")
     if sensor_healthy:
         remove_parts.append("sensorAlertedAt")
     else:
@@ -505,7 +608,7 @@ def heartbeat(event, principal: Principal, device_id: str):
         "TableName": table.name,
         "Key": _serialized({"pk": f"DEVICE#{device_id}", "sk": "METADATA"}),
         "UpdateExpression": f"SET {', '.join(set_parts)} REMOVE {', '.join(remove_parts)}",
-        "ExpressionAttributeValues": _serialized({":now": now, ":shard": shard, ":sensor": sensor_healthy, ":critical": critical_temperature, ":tenant": principal.tenant_id}),
+        "ExpressionAttributeValues": _serialized(expression_values),
         "ConditionExpression": condition,
     }}]
     transaction.extend({"Put": {
@@ -546,6 +649,8 @@ def handler(event, _context):
             return refresh_stream_connection(principal, parts[2])
         if method == "GET" and parts == ["v1", "entitlement"]:
             return entitlement(principal)
+        if method == "POST" and parts == ["v1", "subscriptions", "google-play", "verify"]:
+            return verify_google_play_subscription(event, principal)
         if method == "GET" and parts == ["v1", "alerts"]:
             return pending_alerts(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge":
@@ -559,6 +664,8 @@ def handler(event, _context):
         if error.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
             return response(409, {"error": "expired_used_or_conflicting"})
         return response(503, {"error": "dependency_error"})
+    except GooglePlayVerificationError as error:
+        return response(503, {"error": error.safe_code})
     except Exception:
         return response(500, {"error": "internal_error"})
 

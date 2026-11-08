@@ -1,0 +1,35 @@
+{
+  "name": "greenhouse-monitor-admin-portal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "lucide-react": "1.70.0",
+    "next": "16.4.5",
+    "oidc-client-ts": "3.5.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "10.14.0",
+    "eslint-config-next": "16.4.5",
+    "jsdom": "31.0.0",
+    "typescript": "5.9.3",
+    "vitest": "5.1.0"
+  },
+  "overrides": {
+    "minimatch": "11.0.5"
+  }
+}

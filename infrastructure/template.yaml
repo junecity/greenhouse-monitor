@@ -16,6 +16,16 @@ Parameters:
     Type: String
     Default: ACTIVE
     AllowedValues: [ACTIVE, INACTIVE]
+  GooglePlayCredentialsSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN for an approved Google Play service account. Leave blank until billing activation.
+  GooglePlayPackageName:
+    Type: String
+    Default: studio.junecity.greenhouse
+
+Conditions:
+  HasGooglePlaySecret: !Not [!Equals [!Ref GooglePlayCredentialsSecretArn, '']]
 
 Globals:
   Function:
@@ -24,6 +34,9 @@ Globals:
     Timeout: 15
     MemorySize: 256
     Tracing: Active
+    Tags:
+      Product: GreenhouseMonitor
+      Environment: !Ref EnvironmentName
     Environment:
       Variables:
         TABLE_NAME: !Ref ApplicationTable
@@ -54,6 +67,9 @@ Resources:
           RequireSymbols: true
       UserPoolAddOns:
         AdvancedSecurityMode: ENFORCED
+      UserPoolTags:
+        Product: GreenhouseMonitor
+        Environment: !Ref EnvironmentName
 
   AndroidUserPoolClient:
     Type: AWS::Cognito::UserPoolClient
@@ -92,6 +108,10 @@ Resources:
           AttributeType: N
         - AttributeName: lastHeartbeat
           AttributeType: N
+        - AttributeName: adminEntity
+          AttributeType: S
+        - AttributeName: adminSort
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -107,9 +127,22 @@ Resources:
           Projection:
             ProjectionType: INCLUDE
             NonKeyAttributes: [accountId, tenantId, deviceId, greenhouseId, enabled]
+        - IndexName: admin
+          KeySchema:
+            - AttributeName: adminEntity
+              KeyType: HASH
+            - AttributeName: adminSort
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true
+      Tags:
+        - Key: Product
+          Value: GreenhouseMonitor
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   Api:
     Type: AWS::Serverless::HttpApi
@@ -133,6 +166,9 @@ Resources:
       AccessLogSettings:
         DestinationArn: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/greenhouse-monitor/${EnvironmentName}/api
         Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLength":"$context.responseLength"}'
+      Tags:
+        Product: GreenhouseMonitor
+        Environment: !Ref EnvironmentName
 
   ApiAccessLogs:
     Type: AWS::Logs::LogGroup
@@ -156,6 +192,10 @@ Resources:
       CodeUri: ../backend/src/
       Handler: app.handler
       ReservedConcurrentExecutions: 20
+      Environment:
+        Variables:
+          GOOGLE_PLAY_CREDENTIALS_SECRET_ID: !Ref GooglePlayCredentialsSecretArn
+          GOOGLE_PLAY_PACKAGE_NAME: !Ref GooglePlayPackageName
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable
@@ -170,6 +210,14 @@ Resources:
                 - kinesisvideo:ConnectAsViewer
                 - kinesisvideo:ConnectAsMaster
               Resource: '*'
+        - !If
+          - HasGooglePlaySecret
+          - Statement:
+              - Sid: ReadGooglePlayVerificationCredential
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref GooglePlayCredentialsSecretArn
+          - !Ref AWS::NoValue
       Events:
         Proxy:
           Type: HttpApi
@@ -183,12 +231,22 @@ Resources:
     Properties:
       TopicName: !Sub greenhouse-monitor-${EnvironmentName}-critical-alerts
       KmsMasterKeyId: alias/aws/sns
+      Tags:
+        - Key: Product
+          Value: GreenhouseMonitor
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   OperationsAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub greenhouse-monitor-${EnvironmentName}-operations
       KmsMasterKeyId: alias/aws/sns
+      Tags:
+        - Key: Product
+          Value: GreenhouseMonitor
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   HeartbeatMonitorDeadLetterQueue:
     Type: AWS::SQS::Queue
@@ -196,6 +254,11 @@ Resources:
       QueueName: !Sub greenhouse-monitor-${EnvironmentName}-heartbeat-dlq
       KmsMasterKeyId: alias/aws/sqs
       MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Product
+          Value: GreenhouseMonitor
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   HeartbeatMonitorLogGroup:
     Type: AWS::Logs::LogGroup

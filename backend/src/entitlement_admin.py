@@ -43,13 +43,15 @@ def handler(event, context):
         names = {"#state": "state"}
         values = {
             ":account": account_id, ":tenant": tenant_id, ":now": now,
-            ":audit": audit_id, ":one": 1,
+            ":audit": audit_id, ":one": 1, ":adminEntity": "ENTITLEMENT",
+            ":adminSort": f"{int(account.get('createdAt', now)):020d}#{account_id}",
         }
         if action == "GRANT_COMPLIMENTARY":
             names["#source"] = "source"
             expression = (
                 "SET plan=:plan, #state=:state, #source=:source, features=:features, "
-                "verifiedAt=:now, lastAdminRequestId=:audit, entitlementRevision=if_not_exists(entitlementRevision,:zero)+:one "
+                "verifiedAt=:now, adminEntity=:adminEntity, adminSort=:adminSort, lastAdminRequestId=:audit, "
+                "entitlementRevision=if_not_exists(entitlementRevision,:zero)+:one "
                 "REMOVE expiresAt"
             )
             values.update({
@@ -59,7 +61,8 @@ def handler(event, context):
             })
         elif action == "REVOKE":
             expression = (
-                "SET #state=:state, features=:features, verifiedAt=:now, lastAdminRequestId=:audit, "
+                "SET #state=:state, features=:features, verifiedAt=:now, adminEntity=:adminEntity, "
+                "adminSort=:adminSort, lastAdminRequestId=:audit, "
                 "entitlementRevision=if_not_exists(entitlementRevision,:zero)+:one"
             )
             values.update({":state": "REVOKED", ":features": [], ":zero": 0})
@@ -67,7 +70,8 @@ def handler(event, context):
             names["#source"] = "source"
             expression = (
                 "SET plan=:plan, #state=:state, #source=:source, features=:features, "
-                "verifiedAt=:now, lastAdminRequestId=:audit, entitlementRevision=if_not_exists(entitlementRevision,:zero)+:one "
+                "verifiedAt=:now, adminEntity=:adminEntity, adminSort=:adminSort, lastAdminRequestId=:audit, "
+                "entitlementRevision=if_not_exists(entitlementRevision,:zero)+:one "
                 "REMOVE expiresAt"
             )
             values.update({

@@ -41,7 +41,14 @@ def require_resource_id(resource_id: str) -> str:
     return resource_id
 
 
-def account_bootstrap_records(subject: str, account_id: str, tenant_id: str, created_at: int) -> tuple[dict, dict, dict]:
+def account_bootstrap_records(
+    subject: str,
+    account_id: str,
+    tenant_id: str,
+    created_at: int,
+    email: str | None = None,
+    display_name: str | None = None,
+) -> tuple[dict, dict, dict]:
     """Create the three records needed before an authenticated user can register devices."""
     if not subject or len(subject) > 128:
         raise AccessDenied("unauthenticated")
@@ -53,12 +60,18 @@ def account_bootstrap_records(subject: str, account_id: str, tenant_id: str, cre
     }
     account = {
         "pk": f"ACCOUNT#{account_id}", "sk": "METADATA", "accountId": account_id,
-        "tenantId": tenant_id, "state": "ACTIVE", "createdAt": created_at,
+        "tenantId": tenant_id, "cognitoSubject": subject, "state": "ACTIVE", "createdAt": created_at,
+        "adminEntity": "ACCOUNT", "adminSort": f"{created_at:020d}#{account_id}",
     }
+    if email:
+        account["email"] = email.strip().lower()[:320]
+    if display_name:
+        account["displayName"] = display_name.strip()[:120]
     entitlement = {
         "pk": f"ACCOUNT#{account_id}", "sk": "ENTITLEMENT", "accountId": account_id,
         "tenantId": tenant_id, "plan": "FREE", "state": "ACTIVE", "source": "NONE",
         "features": [], "verifiedAt": created_at,
+        "adminEntity": "ENTITLEMENT", "adminSort": f"{created_at:020d}#{account_id}",
     }
     return user, account, entitlement
 

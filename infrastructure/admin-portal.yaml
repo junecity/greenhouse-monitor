@@ -1,0 +1,464 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Approval-gated private Greenhouse Monitor administrator portal and API. Deploy separately from the customer application stack.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedPattern: '[a-z0-9-]+'
+  ApplicationTableName:
+    Type: String
+    Description: Existing Greenhouse Monitor application table with the admin GSI.
+  CustomerUserPoolId:
+    Type: String
+    Description: Existing customer user pool ID; used only for authorized account operations.
+  PortalCallbackUrl:
+    Type: String
+    AllowedPattern: 'https://.+'
+  PortalLogoutUrl:
+    Type: String
+    AllowedPattern: 'https://.+'
+  PortalAllowedOrigin:
+    Type: String
+    AllowedPattern: 'https://[^/]+/?'
+  AdminHostedUiDomainPrefix:
+    Type: String
+    AllowedPattern: '[a-z0-9-]{8,63}'
+    Description: Globally unique Cognito managed-login domain prefix.
+  PortalDomainName:
+    Type: String
+    Default: ''
+    Description: Optional private admin hostname. DNS remains an explicit deployment step.
+  PortalCertificateArn:
+    Type: String
+    Default: ''
+    Description: Optional us-east-1 ACM certificate ARN matching PortalDomainName.
+  GooglePlayCredentialsSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN for Google Play service-account credentials. Leave blank until billing activation is approved.
+  GooglePlayPackageName:
+    Type: String
+    Default: studio.junecity.greenhouse
+  CurrentAndroidVersion:
+    Type: String
+    Default: 2.6.2
+
+Conditions:
+  HasCustomDomain: !And
+    - !Not [!Equals [!Ref PortalDomainName, '']]
+    - !Not [!Equals [!Ref PortalCertificateArn, '']]
+  HasGooglePlaySecret: !Not [!Equals [!Ref GooglePlayCredentialsSecretArn, '']]
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures: [arm64]
+    Timeout: 20
+    MemorySize: 384
+    Tracing: Active
+    Tags:
+      Product: GreenhouseMonitor
+      Component: AdminPortal
+      Environment: !Ref EnvironmentName
+
+Resources:
+  AdminAuthEventsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-admin-auth-events
+      CodeUri: ../backend/src/
+      Handler: admin_auth_events.handler
+      ReservedConcurrentExecutions: 2
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ApplicationTableName
+      Policies:
+        - Statement:
+            - Sid: WriteAdminLoginAudit
+              Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ApplicationTableName}
+
+  AdminAuthEventsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AdminAuthEventsFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  AdminUserPool:
+    Type: AWS::Cognito::UserPool
+    DependsOn: AdminAuthEventsPermission
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub greenhouse-monitor-${EnvironmentName}-administrators
+      DeletionProtection: ACTIVE
+      UserPoolTier: PLUS
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      MfaConfiguration: 'ON'
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 14
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 2
+      UserPoolAddOns:
+        AdvancedSecurityMode: ENFORCED
+      LambdaConfig:
+        PostAuthentication: !GetAtt AdminAuthEventsFunction.Arn
+      UserPoolTags:
+        Product: GreenhouseMonitor
+        Component: AdminPortal
+        Environment: !Ref EnvironmentName
+
+  AdminUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref AdminHostedUiDomainPrefix
+      UserPoolId: !Ref AdminUserPool
+
+  AdminUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub greenhouse-monitor-${EnvironmentName}-admin-portal
+      UserPoolId: !Ref AdminUserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 15
+      IdTokenValidity: 15
+      RefreshTokenValidity: 1
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs: [!Ref PortalCallbackUrl]
+      LogoutURLs: [!Ref PortalLogoutUrl]
+      ExplicitAuthFlows: [ALLOW_REFRESH_TOKEN_AUTH]
+
+  OwnerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Owner
+      Description: Full authorized Greenhouse Monitor administration.
+      Precedence: 1
+      UserPoolId: !Ref AdminUserPool
+
+  SupportGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Support
+      Description: Customer and device troubleshooting without subscription or account-state authority.
+      Precedence: 10
+      UserPoolId: !Ref AdminUserPool
+
+  ReadOnlyGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: ReadOnly
+      Description: Operational reporting without mutation permissions.
+      Precedence: 20
+      UserPoolId: !Ref AdminUserPool
+
+  AdminApiAccessLogs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/greenhouse-monitor/${EnvironmentName}/admin-api
+      RetentionInDays: 90
+      Tags:
+        - Key: Product
+          Value: GreenhouseMonitor
+        - Key: Component
+          Value: AdminPortal
+
+  AdminApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref EnvironmentName
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+      CorsConfiguration:
+        AllowHeaders: [authorization, content-type]
+        AllowMethods: [GET, POST, DELETE, OPTIONS]
+        AllowOrigins: [!Ref PortalAllowedOrigin]
+        MaxAge: 600
+      Auth:
+        DefaultAuthorizer: AdminJwt
+        Authorizers:
+          AdminJwt:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${AdminUserPool}
+              audience: [!Ref AdminUserPoolClient]
+      AccessLogSettings:
+        DestinationArn: !GetAtt AdminApiAccessLogs.Arn
+        Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLength":"$context.responseLength","authorizerError":"$context.authorizer.error"}'
+      Tags:
+        Product: GreenhouseMonitor
+        Component: AdminPortal
+        Environment: !Ref EnvironmentName
+
+  AdminApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-admin-api
+      CodeUri: ../backend/src/
+      Handler: admin_api.handler
+      ReservedConcurrentExecutions: 8
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ApplicationTableName
+          ADMIN_INDEX_NAME: admin
+          CUSTOMER_USER_POOL_ID: !Ref CustomerUserPoolId
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+          OFFLINE_TIMEOUT_SECONDS: 180
+          CURRENT_ANDROID_VERSION: !Ref CurrentAndroidVersion
+          GOOGLE_PLAY_PACKAGE_NAME: !Ref GooglePlayPackageName
+          GOOGLE_PLAY_CREDENTIALS_SECRET_ID: !Ref GooglePlayCredentialsSecretArn
+      Policies:
+        - Statement:
+            - Sid: ReadAndAdministerGreenhouseRecords
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+                - dynamodb:PutItem
+                - dynamodb:TransactWriteItems
+              Resource:
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ApplicationTableName}
+                - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ApplicationTableName}/index/admin
+            - Sid: AuthorizedCustomerRecoveryAndSuspension
+              Effect: Allow
+              Action:
+                - cognito-idp:AdminDisableUser
+                - cognito-idp:AdminEnableUser
+                - cognito-idp:AdminResetUserPassword
+                - cognito-idp:AdminUserGlobalSignOut
+              Resource: !Sub arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CustomerUserPoolId}
+            - Sid: ReadTaggedGreenhouseCosts
+              Effect: Allow
+              Action: ce:GetCostAndUsage
+              Resource: '*'
+            - Sid: ReadGreenhouseAlarmState
+              Effect: Allow
+              Action: cloudwatch:DescribeAlarms
+              Resource: '*'
+        - !If
+          - HasGooglePlaySecret
+          - Statement:
+              - Sid: ReadGooglePlayVerificationCredential
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref GooglePlayCredentialsSecretArn
+          - !Ref AWS::NoValue
+      Events:
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AdminApi
+            Path: /admin/v1/{proxy+}
+            Method: ANY
+
+  AdminApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub greenhouse-monitor-${EnvironmentName}-admin-api-errors
+      AlarmDescription: Private administrator API Lambda returned an error.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AdminApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  PortalBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Product
+          Value: GreenhouseMonitor
+        - Key: Component
+          Value: AdminPortal
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PortalOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub greenhouse-monitor-${EnvironmentName}-admin-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  PortalRequestFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub greenhouse-monitor-${EnvironmentName}-admin-route
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Resolve Next.js static-export directory routes.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (request.uri.endsWith('/')) request.uri += 'index.html';
+          else if (!request.uri.split('/').pop().includes('.')) request.uri += '/index.html';
+          return request;
+        }
+
+  PortalSecurityHeaders:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub greenhouse-monitor-${EnvironmentName}-admin-security
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: !Sub "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://${AdminApi}.execute-api.${AWS::Region}.${AWS::URLSuffix} https://${AdminHostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com; form-action 'self' https://${AdminHostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+            Override: true
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+          XSSProtection:
+            ModeBlock: true
+            Protection: true
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Cache-Control
+              Value: no-store
+              Override: false
+            - Header: Permissions-Policy
+              Value: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+              Override: true
+
+  PortalDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        DefaultRootObject: index.html
+        Aliases: !If [HasCustomDomain, [!Ref PortalDomainName], !Ref AWS::NoValue]
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref PortalCertificateArn
+            MinimumProtocolVersion: TLSv1.2_2021
+            SslSupportMethod: sni-only
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: portal-s3
+            DomainName: !GetAtt PortalBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt PortalOriginAccessControl.Id
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: portal-s3
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          Compress: true
+          CachePolicyId: 413f1603-6d27-4d1a-9a60-9b4be2ad3c11
+          ResponseHeadersPolicyId: !Ref PortalSecurityHeaders
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt PortalRequestFunction.FunctionARN
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 404
+            ResponsePagePath: /404.html
+            ErrorCachingMinTTL: 10
+      Tags:
+        - Key: Product
+          Value: GreenhouseMonitor
+        - Key: Component
+          Value: AdminPortal
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PortalBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PortalBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${PortalBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${PortalDistribution}
+
+Outputs:
+  AdminApiUrl:
+    Value: !Sub https://${AdminApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${EnvironmentName}
+  AdminUserPoolId:
+    Value: !Ref AdminUserPool
+  AdminUserPoolClientId:
+    Value: !Ref AdminUserPoolClient
+  AdminCognitoAuthority:
+    Value: !Sub https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${AdminUserPool}
+  AdminHostedUiBaseUrl:
+    Value: !Sub https://${AdminHostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com
+  PortalBucketName:
+    Value: !Ref PortalBucket
+  PortalDistributionId:
+    Value: !Ref PortalDistribution
+  PortalDistributionUrl:
+    Value: !Sub https://${PortalDistribution.DomainName}

@@ -2,6 +2,15 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Private administration portal
+
+- Added a separate responsive Next.js/TypeScript administrator portal with real-data overview charts, customer search/detail, device health, subscription management, streaming operations metadata, cost visibility, audit history, support tools, and explicit loading/empty/error states. The approved Android monitoring screens were not modified.
+- Added a dedicated Cognito administrator architecture with admin-created users only, mandatory TOTP MFA, short sessions, Owner/Support/ReadOnly roles, backend permission enforcement, API throttling, secure headers, retained encrypted private hosting, login/mutation audit events, and no administrator access to customer video or secrets.
+- Added backend customer suspension/reactivation, account recovery, complimentary Premium grant/revoke with optional expiry, device-session revocation, and backend-only Google Play purchase verification. Google Play remains authoritative for Play purchases, and purchase tokens are never returned to clients.
+- Added a DynamoDB admin GSI projection, cost-allocation tags, a dry-run-first migration script, dedicated approval-gated admin infrastructure, deployment/cost/rollback documentation, and CI coverage for portal, backend, dependency audit, and both infrastructure templates.
+- Validation: 45 Python tests passed; Python 3.13 compilation passed; 11 portal tests, ESLint, Next.js production static build, and `npm audit --audit-level=moderate` passed with zero vulnerabilities; `cfn-lint` passed both templates; the Android regression suite passed 60 JVM tests with zero failures/errors plus lint and debug assembly. The Android build emitted a non-fatal D8 Kotlin-metadata warning. `sam validate`/`sam build` were not run because SAM CLI is unavailable.
+- Limitations: no admin resources, DNS, production billing, Play credential, or data migration were deployed. Cognito/TOTP, CloudFront/S3, live JWT authorization, Cost Explorer, Google Play, responsive physical-browser, and existing-record migration remain unverified against live services.
+
 ## 2026-11-08 — junecity.studio portrait account onboarding
 
 - Changed account creation, email verification, role selection, and pairing to a portrait-first responsive flow; the five approved monitoring screens still switch to and remain in sensor landscape.

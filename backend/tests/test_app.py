@@ -4,6 +4,7 @@ import pathlib
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
@@ -246,6 +247,36 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual(403, result["statusCode"])
         self.assertEqual("device_mismatch", json.loads(result["body"])["error"])
         self.assertEqual([], fake.client.transactions)
+
+    def test_google_play_purchase_is_verified_server_side_and_token_is_not_returned(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("ACCOUNT#account-existing", "METADATA"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+                "state": "ACTIVE", "createdAt": 100,
+            },
+            ("DEVICE#viewer-12345678", "METADATA"): {
+                "deviceId": "viewer-12345678", "accountId": "account-existing",
+                "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True,
+            },
+        })
+        app.table = fake
+        with patch.object(app, "verify_google_play_purchase", return_value={"active": True, "expiresAt": 2_000_000_000}):
+            result = app.handler(event(
+                "/v1/subscriptions/google-play/verify",
+                device_id="viewer-12345678",
+                body={"productId": "premium_monthly", "purchaseToken": "purchase-token-123456789"},
+            ), None)
+        body = json.loads(result["body"])
+
+        self.assertEqual(200, result["statusCode"])
+        self.assertEqual("GOOGLE_PLAY_VERIFIED", body["source"])
+        self.assertNotIn("purchaseToken", body)
+        values = fake.updates[0]["ExpressionAttributeValues"]
+        self.assertEqual("purchase-token-123456789", values[":token"])
+        self.assertEqual(64, len(values[":tokenHash"]))
 
 
 if __name__ == "__main__":

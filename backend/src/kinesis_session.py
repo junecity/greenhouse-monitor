@@ -24,7 +24,14 @@ def ensure_channel(greenhouse_id: str) -> str:
         if error.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
             raise
     try:
-        return kinesis.create_signaling_channel(ChannelName=name, ChannelType="SINGLE_MASTER")["ChannelARN"]
+        return kinesis.create_signaling_channel(
+            ChannelName=name,
+            ChannelType="SINGLE_MASTER",
+            Tags=[
+                {"Key": "Product", "Value": "GreenhouseMonitor"},
+                {"Key": "Environment", "Value": ENVIRONMENT},
+            ],
+        )["ChannelARN"]
     except ClientError as error:
         if error.response.get("Error", {}).get("Code") != "ResourceInUseException":
             raise

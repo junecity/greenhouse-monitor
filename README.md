@@ -78,6 +78,10 @@ AWS remote video uses authenticated Kinesis signaling and encrypted WebRTC media
 - Customer SMS/email/voice escalation is not configured. The Android app polls its Cognito-authorized AWS alert inbox about once per minute and uses local high-priority notifications without Firebase.
 - The AWS development stack is deployed in `us-east-1`. Release signing, Google Play products, complimentary owner activation, and the physical cross-network camera matrix remain unconfigured or unverified.
 
+## Private administration portal
+
+The separate `admin-portal/` Next.js application and `infrastructure/admin-portal.yaml` stack provide an approval-gated private administration surface. They do not change the Android interface or permit administrators to view customer camera feeds. See `docs/ADMIN_PORTAL.md` for security boundaries, local verification, operating-cost assumptions, and the deployment checklist. The portal infrastructure is prepared but has not been deployed.
+
 ## Rollback and deliverables
 
 - Working Stage 3 rollback tag: `codex-stage3-baseline`

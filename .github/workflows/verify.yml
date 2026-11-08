@@ -25,18 +25,32 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: admin-portal/package-lock.json
       - uses: gradle/actions/setup-gradle@v5
       - name: Install backend test dependencies
-        run: python -m pip install --disable-pip-version-check -r backend/requirements-dev.txt
+        run: python -m pip install --disable-pip-version-check -r backend/requirements-dev.txt -r backend/src/requirements.txt
       - name: Android tests, lint, and debug APK
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
       - name: Backend policy tests
         run: python -m unittest discover -s backend/tests -v
       - name: Backend syntax validation
-        run: python -m py_compile backend/src/*.py
+        run: python -m py_compile backend/src/*.py scripts/backfill-admin-index.py
+      - name: Admin portal tests, lint, production build, and dependency audit
+        working-directory: admin-portal
+        run: |
+          npm ci
+          npm test
+          npm run lint
+          npm run build
+          npm audit --audit-level=moderate
       - name: AWS SAM template lint
         run: |
           cfn-lint infrastructure/template.yaml
+          cfn-lint infrastructure/admin-portal.yaml
           # AWS reports apigateway:TagResource/UntagResource during live HTTP API deployment,
           # but cfn-lint's IAM catalog currently lags those authorization events.
           cfn-lint -i W3037 -- infrastructure/deployment-bootstrap.yaml

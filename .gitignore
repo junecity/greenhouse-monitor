@@ -9,3 +9,7 @@ __pycache__/
 .aws-sam/
 infrastructure/samconfig.toml
 /build-out/
+/admin-portal/node_modules/
+/admin-portal/.next/
+/admin-portal/out/
+/admin-portal/coverage/
