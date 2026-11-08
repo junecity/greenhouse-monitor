@@ -92,7 +92,7 @@
 - `cloud/MonitoringAlerts.kt` keeps critical-temperature and server-offline events separate from ordinary informational notification preferences and defines an authenticated heartbeat reporter boundary.
 - The scheduled backend scans sharded heartbeat records, paginates results, atomically deduplicates an offline incident, and publishes one internal SNS event. A fresh authenticated server heartbeat clears the incident marker.
 - This is a foundation, not an end-user alarm guarantee. Customer push delivery, acknowledgement synchronization, a foreground server service, Do Not Disturb behavior, and physical Android background testing remain incomplete.
-- Stage 6 verification: 8 Python policy tests and Python compilation passed. A temporary JDK/Android SDK was provisioned outside the repository; Android unit/lint/build then passed with 33 JVM tests.
+- Stage 6 verification: 8 Python policy tests and Python compilation passed. After rebasing the pre-existing premium-access scaffold, Android unit/lint/build passed with 37 JVM tests.
 
 ## Next implementation steps
 
@@ -105,7 +105,7 @@
 - `docs/AWS_DEPLOYMENT.md` is the approval-gated deployment, cost, rollback, and physical-test checklist.
 - The Cognito template explicitly uses Plus because enforced threat protection requires it, and deletion protection is active.
 - Nothing has been deployed. SAM CLI validation, live Kinesis allocation, Play configuration, and all physical-network tests remain pending.
-- Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains the universal WebRTC native libraries). SHA-256 at the 2026-11-08 checkpoint: `7486024835ad62ee5bbe9b404cbdee9ae9b1edf09a0d3787f4d2858de489828a`.
+- Latest local APK: `app/build/outputs/apk/debug/app-debug.apk` (debug-signed, approximately 100 MB because it contains the universal WebRTC native libraries). SHA-256 at the post-rebase 2026-11-08 checkpoint: `acbecc053421b70607946ee206c46e6ec081bd69fe29fbab6c819ef797884ae7`.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory
