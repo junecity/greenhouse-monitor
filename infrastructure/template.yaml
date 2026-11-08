@@ -201,6 +201,31 @@ Resources:
       LogGroupName: !Sub /aws/lambda/greenhouse-monitor-${EnvironmentName}-heartbeat-monitor
       RetentionInDays: 30
 
+  EntitlementAdminLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/greenhouse-monitor-${EnvironmentName}-entitlement-admin
+      RetentionInDays: 90
+
+  EntitlementAdminFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: EntitlementAdminLogGroup
+    Properties:
+      FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-entitlement-admin
+      CodeUri: ../backend/src/
+      Handler: entitlement_admin.handler
+      ReservedConcurrentExecutions: 1
+      Policies:
+        - Statement:
+            - Sid: ReadAndUpdateAccountEntitlements
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt ApplicationTable.Arn
+
   HeartbeatMonitorFunction:
     Type: AWS::Serverless::Function
     DependsOn: HeartbeatMonitorLogGroup
@@ -322,6 +347,24 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: [!Ref OperationsAlertTopic]
 
+  EntitlementAdminErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: IAM-only entitlement administration Lambda returned an error
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref EntitlementAdminFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OperationsAlertTopic]
+
 Outputs:
   ApiUrl:
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${EnvironmentName}
@@ -332,4 +375,7 @@ Outputs:
   OperationsAlertTopicArn:
     Description: Subscribe an approved operations destination after deployment
     Value: !Ref OperationsAlertTopic
+  EntitlementAdminFunctionName:
+    Description: IAM-restricted function for complimentary grants, revocation, and Free reset
+    Value: !Ref EntitlementAdminFunction
 

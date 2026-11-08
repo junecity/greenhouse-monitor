@@ -6,10 +6,11 @@ No AWS resources have been deployed from this repository. The SAM template is a 
 
 - Cognito Plus user pool with verified email, optional authenticator-app MFA, threat protection, token revocation, short access/ID tokens, and deletion protection.
 - JWT-authorized API Gateway HTTP API with access logging.
-- Two reserved-concurrency Lambda functions for tenant APIs and scheduled heartbeat monitoring.
+- Three reserved-concurrency Lambda functions for tenant APIs, scheduled heartbeat monitoring, and IAM-only entitlement administration.
 - Encrypted, point-in-time-recoverable, on-demand DynamoDB table with TTL and a sharded heartbeat index.
 - Encrypted SNS internal critical-alert and operations topics, one-minute EventBridge schedule, bounded retries, and an encrypted dead-letter queue.
 - Thirty-day API/Lambda log retention, API throttling, and CloudWatch alarms for API errors/throttling/5xx responses, heartbeat-monitor errors, and dead-lettered checks.
+- A non-HTTP entitlement administrator with least-privilege DynamoDB access, 90-day audit logs, request-ID stamping, and an error alarm. It grants complimentary remote video, revokes it, or resets an account to Free without hardcoding an email address.
 
 The Android WebRTC peer, signaling client, HTTPS cloud gateway, encrypted token/config store, Cognito onboarding/token refresh, account-scoped QR pairing, device inventory/revocation gateway, AWS alert polling, local high-priority notification, and alert acknowledgement paths are present. The backend contains authorized Kinesis channel creation, short-lived signed WSS endpoints, ICE/TURN retrieval, server polling, session termination, device revocation, alert persistence, and acknowledgement with the corresponding undeployed IAM actions. Google Play subscription verification, placement of account-administration controls outside the frozen monitoring screens, and live AWS/device validation remain incomplete. Keep the legacy local camera path available until the AWS path passes development and physical-device tests.
 
@@ -27,6 +28,30 @@ The Android WebRTC peer, signaling client, HTTPS cloud gateway, encrypted token/
 10. Subscribe an approved AWS-native operations destination to the operations topic. If SMS/email/voice escalation is approved, route it through dedicated tenant-aware AWS notification workers; do not expose the internal topics directly to arbitrary customers. Android currently polls its Cognito-authorized alert inbox about once per minute and does not use Firebase.
 11. Review the Android special-use foreground-service declaration against current Play policy and run the physical test matrix on the Galaxy A71 and Pixel 10 across same-LAN, separate Wi-Fi, cellular, TURN-only, public-IP change, lock/background, battery optimization, server restart, and AWS failure conditions.
 12. Confirm rollback: leave the encrypted JPEG/local path enabled until WebRTC passes; keep UPnP disabled unless explicitly needed for the legacy test path.
+
+## Complimentary owner activation
+
+The owner entitlement is administered through a Lambda function that has no API Gateway event or public function URL. Grant `lambda:InvokeFunction` on only this function to a tightly controlled operations role and rely on CloudTrail plus the function's 90-day log group for invocation audit.
+
+After the owner has registered in Cognito, obtain the account's opaque Cognito `sub` using an authorized Cognito administrator. Then invoke the function with one of these payloads:
+
+```json
+{"action":"GRANT_COMPLIMENTARY","subject":"<cognito-sub>"}
+{"action":"REVOKE","subject":"<cognito-sub>"}
+{"action":"RESET_FREE","subject":"<cognito-sub>"}
+```
+
+Example invocation after deployment:
+
+```text
+aws lambda invoke \
+  --function-name <EntitlementAdminFunctionName-output> \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"GRANT_COMPLIMENTARY","subject":"<cognito-sub>"}' \
+  entitlement-response.json
+```
+
+Never expose this invocation permission to the Android application, and never use an email address as the grant key. The next remote-stream request or one-minute renewable lease check reads the authoritative entitlement from DynamoDB.
 
 ## Deployment commands after approval
 

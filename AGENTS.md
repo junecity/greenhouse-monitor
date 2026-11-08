@@ -41,6 +41,7 @@
 - Implement server-side subscription authorization before issuing signaling/TURN access. Never treat client entitlement as authoritative.
 - Phase 1 created `RemoteCameraAccessPolicy.kt`, unit tests, and `docs/REMOTE_STREAMING_IMPLEMENTATION.md`. These are scaffolding only, NOT deployed WebRTC.
 - Next steps: backend customer identity, Google Play entitlement verification, signaling/TURN authorization, Android WebRTC media transport, network and hardware tests. No AWS deployment without separate cost/security review and deployment approval.
+- An IAM-only `EntitlementAdminFunction` now supports complimentary owner grants, revocation, and Free reset by opaque Cognito subject or account ID. It has no HTTP event/function URL, writes audit request IDs, and is never callable by the Android app. This activates the required owner access after deployment without hardcoding a personal email.
 
 ## Current Android architecture
 
@@ -126,6 +127,7 @@
 - AWS device-security checkpoint: 57 Android JVM tests, lint, debug assembly, 26 Python tests, and Python compilation passed. Cognito, QR pairing, inventory/revocation, Kinesis signaling, TURN/direct ICE, camera handoff, alert delivery, boot recovery, and network transitions remain unverified on physical devices because no stack is deployed and ADB is unavailable.
 - `.github/workflows/verify.yml` reproduces Android tests/lint/build plus Python tests/compilation and publishes a checksum-matched debug artifact on pushes and pull requests; it requires no production secrets.
 - `cfn-lint` 1.46.0 validates the SAM template locally and in CI. The undeployed template now includes bounded HTTP API throttling, explicit 30-day API/Lambda log retention, encrypted operations SNS and heartbeat DLQ resources, scheduled retry limits, and alarms for API/Lambda/heartbeat failures. SAM CLI/account-aware validation is still pending.
+- AWS-only owner activation is prepared through the undeployed IAM-restricted entitlement Lambda. Its complimentary grant/revoke/reset state machine has backend tests, but IAM invocation, CloudTrail audit, and lease revocation require a deployed development stack.
 
 ## Project memory / handoff log
 ### 2026-11-08 — Initial memory

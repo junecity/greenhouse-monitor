@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — AWS-only complimentary Premium administration
+
+- Added an IAM-invoked entitlement administration Lambda with no HTTP route or function URL.
+- Added fail-closed account selection by opaque Cognito subject or account ID and actions to grant complimentary remote video, revoke access, or reset an account to Free.
+- Added entitlement revisioning, verification timestamps, Lambda request-ID audit stamps, 90-day logs, least-privilege DynamoDB permissions, and a CloudWatch error alarm.
+- Added deployment instructions that do not hardcode or use a personal email as an authorization bypass.
+- Tests: 29 Python tests, Python byte-compilation, and `cfn-lint` 1.46.0 passed. Live IAM invocation, DynamoDB updates, CloudTrail audit, and renewable-lease revocation remain unverified until an approved AWS development deployment.
+
 ## 2026-11-08 — AWS account device inventory and revocation
 
 - Added transactionally maintained account-device index records for Server and paired Viewer phones.
