@@ -16,6 +16,7 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 ### Testing
 - Passed 74 Android JVM tests with zero failures/errors, Android lint, debug assembly, and `git diff --check`. The pre-existing non-fatal D8 Kotlin metadata warning remains.
 - Built `build-out/Greenhouse Monitor 2.7.5.apk`: 81,382,511 bytes, SHA-256 `23133f7acac351e252270ac400425e476cdebc5558e7eae35338c3aa73f61f71`, API 29 minimum, ARM32/ARM64 only, and v2 signed with the persisted certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`. The deployed non-secret API, customer-pool, and app-client identifiers were present in the APK.
+- Implementation commit `de9c34d` is pushed. GitHub Actions run `42595970553` passed the full verification and configured ARM APK jobs. Google Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` was replaced in place; metadata readback confirmed the 2.7.5 filename, Android package MIME type, and 81,382,511-byte size.
 - Same-Wi-Fi peer-to-peer WebRTC and off-Wi-Fi TURN behavior remain implemented but are not claimed as physically verified on the Galaxy A71/Moto G7/second phone in this checkpoint.
 
 ## 2026-11-08 — Server reconnect, adjustable synchronization, and customer grouping
