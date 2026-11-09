@@ -2,6 +2,21 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-09 — Portrait Settings hamburger and unclipped controls (Android 2.7.8)
+
+### Changed
+- Replaced the portrait Settings category strip with a fixed top hamburger bar and an eight-item menu. The selected section remains identified in the bar, and every category is reachable without horizontal scrolling.
+- Narrow Settings cards now wrap general row content instead of hiding it beyond a horizontal viewport. Active Greenhouse and Greenhouse Layout use vertically stacked, full-width actions; Outdoor Weather uses a full-width ZIP field plus equal-width Save ZIP and Refresh actions.
+- Bumped Android to 2.7.8/code 21 and updated the administrator current-version marker.
+
+### Validation
+- Passed all 75 Android JVM tests with zero failures/errors/skips, Android lint, configured ARM32/ARM64 assembly, APK package/version inspection, v2 signature verification, and `git diff --check`.
+- Installed the development build on the 1080 × 2270 Android emulator. Verified the portrait hamburger and all eight menu entries, switched to Connectivity through the menu, scrolled General Settings, and confirmed UI bounds for Edit Layout, the four interval actions, Save ZIP, and Refresh remain inside the visible content area. Screenshots are under `deliverables/settings-hamburger-v2.7.8/` and are not committed.
+- Configured ARM APK: 81,480,815 bytes; SHA-256 `aff53ee7ac9b803f2c826150c7c46010177a46fe9e10bc53cb926024245132a6`; signing certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`.
+
+### Remaining physical validation
+- Actual Galaxy A71 and Moto G7 font scaling/touch ergonomics remain a physical-device check; this entry claims emulator layout validation only.
+
 ## 2026-11-09 — Full-system verification and Android 2.7.7
 
 ### Fixed

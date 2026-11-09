@@ -7,13 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -169,9 +166,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         val portrait=maxHeight>maxWidth
         if(portrait){
             Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(d(10f))){
-                LazyRow(Modifier.fillMaxWidth().height(d(58f)),horizontalArrangement=Arrangement.spacedBy(d(7f))){
-                    items(SettingsCategory.entries){c->SettingsCategoryButton(c,c==category,true,d,t){category=c}}
-                }
+                SettingsMenuBar(category,d,t){category=it}
                 NeonPanel(Modifier.fillMaxWidth().weight(1f)){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences)}
             }
         }else{
@@ -183,6 +178,54 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                 }
                 NeonPanel(Modifier.weight(.77f).fillMaxHeight()){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences)}
             }
+        }
+    }
+}
+
+@Composable private fun SettingsMenuBar(selected:SettingsCategory,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSelect:(SettingsCategory)->Unit){
+    var expanded by remember{mutableStateOf(false)}
+    Box(Modifier.fillMaxWidth()){
+        Row(
+            Modifier.fillMaxWidth().heightIn(min=d(58f)).background(DashboardTokens.PanelRaised,RoundedCornerShape(d(18f))).border(d(1f),DashboardTokens.PanelEdge,RoundedCornerShape(d(18f))).padding(horizontal=d(10f),vertical=d(7f)),
+            verticalAlignment=Alignment.CenterVertically
+        ){
+            Box(
+                Modifier.size(d(46f)).background(DashboardTokens.Amber,RoundedCornerShape(d(13f))).border(d(1f),DashboardTokens.AmberBright,RoundedCornerShape(d(13f))).clickable{expanded=true},
+                contentAlignment=Alignment.Center
+            ){HamburgerIcon(DashboardTokens.Background,Modifier.size(d(24f)))}
+            Spacer(Modifier.width(d(12f)))
+            DashboardIconView(selected.icon,Color.White,Modifier.size(d(22f)))
+            Spacer(Modifier.width(d(9f)))
+            Column(Modifier.weight(1f)){
+                Text(selected.name,color=Color.White,fontSize=t(16f),fontWeight=FontWeight.ExtraBold,maxLines=1)
+                Text("Settings menu",color=DashboardTokens.Muted,fontSize=t(11f),maxLines=1)
+            }
+            Text("Menu",color=DashboardTokens.Amber,fontSize=t(13f),fontWeight=FontWeight.ExtraBold,modifier=Modifier.clickable{expanded=true}.padding(d(8f)))
+        }
+        DropdownMenu(
+            expanded=expanded,
+            onDismissRequest={expanded=false},
+            modifier=Modifier.widthIn(min=d(270f)).background(DashboardTokens.PanelRaised)
+        ){
+            SettingsCategory.entries.forEach{category->
+                val active=category==selected
+                DropdownMenuItem(
+                    text={Text(category.name,fontSize=t(15f),fontWeight=FontWeight.ExtraBold)},
+                    leadingIcon={DashboardIconView(category.icon,if(active)DashboardTokens.Background else Color.White,Modifier.size(d(22f)))},
+                    onClick={onSelect(category);expanded=false},
+                    modifier=Modifier.background(if(active)DashboardTokens.Amber else DashboardTokens.PanelRaised),
+                    colors=MenuDefaults.itemColors(textColor=if(active)DashboardTokens.Background else Color.White,leadingIconColor=if(active)DashboardTokens.Background else Color.White)
+                )
+            }
+        }
+    }
+}
+
+@Composable private fun HamburgerIcon(color:Color,modifier:Modifier=Modifier){
+    Canvas(modifier){
+        val stroke=(size.minDimension*.11f).coerceAtLeast(2f)
+        listOf(.24f,.50f,.76f).forEach{fraction->
+            drawLine(color,Offset(size.width*.14f,size.height*fraction),Offset(size.width*.86f,size.height*fraction),strokeWidth=stroke,cap=StrokeCap.Round)
         }
     }
 }
@@ -294,16 +337,16 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     val preview=g.copy(shape=shape,lengthFeet=length.toDoubleOrNull()?.coerceAtLeast(1.0)?:g.lengthFeet,widthFeet=width.toDoubleOrNull()?.coerceAtLeast(1.0)?:g.widthFeet,attachedLengthFeet=attachedLength.toDoubleOrNull()?.coerceAtLeast(1.0)?:g.attachedLengthFeet,attachedWidthFeet=attachedWidth.toDoubleOrNull()?.coerceAtLeast(1.0)?:g.attachedWidthFeet)
     LazyColumn(Modifier.fillMaxSize().padding(d(20f)),verticalArrangement=Arrangement.spacedBy(d(12f))){
         item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text("General Settings",color=Color.White,fontSize=t(27f),fontWeight=FontWeight.ExtraBold);Text("Greenhouse layout, weather, and data preferences",color=DashboardTokens.Muted,fontSize=t(14f))};Box(Modifier.background(DashboardTokens.Green.copy(alpha=.12f),RoundedCornerShape(d(14f))).border(d(1f),DashboardTokens.Green.copy(alpha=.55f),RoundedCornerShape(d(14f))).padding(horizontal=d(14f),vertical=d(8f))){Text("${preview.areaSquareFeet.roundToInt()} sq ft total",color=DashboardTokens.Green,fontSize=t(14f),fontWeight=FontWeight.Bold)}}}
-        item{SettingsRow("Active Greenhouse"){Text(g.name,color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);ActionButton(if(greenhouseManagerExpanded)"Done" else "Manage",d,t){greenhouseManagerExpanded=!greenhouseManagerExpanded}}}
+        item{ResponsiveActionSetting("Active Greenhouse",g.name,if(greenhouseManagerExpanded)"Done" else "Manage",d,t){greenhouseManagerExpanded=!greenhouseManagerExpanded}}
         if(greenhouseManagerExpanded)item{SettingsRow("Greenhouses"){state.preferences.greenhouses.forEach{house->ActionButton(if(house.id==g.id)"Selected" else house.name,d,t){onPrefs{it.copy(activeGreenhouseId=house.id)}}};ActionButton("Add",d,t){val id="greenhouse_${System.currentTimeMillis()}";onPrefs{it.copy(greenhouses=it.greenhouses+GreenhouseConfig(id=id,name="Greenhouse ${it.greenhouses.size+1}"),activeGreenhouseId=id)}}}}
-        item{SettingsRow("Greenhouse Layout"){Text("${if(shape==GreenhouseShape.TShape)"T-shaped" else "Rectangle"} · ${preview.areaSquareFeet.roundToInt()} sq ft · ${preview.planLengthFeet.roundToInt()} × ${preview.planWidthFeet.roundToInt()} ft",color=DashboardTokens.Muted,fontSize=t(15f),fontWeight=FontWeight.Bold);ActionButton(if(layoutExpanded)"Close" else "Edit Layout",d,t){layoutExpanded=!layoutExpanded}}}
+        item{ResponsiveActionSetting("Greenhouse Layout","${if(shape==GreenhouseShape.TShape)"T-shaped" else "Rectangle"} · ${preview.areaSquareFeet.roundToInt()} sq ft · ${preview.planLengthFeet.roundToInt()} × ${preview.planWidthFeet.roundToInt()} ft",if(layoutExpanded)"Close" else "Edit Layout",d,t,mutedValue=true){layoutExpanded=!layoutExpanded}}
         if(layoutExpanded)item{GreenhouseDesigner(preview,name,{name=it},shape,{shape=it},length,{length=it.filter(Char::isDigit).take(3)},width,{width=it.filter(Char::isDigit).take(3)},attachedLength,{attachedLength=it.filter(Char::isDigit).take(3)},attachedWidth,{attachedWidth=it.filter(Char::isDigit).take(3)},d,t){
             val saved=preview.copy(name=name.ifBlank{g.name},sensorPositions=g.sensorPositions.mapValues{(_,p)->preview.reproject(p,g)})
             onPrefs{prefs->prefs.copy(greenhouses=prefs.greenhouses.map{if(it.id==g.id)saved else it})}
             layoutExpanded=false
         }}
         item{RefreshIntervalSettingsRow(g.refreshMinutes,viewer,d,t){minutes->onPrefs{prefs->prefs.copy(greenhouses=prefs.greenhouses.map{if(it.id==g.id)it.copy(refreshMinutes=minutes)else it})}}}
-        item{Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(d(10f))){SettingsRow("Outdoor Weather"){CompactField(zip,{zip=it.filter(Char::isDigit).take(5)},d,t,Modifier.width(d(150f)));ActionButton("Save ZIP",d,t){onSaveZip(zip)};ActionButton("Refresh",d,t,onWeather)};SettingsRow("History"){Text("${state.preferences.historyRetentionDays} days",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Text("•",color=DashboardTokens.Muted);Text("${g.refreshMinutes} min dashboard",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold)}}}
+        item{Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(d(10f))){OutdoorWeatherSetting(zip,{zip=it.filter(Char::isDigit).take(5)},d,t,{onSaveZip(zip)},onWeather);SettingsRow("History"){Text("${state.preferences.historyRetentionDays} days",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Text("•",color=DashboardTokens.Muted);Text("${g.refreshMinutes} min dashboard",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold)}}}
     }
 }
 
@@ -382,7 +425,49 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 @Composable private fun DevicesSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onAssign:(String,String)->Unit){val context=LocalContext.current;val viewer=remember(context){SecureSettingsStore(context).cloudEnrollment()?.role==CloudDeviceRole.ViewerClient};LazyColumn(Modifier.fillMaxSize().padding(d(22f)),verticalArrangement=Arrangement.spacedBy(d(8f))){item{Text("Devices & Sensors",color=Color.White,fontSize=t(25f),fontWeight=FontWeight.Bold);Text(if(viewer)"Authorized phones and sensors synchronized from the greenhouse server." else "Manage authorized phones and assign every H5179 sensor to a zone.",color=DashboardTokens.Muted,fontSize=t(14f))};item{CloudDeviceManagementPanel(d,t)};if(state.sensors.isEmpty())item{Text(if(viewer)"No sensors configured on the greenhouse server yet." else "No sensors discovered. Add your Govee API key under Connectivity.",color=DashboardTokens.Muted,fontSize=t(16f))};items(state.sensors){s->SettingsRow(s.name){Text(if(s.isFresh())"Online" else "Offline",color=if(s.isFresh())DashboardTokens.Green else DashboardTokens.Danger,fontSize=t(13f));if(viewer)Text(s.zone,color=Color.White,fontSize=t(14f),fontWeight=FontWeight.Bold)else(1..4).forEach{z->ActionButton(if(s.zone=="Zone $z")"Z$z selected" else "Z$z",d,t){onAssign(s.id,"Zone $z")}}}}}}
 @Composable private fun DisplaySettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onPrefs:((AppPreferences)->AppPreferences)->Unit){Column(Modifier.padding(d(22f))){Text("Display",color=Color.White,fontSize=t(25f),fontWeight=FontWeight.Bold);ToggleRow("Keep Screen On",state.preferences.keepScreenOn,d,t){onPrefs{it.copy(keepScreenOn=!it.keepScreenOn)}};ToggleRow("Auto Start (Run at Boot)",state.preferences.autoStart,d,t){onPrefs{it.copy(autoStart=!it.autoStart)}}}}
 @Composable private fun InfoSettings(title:String,body:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit){val displayedBody=if(title=="Backup & Sync")"Greenhouse settings, sensor assignments, and recent history are preserved when an authorized server is replaced." else body;Column(Modifier.padding(d(24f))){Text(title,color=Color.White,fontSize=t(25f),fontWeight=FontWeight.Bold);Text(displayedBody,color=DashboardTokens.Muted,fontSize=t(16f),modifier=Modifier.padding(top=d(12f)))}}
-@Composable private fun SettingsRow(label:String,modifier:Modifier=Modifier,content:@Composable RowScope.()->Unit){BoxWithConstraints(modifier.fillMaxWidth().background(Color(0x55082A2E),RoundedCornerShape(16.dp)).border(1.dp,Color(0xFF397A82),RoundedCornerShape(16.dp)).padding(14.dp)){if(maxWidth<520.dp)Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)){Text(label,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.ExtraBold);Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp),content=content)}else Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(label,color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(.7f));Row(Modifier.weight(1.3f),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp),content=content)}}}
+@Composable private fun SettingsRow(label:String,modifier:Modifier=Modifier,content:@Composable ()->Unit){BoxWithConstraints(modifier.fillMaxWidth().background(Color(0x55082A2E),RoundedCornerShape(16.dp)).border(1.dp,Color(0xFF397A82),RoundedCornerShape(16.dp)).padding(14.dp)){if(maxWidth<520.dp)Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)){Text(label,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.ExtraBold);FlowRow(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){content()}}else Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(label,color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(.7f));FlowRow(Modifier.weight(1.3f),verticalArrangement=Arrangement.spacedBy(8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){content()}}}}
+
+@Composable private fun ResponsiveActionSetting(label:String,value:String,actionLabel:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,mutedValue:Boolean=false,onAction:()->Unit){
+    BoxWithConstraints(Modifier.fillMaxWidth().background(Color(0x55082A2E),RoundedCornerShape(16.dp)).border(1.dp,Color(0xFF397A82),RoundedCornerShape(16.dp)).padding(14.dp)){
+        val compact=maxWidth<520.dp
+        if(compact){
+            Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                Text(label,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.ExtraBold)
+                Text(value,color=if(mutedValue)DashboardTokens.Muted else Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold,lineHeight=t(20f),modifier=Modifier.fillMaxWidth())
+                ActionButton(actionLabel,d,t,Modifier.fillMaxWidth(),onAction)
+            }
+        }else{
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(d(12f))){
+                Text(label,color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(.7f))
+                Text(value,color=if(mutedValue)DashboardTokens.Muted else Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                ActionButton(actionLabel,d,t,onClick=onAction)
+            }
+        }
+    }
+}
+
+@Composable private fun OutdoorWeatherSetting(zip:String,onZip:(String)->Unit,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSave:()->Unit,onRefresh:()->Unit){
+    BoxWithConstraints(Modifier.fillMaxWidth().background(Color(0x55082A2E),RoundedCornerShape(16.dp)).border(1.dp,Color(0xFF397A82),RoundedCornerShape(16.dp)).padding(14.dp)){
+        val compact=maxWidth<520.dp
+        if(compact){
+            Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                Text("Outdoor Weather",color=Color.White,fontSize=18.sp,fontWeight=FontWeight.ExtraBold)
+                CompactField(zip,onZip,d,t,Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    ActionButton("Save ZIP",d,t,Modifier.weight(1f),onSave)
+                    ActionButton("Refresh",d,t,Modifier.weight(1f),onRefresh)
+                }
+            }
+        }else{
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(d(10f))){
+                Text("Outdoor Weather",color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(.7f))
+                CompactField(zip,onZip,d,t,Modifier.weight(.8f))
+                ActionButton("Save ZIP",d,t,Modifier.weight(.7f),onSave)
+                ActionButton("Refresh",d,t,Modifier.weight(.7f),onRefresh)
+            }
+        }
+    }
+}
 @Composable private fun RefreshIntervalSettingsRow(selectedMinutes:Int,viewer:Boolean,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSelect:(Int)->Unit){
     BoxWithConstraints(Modifier.fillMaxWidth().background(Color(0x55082A2E),RoundedCornerShape(16.dp)).border(1.dp,Color(0xFF397A82),RoundedCornerShape(16.dp)).padding(14.dp)){
         val compact=maxWidth<520.dp

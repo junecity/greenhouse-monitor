@@ -46,6 +46,7 @@
 ## Current Android architecture
 
 - Kotlin/Jetpack Compose, Android API 29+, landscape-only monitoring UI.
+- Settings is the approved portrait exception. As of Android 2.7.8, its category navigation is a fixed top hamburger/dropdown rather than a horizontally scrolling strip. Narrow General cards use stacked/full-width actions and flow-wrapped generic rows so action labels remain visible; preserve this behavior on phone-width changes.
 - `GreenhouseViewModel` owns Govee refresh, weather, local history, alerts, greenhouse layout, and UI state.
 - Govee H5179 uses the supported cloud API; the API key is encrypted with Android Keystore.
 - Local history uses SQLite. Background refresh uses WorkManager's 15-minute minimum.
