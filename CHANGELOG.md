@@ -2,6 +2,21 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Client-displayed QR server pairing
+
+### Changed
+- The authenticated client now displays a temporary server-pairing QR automatically in Settings → Connectivity instead of requiring the customer to discover Devices → Add Server first.
+- The Connectivity panel shows the five-minute expiry, refreshes unused expired codes, and changes to an explicit approval action after the greenhouse phone scans it.
+- Fresh-install server onboarding now directs the customer back to Settings → Connectivity for approval.
+- Bumped the Android application to 2.7.1 (version code 14).
+
+### Fixed
+- Reopening Connectivity restores an existing pending server request before generating another invitation, so navigating away cannot strand the scanning server phone.
+- Kept first-login automatic Client registration, passwordless Server scanning, encrypted role persistence, the full Devices management screen, and all existing Govee/camera/history behavior intact.
+
+### Testing
+- `git diff --check` passed. Android JVM tests, lint, configured ARM assembly, APK verification, and physical two-phone pairing are pending the build checkpoint for this change.
+
 ## 2026-11-08 — Direct-install ARM APK build option
 
 - Added an opt-in `GREENHOUSE_ARM_ONLY` Android build property that packages both 32-bit and 64-bit ARM native libraries while omitting unused Intel ABIs. The application code, frozen interface, cloud configuration, and Android API support are unchanged.

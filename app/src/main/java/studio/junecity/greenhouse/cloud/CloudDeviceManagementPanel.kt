@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -149,6 +150,143 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * The primary client-side entry point for adding a greenhouse server.
+ *
+ * Opening Connectivity creates the short-lived invitation immediately so the
+ * customer never has to discover a separate Add Server action before scanning.
+ * The invitation still remains one-use and the server is not enrolled until the
+ * signed-in client explicitly approves the pending request.
+ */
+@Composable
+fun CloudServerPairingPanel(
+    d: (Float) -> Dp,
+    t: (Float) -> TextUnit,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val secure = remember { SecureSettingsStore(context) }
+    val enrollment = remember { secure.cloudEnrollment() }
+    val configuration = remember { runCatching { CloudRuntime.configurationOrNull() }.getOrNull() }
+    val gateway = remember(configuration, enrollment) {
+        if (configuration != null && enrollment?.role == CloudDeviceRole.ViewerClient) runCatching {
+            CognitoAuthManager(context, configuration).also(CognitoAuthManager::initialize).gateway(enrollment.deviceId)
+        }.getOrNull() else null
+    }
+    var invitation by remember { mutableStateOf<ServerPairingInvitation?>(null) }
+    var pendingRequest by remember { mutableStateOf<ServerPairingRequest?>(null) }
+    var expiresInSeconds by remember { mutableStateOf(0L) }
+    var approved by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun createInvitation() {
+        val api = requireNotNull(gateway)
+        val devices = api.devices()
+        val serverNumber = devices.count { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled } + 1
+        invitation = api.createServerInvitation(
+            greenhouseId = "greenhouse-${UUID.randomUUID()}",
+            greenhouseName = "Greenhouse $serverNumber"
+        )
+        pendingRequest = null
+        approved = false
+        message = null
+    }
+
+    fun generateNewCode() {
+        scope.launch {
+            busy = true
+            runCatching { createInvitation() }.onFailure { message = accountErrorMessage(it) }
+            busy = false
+        }
+    }
+
+    LaunchedEffect(gateway) {
+        if (gateway == null) return@LaunchedEffect
+        busy = true
+        runCatching {
+            pendingRequest = gateway.pendingServerPairings().firstOrNull()
+            if (pendingRequest == null) createInvitation()
+        }.onFailure { message = accountErrorMessage(it) }
+        busy = false
+        while (true) {
+            val invite = invitation
+            expiresInSeconds = invite?.let { ((it.expiresAtEpochMs - System.currentTimeMillis()) / 1_000L).coerceAtLeast(0L) } ?: 0L
+            runCatching {
+                pendingRequest = gateway.pendingServerPairings().firstOrNull()
+            }.onFailure { message = accountErrorMessage(it) }
+            if (invite != null && expiresInSeconds == 0L && pendingRequest == null && !approved) {
+                runCatching { createInvitation() }.onFailure { message = accountErrorMessage(it) }
+            }
+            delay(1_000)
+        }
+    }
+
+    Column(
+        modifier.background(DashboardTokens.PanelRaised, RoundedCornerShape(d(18f)))
+            .border(d(1f), DashboardTokens.PanelEdge, RoundedCornerShape(d(18f)))
+            .padding(d(16f)),
+        verticalArrangement = Arrangement.spacedBy(d(8f))
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Pair greenhouse server", color = Color.White, fontSize = t(20f), fontWeight = FontWeight.ExtraBold)
+                Text("Scan this code on the phone that will stay in the greenhouse.", color = DashboardTokens.Muted, fontSize = t(12f))
+            }
+            if (busy) CircularProgressIndicator(Modifier.size(d(24f)), color = DashboardTokens.Amber, strokeWidth = d(3f))
+        }
+
+        when {
+            configuration == null -> Text("Server pairing is unavailable in this local build.", color = DashboardTokens.Muted, fontSize = t(13f))
+            enrollment?.role != CloudDeviceRole.ViewerClient -> Text("Pairing codes are displayed on an authorized client phone.", color = DashboardTokens.Muted, fontSize = t(13f))
+            gateway == null -> Text("Sign in again to create a server pairing code.", color = DashboardTokens.Danger, fontSize = t(13f))
+            approved -> {
+                Text("Greenhouse server approved", color = DashboardTokens.Green, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
+                Text("The other phone is now registered as this account's greenhouse server.", color = DashboardTokens.Muted, fontSize = t(13f))
+                DeviceAction("Pair another server", true, d, t, Modifier.fillMaxWidth()) { generateNewCode() }
+            }
+            pendingRequest != null -> {
+                Text("Approval required", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
+                Text("The greenhouse phone scanned the code. Approve it to finish pairing.", color = DashboardTokens.Muted, fontSize = t(13f))
+                DeviceAction("Approve greenhouse server", true, d, t, Modifier.fillMaxWidth()) {
+                    val request = pendingRequest ?: return@DeviceAction
+                    scope.launch {
+                        busy = true
+                        runCatching { gateway.approveServerPairing(request.requestId) }
+                            .onSuccess { approved = true; invitation = null; pendingRequest = null; message = null }
+                            .onFailure { message = accountErrorMessage(it) }
+                        busy = false
+                    }
+                }
+            }
+            invitation != null -> {
+                val invite = requireNotNull(invitation)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(d(154f)).background(Color.White, RoundedCornerShape(d(12f))).padding(d(5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            serverPairingQrBitmap(serverPairingPayload(invite.displayCode)).asImageBitmap(),
+                            "Temporary server pairing QR code",
+                            Modifier.fillMaxWidth()
+                        )
+                    }
+                    Spacer(Modifier.width(d(14f)))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(d(7f))) {
+                        Text("Ready to scan", color = DashboardTokens.Green, fontSize = t(17f), fontWeight = FontWeight.ExtraBold)
+                        Text("Expires in ${expiresInSeconds / 60}:${(expiresInSeconds % 60).toString().padStart(2, '0')}", color = Color.White, fontSize = t(14f), fontWeight = FontWeight.Bold)
+                        Text("On the greenhouse phone, choose Scan QR Code to Pair as Server.", color = DashboardTokens.Muted, fontSize = t(12f))
+                        DeviceAction("Refresh code", false, d, t, Modifier.fillMaxWidth()) { generateNewCode() }
+                    }
+                }
+            }
+        }
+        message?.let { Text(it, color = DashboardTokens.Danger, fontSize = t(12f)) }
     }
 }
 

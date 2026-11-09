@@ -248,7 +248,7 @@ private fun CloudOnboarding(
             OnboardingStep.Auth -> "Sign in to monitor your greenhouse securely from this phone or another device."
             OnboardingStep.Confirm -> "Enter the verification code sent to your email."
             OnboardingStep.ResetPassword -> "Enter the code sent to your email and choose a new password."
-            OnboardingStep.ServerApproval -> "Approve this phone from Manage Devices on your signed-in client."
+            OnboardingStep.ServerApproval -> "Approve this phone in Settings → Connectivity on your signed-in client."
         },
         message = message,
         busy = busy
