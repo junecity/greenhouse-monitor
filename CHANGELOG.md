@@ -2,6 +2,22 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Server reconnect, adjustable synchronization, and customer grouping
+
+### Added
+- Added Connectivity controls on authenticated Clients to disconnect the current greenhouse Server, preserve its greenhouse data, reconnect it with a fresh approved QR code, or replace it without deleting the greenhouse.
+- Added Server-managed sensor/data intervals of 1, 2, 5, 10, or 30 minutes. The selected interval controls Govee reads and greenhouse backup publication; Clients perform lightweight 30-second checks, while the safety heartbeat remains fixed at one minute.
+
+### Changed
+- The administrator customer detail now presents one primary customer and groups every greenhouse Server beneath that account. General device rows are limited to authorized Client phones, and a revoked Server is reported as disconnected even when its greenhouse record remains preserved.
+- Remote-camera denial copy now says access is not enabled for the account. The existing Owner-only per-customer test switch remains the backend-authoritative no-payment camera control; verified paid subscriptions remain authoritative when present.
+- Bumped Android to 2.7.3 (version code 16). The approved monitoring design remains intact except for the explicitly requested interval and connection controls.
+
+### Deployment and testing
+- Deployed the updated administrator Lambda and version marker to `greenhouse-monitor-admin-dev`, published the live-configured portal, and started CloudFront invalidation `I6HPXCRXXC00T31LK83ZREOJMA`.
+- Passed 72 Android JVM tests with zero failures/errors, Android lint and debug assembly, 61 Python backend tests and compilation, 12 administrator portal tests, ESLint, production build, and zero-vulnerability npm audit.
+- Built `build-out/Greenhouse Monitor 2.7.3.apk`: 81,333,355 bytes, SHA-256 `7b21107844e09e595035659031be1947b36263f6a6d03c256775b51aaefb9b8a`, API 29 minimum, ARM32/ARM64 only, v2 signed with the persisted certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`, and containing only the deployed non-secret cloud configuration. Physical disconnect/reconnect, selected-interval timing, Govee reads, and remote WebRTC video remain unverified on the target phones.
+
 ## 2026-11-08 — Server-authoritative monitoring sync and camera test control
 
 ### Added

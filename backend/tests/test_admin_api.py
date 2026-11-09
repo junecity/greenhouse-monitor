@@ -178,6 +178,29 @@ class AdminDataTests(unittest.TestCase):
         self.assertEqual(4, result["metrics"]["connectedSensors"])
         self.assertEqual(1, result["metrics"]["activeCameraSessions"])
 
+    def test_customer_groups_servers_under_greenhouses_and_reports_revocation(self):
+        self.fake.query_items = [{
+            "pk": "ACCOUNT#account-12345678", "sk": "DEVICE#server-12345678",
+            "deviceId": "server-12345678", "accountId": "account-12345678",
+            "tenantId": "tenant-12345678", "role": "GREENHOUSE_SERVER",
+            "greenhouseId": "greenhouse-12345678", "enabled": False,
+            "createdAt": 1700000000,
+        }]
+        self.fake.items[("DEVICE#server-12345678", "METADATA")]["enabled"] = False
+        self.fake.items[("DEVICE#server-12345678", "METADATA")]["greenhouseId"] = "greenhouse-12345678"
+        self.fake.items[("GREENHOUSE#greenhouse-12345678", "METADATA")] = {
+            "greenhouseId": "greenhouse-12345678", "accountId": "account-12345678",
+            "tenantId": "tenant-12345678", "name": "North House",
+            "serverDeviceId": "server-12345678", "enabled": True,
+            "createdAt": 1700000000,
+        }
+
+        result = admin_api.customer_detail("account-12345678")
+
+        self.assertEqual(1, len(result["greenhouses"]))
+        self.assertEqual("server-12345678", result["greenhouses"][0]["serverDeviceId"])
+        self.assertFalse(result["greenhouses"][0]["enabled"])
+
     def test_support_can_revoke_device_but_cannot_grant_premium(self):
         principal = admin_api.AdminPrincipal("support", "support@example.test", "Support")
         result = admin_api.revoke_device(principal, "server-12345678", "request")

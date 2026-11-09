@@ -104,7 +104,7 @@ fun CloudWebRtcFeed(
             val session = sessionResult.getOrElse { error ->
                 message = when (error) {
                     is CloudApiException -> when (error.message) {
-                        "premium_required", "inactive", "expired", "revoked" -> "Premium remote camera access required"
+                        "premium_required", "inactive", "expired", "revoked" -> "Remote camera access is not enabled for this account"
                         else -> "Remote camera unavailable"
                     }
                     else -> "Remote camera unavailable"

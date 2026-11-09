@@ -305,14 +305,16 @@ def customer_detail(account_id: str) -> dict:
                 "acknowledgedAt": int(item["acknowledgedAt"]) if item.get("acknowledgedAt") else None,
             })
     greenhouses = []
+    device_enabled = {device.get("deviceId"): bool(device.get("enabled")) for device in devices}
     for greenhouse_id in sorted(greenhouse_ids):
         greenhouse = table.get_item(Key={"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item", {})
         if greenhouse.get("accountId") == account_id:
+            server_device_id = greenhouse.get("serverDeviceId")
             greenhouses.append({
                 "greenhouseId": greenhouse_id,
                 "name": greenhouse.get("name"),
-                "serverDeviceId": greenhouse.get("serverDeviceId"),
-                "enabled": bool(greenhouse.get("enabled")),
+                "serverDeviceId": server_device_id,
+                "enabled": bool(greenhouse.get("enabled")) and device_enabled.get(server_device_id, False),
                 "createdAt": int(greenhouse.get("createdAt", 0)),
             })
     customer["devices"] = devices

@@ -212,6 +212,8 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 
 @Composable private fun CameraRoleCard(title:String,body:String,icon:DashboardIcon,selected:Boolean,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier,onClick:()->Unit){Column(modifier.height(d(180f)).clip(RoundedCornerShape(d(22f))).background(if(selected)DashboardTokens.Amber.copy(alpha=.16f) else DashboardTokens.PanelRaised).border(d(2f),if(selected)DashboardTokens.Amber else DashboardTokens.PanelEdge,RoundedCornerShape(d(22f))).clickable(onClick=onClick).padding(d(18f))){DashboardIconView(icon,if(selected)DashboardTokens.Amber else DashboardTokens.Muted,Modifier.size(d(36f)));Text(title,color=Color.White,fontSize=t(19f),fontWeight=FontWeight.ExtraBold,modifier=Modifier.padding(top=d(10f)));Text(body,color=DashboardTokens.Muted,fontSize=t(12f),modifier=Modifier.padding(top=d(7f)))}}
 @Composable private fun GeneralSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSaveZip:(String)->Unit,onWeather:()->Unit,onGreenhouse:(String,Double,Double)->Unit,onPrefs:((AppPreferences)->AppPreferences)->Unit){
+    val context=LocalContext.current
+    val viewer=remember(context){SecureSettingsStore(context).cloudEnrollment()?.role==CloudDeviceRole.ViewerClient}
     val g=state.preferences.activeGreenhouse
     var name by remember(g.id,g.name){mutableStateOf(g.name)}
     var shape by remember(g.id,g.shape){mutableStateOf(g.shape)}
@@ -233,7 +235,8 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
             onPrefs{prefs->prefs.copy(greenhouses=prefs.greenhouses.map{if(it.id==g.id)saved else it})}
             layoutExpanded=false
         }}
-        item{Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(12f))){SettingsRow("Outdoor Weather",Modifier.weight(1.15f)){CompactField(zip,{zip=it.filter(Char::isDigit).take(5)},d,t,Modifier.width(d(150f)));ActionButton("Save ZIP",d,t){onSaveZip(zip)};ActionButton("Refresh",d,t,onWeather)};SettingsRow("History",Modifier.weight(.85f)){Text("${state.preferences.historyRetentionDays} days",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Text("•",color=DashboardTokens.Muted);Text("${state.preferences.refreshMinutes} min refresh",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold)}}}
+        item{SettingsRow("Sensor & Data Interval"){if(viewer){Text("${state.preferences.refreshMinutes} min · managed by greenhouse server",color=DashboardTokens.Green,fontSize=t(15f),fontWeight=FontWeight.Bold)}else DataSyncIntervals.minutes.forEach{minutes->ActionButton(if(state.preferences.refreshMinutes==minutes)"$minutes min selected" else "$minutes min",d,t){onPrefs{it.copy(refreshMinutes=minutes)}}}}}
+        item{Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(12f))){SettingsRow("Outdoor Weather",Modifier.weight(1.15f)){CompactField(zip,{zip=it.filter(Char::isDigit).take(5)},d,t,Modifier.width(d(150f)));ActionButton("Save ZIP",d,t){onSaveZip(zip)};ActionButton("Refresh",d,t,onWeather)};SettingsRow("History",Modifier.weight(.85f)){Text("${state.preferences.historyRetentionDays} days",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Text("•",color=DashboardTokens.Muted);Text("${state.preferences.refreshMinutes} min data",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold)}}}
     }
 }
 

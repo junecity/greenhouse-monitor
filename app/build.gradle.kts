@@ -19,8 +19,8 @@ android {
         applicationId = "studio.junecity.greenhouse"
         minSdk = 29
         targetSdk = 36
-        versionCode = 15
-        versionName = "2.7.2"
+        versionCode = 16
+        versionName = "2.7.3"
         if (armOnlyBuild) {
             ndk {
                 abiFilters += setOf("armeabi-v7a", "arm64-v8a")

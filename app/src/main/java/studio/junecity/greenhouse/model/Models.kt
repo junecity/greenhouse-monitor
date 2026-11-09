@@ -44,5 +44,10 @@ data class WeatherReading(val zipCode:String,val location:String,val temperature
 data class DeviceStatus(val batteryPercent:Int,val charging:Boolean,val wifiConnected:Boolean)
 data class HistoryReading(val sensorId:String,val sensorName:String,val temperatureF:Double,val humidityPercent:Double,val timestampEpochMs:Long)
 data class NotificationPreferences(val masterEnabled:Boolean=true,val popupsEnabled:Boolean=false,val soundEnabled:Boolean=false,val vibrationEnabled:Boolean=false,val repeatedAlerts:Boolean=false,val repeatMinutes:Int=30,val snoozedUntilEpochMs:Long=0,val temperatureAlerts:Boolean=true,val humidityAlerts:Boolean=true,val offlineAlerts:Boolean=true,val connectionAlerts:Boolean=false,val lowTemperatureF:Double=45.0,val highTemperatureF:Double=95.0,val lowHumidity:Double=30.0,val highHumidity:Double=85.0,val recoveryMargin:Double=2.0)
+object DataSyncIntervals {
+    val minutes = listOf(1, 2, 5, 10, 30)
+    fun normalize(value: Int): Int = minutes.minBy { kotlin.math.abs(it - value) }
+}
+
 data class AppPreferences(val zipCode:String="06382",val temperatureFahrenheit:Boolean=true,val refreshMinutes:Int=1,val historyRetentionDays:Int=30,val keepScreenOn:Boolean=true,val autoStart:Boolean=false,val greenhouses:List<GreenhouseConfig> = listOf(GreenhouseConfig()),val activeGreenhouseId:String="main",val notifications:NotificationPreferences=NotificationPreferences(),val sensorGreenhouseIds:Map<String,String> = emptyMap(),val cameraMode:CameraMode=CameraMode.CameraServer,val cameraStreamQuality:CameraStreamQuality=CameraStreamQuality.Balanced){val activeGreenhouse get()=greenhouses.firstOrNull{it.id==activeGreenhouseId}?:greenhouses.first()}
 data class GreenhouseUiState(val screen:AppScreen=AppScreen.Dashboard,val metric:Metric=Metric.Temperature,val sensors:List<GoveeSensor> = emptyList(),val weather:WeatherReading=WeatherReading("06382","Outside (06382)",null,"Unavailable"),val history:List<HistoryReading> = emptyList(),val preferences:AppPreferences=AppPreferences(),val goveeConnected:Boolean=false,val refreshing:Boolean=false,val message:String?=null)

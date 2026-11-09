@@ -178,19 +178,26 @@ fun CloudServerPairingPanel(
     }
     var invitation by remember { mutableStateOf<ServerPairingInvitation?>(null) }
     var pendingRequest by remember { mutableStateOf<ServerPairingRequest?>(null) }
+    var devices by remember { mutableStateOf<List<AccountDevice>>(emptyList()) }
     var expiresInSeconds by remember { mutableStateOf(0L) }
     var approved by remember { mutableStateOf(false) }
+    var confirmDisconnect by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    suspend fun createInvitation() {
+    suspend fun createInvitation(
+        greenhouseId: String? = null,
+        greenhouseName: String? = null,
+        replaceServerDeviceId: String? = null
+    ) {
         val api = requireNotNull(gateway)
-        val devices = api.devices()
+        devices = api.devices()
         val serverNumber = devices.count { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled } + 1
         invitation = api.createServerInvitation(
-            greenhouseId = "greenhouse-${UUID.randomUUID()}",
-            greenhouseName = "Greenhouse $serverNumber"
+            greenhouseId = greenhouseId ?: "greenhouse-${UUID.randomUUID()}",
+            greenhouseName = greenhouseName ?: "Greenhouse $serverNumber",
+            replaceServerDeviceId = replaceServerDeviceId
         )
         pendingRequest = null
         approved = false
@@ -209,14 +216,20 @@ fun CloudServerPairingPanel(
         if (gateway == null) return@LaunchedEffect
         busy = true
         runCatching {
+            devices = gateway.devices()
             pendingRequest = gateway.pendingServerPairings().firstOrNull()
-            if (pendingRequest == null) createInvitation()
+            val selectedGreenhouse = enrollment?.greenhouseId.orEmpty()
+            val knownServer = devices.any {
+                it.device.role == CloudDeviceRole.GreenhouseServer && it.device.greenhouseId == selectedGreenhouse
+            }
+            if (pendingRequest == null && !knownServer) createInvitation()
         }.onFailure { message = accountErrorMessage(it) }
         busy = false
         while (true) {
             val invite = invitation
             expiresInSeconds = invite?.let { ((it.expiresAtEpochMs - System.currentTimeMillis()) / 1_000L).coerceAtLeast(0L) } ?: 0L
             runCatching {
+                devices = gateway.devices()
                 pendingRequest = gateway.pendingServerPairings().firstOrNull()
             }.onFailure { message = accountErrorMessage(it) }
             if (invite != null && expiresInSeconds == 0L && pendingRequest == null && !approved) {
@@ -232,6 +245,12 @@ fun CloudServerPairingPanel(
             .padding(d(16f)),
         verticalArrangement = Arrangement.spacedBy(d(8f))
     ) {
+        val selectedGreenhouse = enrollment?.greenhouseId.orEmpty()
+        val selectedServers = devices.filter {
+            it.device.role == CloudDeviceRole.GreenhouseServer && it.device.greenhouseId == selectedGreenhouse
+        }
+        val activeServer = selectedServers.firstOrNull { it.device.enabled }
+        val disconnectedServer = selectedServers.firstOrNull { !it.device.enabled }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Pair greenhouse server", color = Color.White, fontSize = t(20f), fontWeight = FontWeight.ExtraBold)
@@ -244,6 +263,26 @@ fun CloudServerPairingPanel(
             configuration == null -> Text("Server pairing is unavailable in this local build.", color = DashboardTokens.Muted, fontSize = t(13f))
             enrollment?.role != CloudDeviceRole.ViewerClient -> Text("Pairing codes are displayed on an authorized client phone.", color = DashboardTokens.Muted, fontSize = t(13f))
             gateway == null -> Text("Sign in again to create a server pairing code.", color = DashboardTokens.Danger, fontSize = t(13f))
+            confirmDisconnect && activeServer != null -> {
+                Text("Disconnect this greenhouse server?", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
+                Text("Monitoring data stays saved. The server loses access immediately and can be paired again with a new QR code.", color = DashboardTokens.Muted, fontSize = t(13f))
+                Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
+                    DeviceAction("Cancel", false, d, t) { confirmDisconnect = false }
+                    DeviceAction("Confirm Disconnect", true, d, t) {
+                        val server = activeServer
+                        scope.launch {
+                            busy = true
+                            runCatching {
+                                gateway.setDeviceEnabled(server.device.id, false)
+                                devices = gateway.devices()
+                                invitation = null; pendingRequest = null; approved = false; confirmDisconnect = false
+                                message = "Server disconnected. Choose Reconnect Server when ready."
+                            }.onFailure { message = accountErrorMessage(it) }
+                            busy = false
+                        }
+                    }
+                }
+            }
             approved -> {
                 Text("Greenhouse server approved", color = DashboardTokens.Green, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
                 Text("The other phone is now registered as this account's greenhouse server.", color = DashboardTokens.Muted, fontSize = t(13f))
@@ -262,6 +301,38 @@ fun CloudServerPairingPanel(
                                 approved = true; invitation = null; pendingRequest = null; message = null
                             }
                             .onFailure { message = accountErrorMessage(it) }
+                        busy = false
+                    }
+                }
+            }
+            invitation == null && activeServer != null -> {
+                Text("Greenhouse server connected", color = DashboardTokens.Green, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
+                Text("Server ${activeServer.device.id.takeLast(8)} · ${if (activeServer.device.online) "Online" else "Authorized"}", color = Color.White, fontSize = t(14f))
+                Text("You can replace it without losing greenhouse settings, or disconnect it and reconnect later.", color = DashboardTokens.Muted, fontSize = t(12f))
+                Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
+                    DeviceAction("Replace Server", false, d, t) {
+                        val server = activeServer
+                        scope.launch {
+                            busy = true
+                            runCatching {
+                                createInvitation(selectedGreenhouse, "Greenhouse", server.device.id)
+                            }.onFailure { message = accountErrorMessage(it) }
+                            busy = false
+                        }
+                    }
+                    DeviceAction("Disconnect Server", false, d, t) { confirmDisconnect = true }
+                }
+            }
+            invitation == null && disconnectedServer != null -> {
+                Text("Greenhouse server disconnected", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
+                Text("Your greenhouse settings and history are preserved.", color = DashboardTokens.Muted, fontSize = t(13f))
+                DeviceAction("Reconnect Server", true, d, t, Modifier.fillMaxWidth()) {
+                    val server = disconnectedServer
+                    scope.launch {
+                        busy = true
+                        runCatching {
+                            createInvitation(selectedGreenhouse, "Greenhouse", server.device.id)
+                        }.onFailure { message = accountErrorMessage(it) }
                         busy = false
                     }
                 }

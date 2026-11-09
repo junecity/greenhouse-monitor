@@ -19,6 +19,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import studio.junecity.greenhouse.model.GoveeSensor
+import studio.junecity.greenhouse.model.DataSyncIntervals
+import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 
 data class HeartbeatHealth(val sensorConnectionHealthy: Boolean, val criticalTemperature: Boolean)
@@ -73,13 +75,18 @@ class CloudHeartbeatService : Service() {
         }
         val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
         var failures = 0
+        var lastBackupAt = 0L
         while (scope.isActive) {
             val health = HeartbeatHealthStore(this).load()
             val result = runCatching {
                 HeartbeatReporter(gateway).report(MonitoringHealth(enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature))
             }
-            if (result.isSuccess) runCatching {
+            val now = System.currentTimeMillis()
+            val backupIntervalMs = DataSyncIntervals.normalize(AppPreferencesStore(this).load().refreshMinutes) * 60_000L
+            if (result.isSuccess && now - lastBackupAt >= backupIntervalMs) runCatching {
                 gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(this@CloudHeartbeatService).snapshot())
+            }.onSuccess {
+                lastBackupAt = now
             }
             failures = if (result.isSuccess) 0 else failures + 1
             delay(HeartbeatRetryPolicy.delayMs(failures))
