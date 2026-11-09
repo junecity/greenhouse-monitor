@@ -103,6 +103,10 @@ class BootstrapApiTests(unittest.TestCase):
             ("USER#cognito-subject", "ACCOUNT"): {
                 "accountId": "account-existing", "tenantId": "tenant-existing",
             },
+            ("ACCOUNT#account-existing", "METADATA"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+                "cognitoSubject": "cognito-subject",
+            },
         })
         app.table = fake
         result = app.handler(event("/v1/bootstrap"), None)
@@ -110,6 +114,23 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual(200, result["statusCode"])
         self.assertEqual({"accountId": "account-existing", "tenantId": "tenant-existing"}, json.loads(result["body"]))
         self.assertEqual([], fake.client.transactions)
+
+    def test_bootstrap_rejects_stale_user_mapping_for_another_identity(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("ACCOUNT#account-existing", "METADATA"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+                "cognitoSubject": "different-subject",
+            },
+        })
+        app.table = fake
+
+        result = app.handler(event("/v1/bootstrap"), None)
+
+        self.assertEqual(403, result["statusCode"])
+        self.assertEqual("account_identity_mismatch", json.loads(result["body"])["error"])
 
     def test_heartbeat_atomically_records_safety_incidents(self):
         fake = FakeTable({

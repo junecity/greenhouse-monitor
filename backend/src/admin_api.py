@@ -255,14 +255,14 @@ def list_customers(query: str = "") -> dict:
     normalized = query.strip().casefold()[:160]
     accounts = entity_items("ACCOUNT")
     identities = customer_identities()
+    identity_subjects = {str(identity["subject"]) for identity in identities}
     customers = []
-    bootstrapped_subjects = set()
     for item in accounts:
         # Only a Cognito-linked account represents a customer. Older setup
         # attempts created anonymous account shells; those are operational
         # records, not separate customers, and must never inflate the customer
         # directory or split a real owner's servers across fake rows.
-        if not item.get("cognitoSubject"):
+        if str(item.get("cognitoSubject") or "") not in identity_subjects:
             continue
         safe = _safe_account(item)
         safe["setupComplete"] = True
@@ -270,17 +270,6 @@ def list_customers(query: str = "") -> dict:
         servers = [device for device in inventory if device.get("role") == "GREENHOUSE_SERVER"]
         safe["serverCount"] = len(servers)
         safe["greenhouseCount"] = len({device.get("greenhouseId") for device in servers if device.get("greenhouseId")})
-        if item.get("cognitoSubject"):
-            bootstrapped_subjects.add(str(item["cognitoSubject"]))
-        haystack = " ".join(str(safe.get(key) or "") for key in ("accountId", "displayName", "email")).casefold()
-        if not normalized or normalized in haystack:
-            customers.append(safe)
-    for identity in identities:
-        if identity["subject"] in bootstrapped_subjects:
-            continue
-        safe = _pending_customer(identity)
-        safe["serverCount"] = 0
-        safe["greenhouseCount"] = 0
         haystack = " ".join(str(safe.get(key) or "") for key in ("accountId", "displayName", "email")).casefold()
         if not normalized or normalized in haystack:
             customers.append(safe)
@@ -410,11 +399,13 @@ def dashboard() -> dict:
     devices = entity_items("DEVICE")
     entitlements = entity_items("ENTITLEMENT")
     sessions = entity_items("STREAM_SESSION")
-    customer_accounts = [item for item in accounts if item.get("cognitoSubject")]
+    identity_subjects = {str(item["subject"]) for item in identities}
+    customer_accounts = [
+        item for item in accounts
+        if str(item.get("cognitoSubject") or "") in identity_subjects
+    ]
     customer_account_ids = {item["accountId"] for item in customer_accounts}
-    identity_subjects = {item["subject"] for item in identities}
     registered_subjects = {item["cognitoSubject"] for item in customer_accounts}
-    pending_identities = [item for item in identities if item["subject"] not in registered_subjects]
     safe_devices = [_safe_device(item, now) for item in devices if item.get("accountId") in customer_account_ids]
     customer_entitlements = [item for item in entitlements if item.get("accountId") in customer_account_ids]
     active_sessions = [item for item in sessions if item.get("state") != "ENDED" and int(item.get("expiresAt", 0)) > now]
@@ -425,8 +416,8 @@ def dashboard() -> dict:
     return {
         "generatedAt": now,
         "metrics": {
-            "totalCustomers": len(registered_subjects | identity_subjects),
-            "activeCustomers": sum(1 for item in customer_accounts if item.get("state", "ACTIVE") == "ACTIVE") + sum(1 for item in pending_identities if item.get("enabled")),
+            "totalCustomers": len(registered_subjects),
+            "activeCustomers": sum(1 for item in customer_accounts if item.get("state", "ACTIVE") == "ACTIVE"),
             "freeAccounts": sum(1 for item in customer_entitlements if item.get("plan", "FREE") == "FREE"),
             "premiumSubscribers": len(premium),
             "complimentaryPremium": len(complimentary),
@@ -436,7 +427,7 @@ def dashboard() -> dict:
             "activeCameraSessions": len(active_sessions),
         },
         "trends": {
-            "customerGrowth": _trend(identities or customer_accounts),
+            "customerGrowth": _trend(customer_accounts),
             "subscriptions": _trend(customer_entitlements, lambda item: item.get("plan") != "FREE"),
             "reliability": [{
                 "date": _day(now),

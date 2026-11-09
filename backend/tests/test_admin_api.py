@@ -125,12 +125,12 @@ class AdminDataTests(unittest.TestCase):
             "state": "ACTIVE", "createdAt": 1700000000,
         }]
         with patch.object(admin_api, "entity_items", return_value=accounts), \
-             patch.object(admin_api, "customer_identities", return_value=[]):
+             patch.object(admin_api, "customer_identities", return_value=[{"subject": "customer-sub", "enabled": True}]):
             result = admin_api.list_customers("garden")
         self.assertEqual(1, result["count"])
         self.assertEqual("account-12345678", result["customers"][0]["accountId"])
 
-    def test_customer_directory_includes_confirmed_identity_before_app_setup(self):
+    def test_customer_directory_excludes_incomplete_registration_until_bootstrap(self):
         identity = {
             "subject": "pending-subject", "email": "pending@example.test",
             "displayName": None, "enabled": True, "status": "CONFIRMED", "createdAt": 1700000000,
@@ -139,21 +139,31 @@ class AdminDataTests(unittest.TestCase):
              patch.object(admin_api, "customer_identities", return_value=[identity]):
             result = admin_api.list_customers("pending@example.test")
 
-        self.assertEqual(1, result["count"])
-        self.assertEqual("PENDING_SETUP", result["customers"][0]["state"])
-        self.assertFalse(result["customers"][0]["setupComplete"])
+        self.assertEqual(0, result["count"])
 
     def test_customer_directory_excludes_anonymous_legacy_account_shells(self):
         accounts = [
             {"accountId": "account-orphan", "tenantId": "tenant-orphan", "createdAt": 1700000001},
+            {"accountId": "account-stale", "tenantId": "tenant-stale", "cognitoSubject": "deleted-subject", "createdAt": 1700000002},
             {"accountId": "account-real", "tenantId": "tenant-real", "cognitoSubject": "real-subject", "email": "notify@junecity.com", "createdAt": 1700000000},
         ]
         with patch.object(admin_api, "entity_items", return_value=accounts), \
-             patch.object(admin_api, "customer_identities", return_value=[]):
+             patch.object(admin_api, "customer_identities", return_value=[{"subject": "real-subject", "enabled": True}]):
             result = admin_api.list_customers("")
 
         self.assertEqual(1, result["count"])
         self.assertEqual("account-real", result["customers"][0]["accountId"])
+
+    def test_customer_directory_excludes_disabled_incomplete_registration(self):
+        identity = {
+            "subject": "disabled-subject", "email": "old@example.test",
+            "displayName": None, "enabled": False, "status": "CONFIRMED", "createdAt": 1700000000,
+        }
+        with patch.object(admin_api, "entity_items", return_value=[]), \
+             patch.object(admin_api, "customer_identities", return_value=[identity]):
+            result = admin_api.list_customers("")
+
+        self.assertEqual(0, result["count"])
 
     def test_dashboard_does_not_count_anonymous_account_shells_as_customers(self):
         now = int(time.time())

@@ -2,6 +2,17 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-09 — Canonical customer ownership and admin directory repair
+
+### Fixed
+- Customer lists and dashboard totals now require a current Cognito identity linked to a completed backend account. Stale deleted-identity account shells and incomplete registrations are excluded instead of appearing as separate customers.
+- Existing greenhouse ownership was atomically reconciled to `notify@junecity.com`; the account, primary Client, Greenhouse 1, revoked Server, configuration, history, and alerts were preserved. Bootstrap now rejects a stale user mapping when the authoritative account belongs to a different Cognito subject.
+- Customer rows and profiles fall back to the customer email rather than `Unnamed account` when no display name is available.
+
+### Deployment and validation
+- Deployed both updated Lambdas and the static portal. Live smoke verification returned one customer, one greenhouse, and one nested revoked Server; dashboard `totalCustomers` is 1. No records were deleted.
+- Passed 71 backend tests and compilation, 12 portal tests, ESLint, production build, and `git diff --check`. Physical device behavior remains unverified.
+
 ## 2026-11-09 — Revoked-server re-pairing, portrait Settings, and customer reconciliation
 
 ### Fixed

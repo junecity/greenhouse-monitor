@@ -99,6 +99,13 @@ def bootstrap_account(event):
     claims = event.get("requestContext", {}).get("authorizer", {}).get("jwt", {}).get("claims", {})
     existing = table.get_item(Key={"pk": f"USER#{subject}", "sk": "ACCOUNT"}, ConsistentRead=True).get("Item")
     if existing:
+        metadata = table.get_item(
+            Key={"pk": f"ACCOUNT#{existing['accountId']}", "sk": "METADATA"},
+            ConsistentRead=True,
+        ).get("Item") or {}
+        linked_subject = str(metadata.get("cognitoSubject") or "")
+        if linked_subject and linked_subject != subject:
+            raise AccessDenied("account_identity_mismatch")
         created_at = int(existing.get("createdAt", int(datetime.now(timezone.utc).timestamp())))
         updates = ["cognitoSubject=:subject", "adminEntity=:entity", "adminSort=:sort"]
         values = {
