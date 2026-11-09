@@ -13,6 +13,7 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Passed all 75 Android JVM tests with zero failures/errors/skips, Android lint, configured ARM32/ARM64 assembly, APK package/version inspection, v2 signature verification, and `git diff --check`.
 - Installed the development build on the 1080 × 2270 Android emulator. Verified the portrait hamburger and all eight menu entries, switched to Connectivity through the menu, scrolled General Settings, and confirmed UI bounds for Edit Layout, the four interval actions, Save ZIP, and Refresh remain inside the visible content area. Screenshots are under `deliverables/settings-hamburger-v2.7.8/` and are not committed.
 - Configured ARM APK: 81,480,815 bytes; SHA-256 `aff53ee7ac9b803f2c826150c7c46010177a46fe9e10bc53cb926024245132a6`; signing certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`.
+- Implementation commit `994c8f2` is pushed. Replaced Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` in place and verified the remote 2.7.8 filename, Android-package MIME type, and 81,480,815-byte size.
 
 ### Remaining physical validation
 - Actual Galaxy A71 and Moto G7 font scaling/touch ergonomics remain a physical-device check; this entry claims emulator layout validation only.
