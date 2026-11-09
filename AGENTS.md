@@ -221,3 +221,11 @@
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).
 - Added remote-connectivity upgrade requirements and required AGENTS.md + CHANGELOG.md workflow.
 - No runtime camera or AWS code was changed by the initial documentation task.
+
+### 2026-11-09 — Readable server lifecycle controls and one-step camera pairing
+- Android 2.7.5/code 18 makes the Client Connectivity server card legible on the target landscape phones. Replace, Disconnect, and Revoke are stacked full-width controls; Revoke is visually destructive and has a separate confirmation. The previous three-button row could collapse its labels to blank pills.
+- Connectivity and server-state typography was increased without changing the approved navigation, palette, or monitoring layouts.
+- A cloud-approved greenhouse Server is now the camera relationship. Cloud-enrolled Server and Client phones no longer display or scan a second camera QR. Server enrollment still triggers camera permission, starts the on-demand `CloudCameraServerService`, and lets `CloudWebRtcFeed` request the paired greenhouse session; camera capture stays off until Live View is requested.
+- The old encrypted JPEG/QR implementation is retained only as the local/unconfigured rollback. A configured cloud Server no longer starts that legacy listener, preventing conflicting pairing instructions and redundant camera exposure.
+- Local validation passed 74 Android JVM tests, lint, debug assembly, and `git diff --check`. Physical same-Wi-Fi direct ICE, carrier-network TURN, camera permission, and two-phone video remain required target-device tests and are not claimed complete.
+- The configured direct-install artifact is `build-out/Greenhouse Monitor 2.7.5.apk`, 81,382,511 bytes, SHA-256 `23133f7acac351e252270ac400425e476cdebc5558e7eae35338c3aa73f61f71`. It contains only ARM32/ARM64 native libraries, API 29 minimum, the deployed non-secret cloud configuration, and the persisted v2 debug signature certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`.

@@ -6,10 +6,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -253,8 +255,8 @@ fun CloudServerPairingPanel(
     Column(
         modifier.background(DashboardTokens.PanelRaised, RoundedCornerShape(d(18f)))
             .border(d(1f), DashboardTokens.PanelEdge, RoundedCornerShape(d(18f)))
-            .padding(d(16f)),
-        verticalArrangement = Arrangement.spacedBy(d(8f))
+            .padding(d(18f)),
+        verticalArrangement = Arrangement.spacedBy(d(12f))
     ) {
         val selectedGreenhouse = enrollment?.greenhouseId.orEmpty()
         val selectedServers = connectivityServerCandidates(devices, selectedGreenhouse)
@@ -263,8 +265,13 @@ fun CloudServerPairingPanel(
         val revokedServer = selectedServers.firstOrNull { !it.device.enabled }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Pair greenhouse server", color = Color.White, fontSize = t(20f), fontWeight = FontWeight.ExtraBold)
-                Text("Scan this code on the phone that will stay in the greenhouse.", color = DashboardTokens.Muted, fontSize = t(12f))
+                Text("Pair greenhouse server", color = Color.White, fontSize = t(24f), fontWeight = FontWeight.ExtraBold)
+                Text(
+                    "Scan this code on the phone that will stay in the greenhouse.",
+                    color = DashboardTokens.Muted,
+                    fontSize = t(15f),
+                    lineHeight = t(19f)
+                )
             }
             if (busy) CircularProgressIndicator(Modifier.size(d(24f)), color = DashboardTokens.Amber, strokeWidth = d(3f))
         }
@@ -274,11 +281,11 @@ fun CloudServerPairingPanel(
             enrollment?.role != CloudDeviceRole.ViewerClient -> Text("Pairing codes are displayed on an authorized client phone.", color = DashboardTokens.Muted, fontSize = t(13f))
             gateway == null -> Text("Sign in again to create a server pairing code.", color = DashboardTokens.Danger, fontSize = t(13f))
             confirmDisconnect && activeServer != null -> {
-                Text("Disconnect this greenhouse server?", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
-                Text("Communication pauses, but the device credentials and greenhouse data remain registered. You can reconnect it without scanning again.", color = DashboardTokens.Muted, fontSize = t(13f))
-                Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
-                    DeviceAction("Cancel", false, d, t) { confirmDisconnect = false }
-                    DeviceAction("Confirm Disconnect", true, d, t) {
+                Text("Disconnect this greenhouse server?", color = DashboardTokens.Amber, fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
+                Text("Communication pauses, but the device credentials and greenhouse data remain registered. You can reconnect it without scanning again.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(d(10f))) {
+                    DeviceAction("Cancel", false, d, t, Modifier.fillMaxWidth()) { confirmDisconnect = false }
+                    DeviceAction("Confirm Disconnect", true, d, t, Modifier.fillMaxWidth()) {
                         val server = activeServer
                         scope.launch {
                             busy = true
@@ -293,11 +300,11 @@ fun CloudServerPairingPanel(
                 }
             }
             confirmRevoke && activeServer != null -> {
-                Text("Revoke this greenhouse server?", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
-                Text("Monitoring data stays saved. The server loses access immediately and can be paired again with a new QR code.", color = DashboardTokens.Muted, fontSize = t(13f))
-                Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
-                    DeviceAction("Cancel", false, d, t) { confirmRevoke = false }
-                    DeviceAction("Confirm Revoke", true, d, t) {
+                Text("Revoke this greenhouse server?", color = DashboardTokens.Danger, fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
+                Text("Monitoring data stays saved. The server loses access immediately and can be paired again with a new QR code.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(d(10f))) {
+                    DeviceAction("Cancel", false, d, t, Modifier.fillMaxWidth()) { confirmRevoke = false }
+                    DeviceAction("Confirm Revoke Server", false, d, t, Modifier.fillMaxWidth(), danger = true) {
                         val server = activeServer
                         scope.launch {
                             busy = true
@@ -335,11 +342,11 @@ fun CloudServerPairingPanel(
                 }
             }
             invitation == null && activeServer != null -> {
-                Text("Greenhouse server connected", color = DashboardTokens.Green, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
-                Text("Server ${activeServer.device.id.takeLast(8)} · ${if (activeServer.device.online) "Online" else "Authorized"}", color = Color.White, fontSize = t(14f))
-                Text("Disconnect temporarily, revoke its credentials, or replace it without losing greenhouse settings.", color = DashboardTokens.Muted, fontSize = t(12f))
-                Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
-                    DeviceAction("Replace Server", false, d, t) {
+                Text("Greenhouse server connected", color = DashboardTokens.Green, fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
+                Text("Server ${activeServer.device.id.takeLast(8)} · ${if (activeServer.device.online) "Online" else "Authorized"}", color = Color.White, fontSize = t(17f), fontWeight = FontWeight.Bold)
+                Text("Disconnect temporarily, revoke its credentials, or replace it without losing greenhouse settings.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(d(10f))) {
+                    DeviceAction("Replace Server", false, d, t, Modifier.fillMaxWidth()) {
                         val server = activeServer
                         scope.launch {
                             busy = true
@@ -349,13 +356,13 @@ fun CloudServerPairingPanel(
                             busy = false
                         }
                     }
-                    DeviceAction("Disconnect Server", false, d, t) { confirmDisconnect = true }
-                    DeviceAction("Revoke Server", false, d, t) { confirmRevoke = true }
+                    DeviceAction("Disconnect Server", false, d, t, Modifier.fillMaxWidth()) { confirmDisconnect = true }
+                    DeviceAction("Revoke Server", false, d, t, Modifier.fillMaxWidth(), danger = true) { confirmRevoke = true }
                 }
             }
             invitation == null && disconnectedServer != null -> {
-                Text("Greenhouse server disconnected", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
-                Text("Credentials and greenhouse data are preserved. Reconnecting does not require a new QR code.", color = DashboardTokens.Muted, fontSize = t(13f))
+                Text("Greenhouse server disconnected", color = DashboardTokens.Amber, fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
+                Text("Credentials and greenhouse data are preserved. Reconnecting does not require a new QR code.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
                 DeviceAction("Reconnect Server", true, d, t, Modifier.fillMaxWidth()) {
                     val server = disconnectedServer
                     scope.launch {
@@ -403,7 +410,7 @@ fun CloudServerPairingPanel(
                 }
             }
         }
-        message?.let { Text(it, color = DashboardTokens.Danger, fontSize = t(12f)) }
+        message?.let { Text(it, color = DashboardTokens.Danger, fontSize = t(15f), lineHeight = t(20f)) }
     }
 }
 
@@ -424,13 +431,46 @@ private fun DeviceRow(title: String, subtitle: String, status: Color, d: (Float)
 }
 
 @Composable
-private fun DeviceAction(label: String, primary: Boolean, d: (Float) -> Dp, t: (Float) -> TextUnit, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    if (primary) Button(
-        onClick = onClick, modifier = modifier.height(d(42f)), shape = RoundedCornerShape(d(14f)),
-        colors = ButtonDefaults.buttonColors(containerColor = DashboardTokens.Amber, contentColor = DashboardTokens.Background)
-    ) { Text(label, fontSize = t(13f), fontWeight = FontWeight.ExtraBold) }
-    else OutlinedButton(
-        onClick = onClick, modifier = modifier.height(d(42f)), shape = RoundedCornerShape(d(14f)),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-    ) { Text(label, fontSize = t(13f), fontWeight = FontWeight.Bold) }
+private fun DeviceAction(
+    label: String,
+    primary: Boolean,
+    d: (Float) -> Dp,
+    t: (Float) -> TextUnit,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+    onClick: () -> Unit
+) {
+    val buttonModifier = modifier.heightIn(min = d(54f))
+    val labelText: @Composable (Color) -> Unit = { color ->
+        Text(
+            text = label,
+            color = color,
+            fontSize = t(16f),
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
+        )
+    }
+    when {
+        danger -> Button(
+            onClick = onClick,
+            modifier = buttonModifier,
+            shape = RoundedCornerShape(d(14f)),
+            colors = ButtonDefaults.buttonColors(containerColor = DashboardTokens.Danger, contentColor = Color.White),
+            contentPadding = PaddingValues(horizontal = d(18f), vertical = d(10f))
+        ) { labelText(Color.White) }
+        primary -> Button(
+            onClick = onClick,
+            modifier = buttonModifier,
+            shape = RoundedCornerShape(d(14f)),
+            colors = ButtonDefaults.buttonColors(containerColor = DashboardTokens.Amber, contentColor = DashboardTokens.Background),
+            contentPadding = PaddingValues(horizontal = d(18f), vertical = d(10f))
+        ) { labelText(DashboardTokens.Background) }
+        else -> OutlinedButton(
+            onClick = onClick,
+            modifier = buttonModifier,
+            shape = RoundedCornerShape(d(14f)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            contentPadding = PaddingValues(horizontal = d(18f), vertical = d(10f))
+        ) { labelText(Color.White) }
+    }
 }

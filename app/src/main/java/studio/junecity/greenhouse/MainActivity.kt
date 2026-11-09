@@ -89,11 +89,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             LaunchedEffect(state.preferences.cameraMode, cloudEnrollmentRevision) {
-                if (state.preferences.cameraMode == CameraMode.CameraServer) {
-                    CameraStreamServer.start(applicationContext, allowPublicMapping = cloudConfiguration.getOrNull() == null)
-                }
-                else CameraStreamServer.stop()
                 val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
+                if (state.preferences.cameraMode == CameraMode.CameraServer && enrollment == null) {
+                    CameraStreamServer.start(applicationContext, allowPublicMapping = true)
+                } else CameraStreamServer.stop()
                 CloudAlertService.sync(applicationContext, enrollment != null && cloudConfiguration.getOrNull() != null)
                 CloudHeartbeatService.sync(
                     applicationContext,
