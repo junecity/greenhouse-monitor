@@ -130,6 +130,23 @@ class AdminDataTests(unittest.TestCase):
         self.assertEqual(1, result["count"])
         self.assertEqual("account-12345678", result["customers"][0]["accountId"])
 
+    def test_customer_directory_merges_missing_identity_fields_from_cognito(self):
+        accounts = [{
+            "accountId": "account-12345678", "tenantId": "tenant-12345678",
+            "cognitoSubject": "customer-sub", "state": "ACTIVE", "createdAt": 1700000000,
+        }]
+        identity = {
+            "subject": "customer-sub", "email": "notify@junecity.com",
+            "displayName": "June City", "enabled": True,
+        }
+        with patch.object(admin_api, "entity_items", return_value=accounts), \
+             patch.object(admin_api, "customer_identities", return_value=[identity]):
+            result = admin_api.list_customers("notify@junecity.com")
+
+        self.assertEqual(1, result["count"])
+        self.assertEqual("notify@junecity.com", result["customers"][0]["email"])
+        self.assertEqual("June City", result["customers"][0]["displayName"])
+
     def test_customer_directory_excludes_incomplete_registration_until_bootstrap(self):
         identity = {
             "subject": "pending-subject", "email": "pending@example.test",

@@ -251,20 +251,33 @@ def _pending_customer(identity: dict) -> dict:
     }
 
 
+def _merge_customer_identity(customer: dict, identity: dict | None) -> dict:
+    """Fill presentation identity from Cognito without overwriting account data."""
+    if not identity:
+        return customer
+    merged = dict(customer)
+    if not merged.get("email"):
+        merged["email"] = identity.get("email")
+    if not merged.get("displayName"):
+        merged["displayName"] = identity.get("displayName")
+    return merged
+
+
 def list_customers(query: str = "") -> dict:
     normalized = query.strip().casefold()[:160]
     accounts = entity_items("ACCOUNT")
     identities = customer_identities()
-    identity_subjects = {str(identity["subject"]) for identity in identities}
+    identities_by_subject = {str(identity["subject"]): identity for identity in identities}
     customers = []
     for item in accounts:
         # Only a Cognito-linked account represents a customer. Older setup
         # attempts created anonymous account shells; those are operational
         # records, not separate customers, and must never inflate the customer
         # directory or split a real owner's servers across fake rows.
-        if str(item.get("cognitoSubject") or "") not in identity_subjects:
+        subject = str(item.get("cognitoSubject") or "")
+        if subject not in identities_by_subject:
             continue
-        safe = _safe_account(item)
+        safe = _merge_customer_identity(_safe_account(item), identities_by_subject.get(subject))
         safe["setupComplete"] = True
         inventory = account_items(item["accountId"], "DEVICE#")
         servers = [device for device in inventory if device.get("role") == "GREENHOUSE_SERVER"]
@@ -294,7 +307,12 @@ def customer_detail(account_id: str) -> dict:
             "source": "NONE",
         })
         return customer
-    customer = _safe_account(account_record(account_id))
+    record = account_record(account_id)
+    identity = next(
+        (item for item in customer_identities() if item["subject"] == str(record.get("cognitoSubject") or "")),
+        None,
+    )
+    customer = _merge_customer_identity(_safe_account(record), identity)
     customer["setupComplete"] = True
     inventory = account_items(account_id)
     devices = []

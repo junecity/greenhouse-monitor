@@ -2,6 +2,22 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-09 — Full-system verification and Android 2.7.7
+
+### Fixed
+- Added the missing Kinesis signaling-channel tag permission so live WebRTC authorization can create an account-scoped channel and return signed signaling plus managed ICE/TURN endpoints.
+- Made the portrait Settings refresh selector and device actions fully readable. All four refresh intervals remain visible; narrow device cards stack complete action labels; a disconnected greenhouse Server can be revoked directly.
+- Filled missing administrator customer presentation fields from the matching Cognito identity so completed customer accounts show their email instead of `Unnamed account` while retaining canonical account and Server relationships.
+
+### Deployment and validation
+- Deployed the application and administrator stacks successfully. Live pairing, approval, disconnect/reconnect, revoke/re-pair, rotated-credential enforcement, heartbeat, stream authorization/pickup/end, and customer hierarchy checks passed. Disposable test records and the test signaling channel were removed; live administration again returns only `notify@junecity.com`, with one greenhouse and its preserved revoked Server.
+- Passed 75 Android JVM tests plus lint/configured ARM assembly, 72 backend tests, 12 portal tests plus ESLint/TypeScript/production build, zero npm audit findings, both CloudFormation lints, live 401 authorization-boundary checks, portal HTTP checks, and a CloudWatch error scan.
+- Installed and relaunched the final APK on two ARM Android emulators. Verified new-account Primary Client behavior, additional-client sign-in, persisted authentication, pre-auth built-in scanner, all five app screens, every Settings category, server lifecycle controls, empty sensor/history states, and the proportional 256 sq ft T-shaped editor. No fatal Android exception was observed.
+- Bumped Android to 2.7.7/code 20. The configured API 29+ ARM32/ARM64 APK is 81,448,043 bytes with SHA-256 `5564d7858a2ae1ecc8c1e23512e04d8ba011c9c8f145fd6d693cb3adb9af854c` and v2 signing certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`.
+
+### Remaining physical validation
+- Actual Govee H5179 readings require the owner's Govee credential and sensors. Real front-camera frames, direct same-Wi-Fi media, and off-Wi-Fi cellular/TURN handoff require the Galaxy A71 and client phone on their target networks. Those hardware results are not claimed by the emulator/backend tests.
+
 ## 2026-11-09 — Canonical customer ownership and admin directory repair
 
 ### Fixed

@@ -212,6 +212,10 @@ Resources:
               Effect: Allow
               Action:
                 - kinesisvideo:CreateSignalingChannel
+                # Creating a signaling channel with the Product/Environment
+                # tags supplied by kinesis_session.py also requires the
+                # service's explicit tagging permission.
+                - kinesisvideo:TagResource
                 - kinesisvideo:DescribeSignalingChannel
                 - kinesisvideo:GetSignalingChannelEndpoint
                 - kinesisvideo:GetIceServerConfig

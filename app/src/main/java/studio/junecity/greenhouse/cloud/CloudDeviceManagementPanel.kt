@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -263,6 +264,7 @@ fun CloudServerPairingPanel(
         val activeServer = selectedServers.firstOrNull { it.device.enabled && !it.device.communicationSuspended }
         val disconnectedServer = selectedServers.firstOrNull { it.device.enabled && it.device.communicationSuspended }
         val revokedServer = selectedServers.firstOrNull { !it.device.enabled }
+        val revocableServer = activeServer ?: disconnectedServer
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Pair greenhouse server", color = Color.White, fontSize = t(24f), fontWeight = FontWeight.ExtraBold)
@@ -292,27 +294,27 @@ fun CloudServerPairingPanel(
                             runCatching {
                                 gateway.setDeviceConnected(server.device.id, false)
                                 devices = gateway.devices(); invitation = null; pendingRequest = null; approved = false; confirmDisconnect = false
-                                message = "Server disconnected. Reconnect it whenever you are ready."
+                                message = null
                             }.onFailure { message = accountErrorMessage(it) }
                             busy = false
                         }
                     }
                 }
             }
-            confirmRevoke && activeServer != null -> {
+            confirmRevoke && revocableServer != null -> {
                 Text("Revoke this greenhouse server?", color = DashboardTokens.Danger, fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
                 Text("Monitoring data stays saved. The server loses access immediately and can be paired again with a new QR code.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(d(10f))) {
                     DeviceAction("Cancel", false, d, t, Modifier.fillMaxWidth()) { confirmRevoke = false }
                     DeviceAction("Confirm Revoke Server", false, d, t, Modifier.fillMaxWidth(), danger = true) {
-                        val server = activeServer
+                        val server = revocableServer
                         scope.launch {
                             busy = true
                             runCatching {
                                 gateway.setDeviceEnabled(server.device.id, false)
                                 devices = gateway.devices()
                                 invitation = null; pendingRequest = null; approved = false; confirmRevoke = false
-                                message = "Server access revoked. Choose Pair Again when ready."
+                                message = null
                             }.onFailure { message = accountErrorMessage(it) }
                             busy = false
                         }
@@ -370,9 +372,13 @@ fun CloudServerPairingPanel(
                         runCatching {
                             gateway.setDeviceConnected(server.device.id, true)
                             devices = gateway.devices()
+                            message = null
                         }.onFailure { message = accountErrorMessage(it) }
                         busy = false
                     }
+                }
+                DeviceAction("Revoke Server", false, d, t, Modifier.fillMaxWidth(), danger = true) {
+                    confirmRevoke = true
                 }
             }
             invitation == null && revokedServer != null -> {
@@ -416,17 +422,37 @@ fun CloudServerPairingPanel(
 
 @Composable
 private fun DeviceRow(title: String, subtitle: String, status: Color, d: (Float) -> Dp, t: (Float) -> TextUnit, actions: @Composable () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Color(0x55101416), RoundedCornerShape(d(14f))).padding(horizontal = d(14f), vertical = d(10f)),
-        verticalAlignment = Alignment.CenterVertically
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().background(Color(0x55101416), RoundedCornerShape(d(14f)))
+            .padding(horizontal = d(14f), vertical = d(10f))
     ) {
-        Spacer(Modifier.size(d(10f)).background(status, RoundedCornerShape(d(8f))))
-        Spacer(Modifier.width(d(10f)))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Color.White, fontSize = t(16f), fontWeight = FontWeight.Bold)
-            Text(subtitle, color = DashboardTokens.Muted, fontSize = t(12f))
+        if (maxWidth < d(700f)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(d(10f))) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.size(d(10f)).background(status, RoundedCornerShape(d(8f))))
+                    Spacer(Modifier.width(d(10f)))
+                    Column(Modifier.weight(1f)) {
+                        Text(title, color = Color.White, fontSize = t(17f), fontWeight = FontWeight.Bold)
+                        Text(subtitle, color = DashboardTokens.Muted, fontSize = t(13f))
+                    }
+                }
+                Column(
+                    Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(d(8f)),
+                    horizontalAlignment = Alignment.Start
+                ) { actions() }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.size(d(10f)).background(status, RoundedCornerShape(d(8f))))
+                Spacer(Modifier.width(d(10f)))
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = Color.White, fontSize = t(16f), fontWeight = FontWeight.Bold)
+                    Text(subtitle, color = DashboardTokens.Muted, fontSize = t(12f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(d(7f)), verticalAlignment = Alignment.CenterVertically) { actions() }
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(d(7f)), verticalAlignment = Alignment.CenterVertically) { actions() }
     }
 }
 
