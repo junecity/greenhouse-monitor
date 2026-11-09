@@ -320,7 +320,10 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Admin portal: 12 tests, ESLint, and production build passed.
 - Android: 74 JVM tests, lint, and debug APK assembly passed.
 - CloudFormation lint and `git diff --check` passed.
+- GitHub Actions run `42557749771` passed full verification and the configured ARM APK job for commit `5a441a6`.
+- Plain APK `Greenhouse Monitor 2.7.4.apk` is 81,366,127 bytes with SHA-256 `0e48659cb52342ac24494d03bd0075beba2fd2c06c3750b0a7cbf260374574c5`; the stable Drive file was updated and read back successfully.
 - Physical same-Wi-Fi direct video and carrier-network TURN fallback remain unverified until exercised on the target phones.
+- Live AWS route/admin deployment is pending owner completion of the reopened AWS CLI browser authorization.
 
 ## 2026-11-08 — Stage 6 heartbeat and alert foundations
 
