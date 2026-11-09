@@ -4,6 +4,29 @@ on:
   push:
     branches: [codex/greenhouse-complete-upgrade, main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      arm_only:
+        description: Build an ARM-only APK (armeabi-v7a + arm64-v8a)
+        required: false
+        default: false
+        type: boolean
+      aws_region:
+        description: Optional deployed AWS region (non-secret build configuration)
+        required: false
+        type: string
+      cognito_user_pool_id:
+        description: Optional Cognito user pool ID (non-secret build configuration)
+        required: false
+        type: string
+      cognito_app_client_id:
+        description: Optional Cognito Android app client ID (non-secret build configuration)
+        required: false
+        type: string
+      api_base_url:
+        description: Optional HTTPS application API base URL (non-secret build configuration)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -34,6 +57,12 @@ jobs:
       - name: Install backend test dependencies
         run: python -m pip install --disable-pip-version-check -r backend/requirements-dev.txt -r backend/src/requirements.txt
       - name: Android tests, lint, and debug APK
+        env:
+          GREENHOUSE_ARM_ONLY: ${{ inputs.arm_only || 'false' }}
+          GREENHOUSE_AWS_REGION: ${{ inputs.aws_region || '' }}
+          GREENHOUSE_COGNITO_USER_POOL_ID: ${{ inputs.cognito_user_pool_id || '' }}
+          GREENHOUSE_COGNITO_APP_CLIENT_ID: ${{ inputs.cognito_app_client_id || '' }}
+          GREENHOUSE_AWS_API_BASE_URL: ${{ inputs.api_base_url || '' }}
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
       - name: Backend policy tests
         run: python -m unittest discover -s backend/tests -v
@@ -63,5 +92,46 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256
             app/build/reports/lint-results-debug.html
+          if-no-files-found: error
+          retention-days: 14
+
+  arm-apk:
+    if: github.event_name == 'push' && github.ref_name == 'codex/greenhouse-complete-upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Build configured ARM debug APK
+        env:
+          GREENHOUSE_ARM_ONLY: 'true'
+          GREENHOUSE_AWS_REGION: ${{ vars.GREENHOUSE_AWS_REGION }}
+          GREENHOUSE_COGNITO_USER_POOL_ID: ${{ vars.GREENHOUSE_COGNITO_USER_POOL_ID }}
+          GREENHOUSE_COGNITO_APP_CLIENT_ID: ${{ vars.GREENHOUSE_COGNITO_APP_CLIENT_ID }}
+          GREENHOUSE_AWS_API_BASE_URL: ${{ vars.GREENHOUSE_AWS_API_BASE_URL }}
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Verify configured ARM APK
+        run: |
+          test -n "${{ vars.GREENHOUSE_AWS_REGION }}"
+          test -n "${{ vars.GREENHOUSE_COGNITO_USER_POOL_ID }}"
+          test -n "${{ vars.GREENHOUSE_COGNITO_APP_CLIENT_ID }}"
+          test -n "${{ vars.GREENHOUSE_AWS_API_BASE_URL }}"
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'lib/arm64-v8a/libjingle_peerconnection_so.so'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep 'lib/armeabi-v7a/libjingle_peerconnection_so.so'
+          if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -Eq 'lib/(x86|x86_64)/'; then
+            echo 'Unexpected Intel native library in ARM APK' >&2
+            exit 1
+          fi
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: greenhouse-monitor-2.7.0-arm-debug
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14

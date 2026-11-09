@@ -6,6 +6,11 @@ plugins {
 
 fun quotedBuildValue(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
+val armOnlyBuild = providers.gradleProperty("GREENHOUSE_ARM_ONLY")
+    .orElse(providers.environmentVariable("GREENHOUSE_ARM_ONLY"))
+    .map(String::toBoolean)
+    .getOrElse(false)
+
 android {
     namespace = "studio.junecity.greenhouse"
     compileSdk = 36
@@ -16,6 +21,11 @@ android {
         targetSdk = 36
         versionCode = 13
         versionName = "2.7.0"
+        if (armOnlyBuild) {
+            ndk {
+                abiFilters += setOf("armeabi-v7a", "arm64-v8a")
+            }
+        }
         val cloudValue = { name: String ->
             providers.gradleProperty(name).orElse(providers.environmentVariable(name)).getOrElse("")
         }

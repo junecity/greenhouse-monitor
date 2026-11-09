@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Direct-install ARM APK build option
+
+- Added an opt-in `GREENHOUSE_ARM_ONLY` Android build property that packages both 32-bit and 64-bit ARM native libraries while omitting unused Intel ABIs. The application code, frozen interface, cloud configuration, and Android API support are unchanged.
+- Added a manual GitHub Actions input plus a separately verified configured ARM artifact on upgrade-branch pushes. Normal push and pull-request verification remains a universal build; cloud identifiers are supplied through non-secret repository variables rather than committed values.
+- Intended delivery target: a direct `.apk` under Google Drive's connector-size limit for the ARM-based Galaxy A71, Pixel 10, and Moto G7 families.
+- Validation will be recorded after the configured workflow completes. Physical installation remains unverified until the owner installs the artifact.
+
 ## 2026-11-08 — Automatic clients and approved QR server pairing (Android 2.7.0)
 
 - Removed post-login Client/Server selection. A newly authenticated phone registers as a Viewer Client automatically, later signed-in phones join the same account as clients, and securely persisted enrollments are validated before monitoring opens.
