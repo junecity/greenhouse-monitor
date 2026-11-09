@@ -1,10 +1,19 @@
 package studio.junecity.greenhouse.cloud
 
+import android.content.pm.ActivityInfo
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CloudOnboardingCopyTest {
+    @Test
+    fun settingsUsesPortraitWhileMonitoringScreensRemainLandscape() {
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, monitoringOrientation(monitoring = true, portraitMonitoringScreen = true))
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, monitoringOrientation(monitoring = true, portraitMonitoringScreen = false))
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, monitoringOrientation(monitoring = false, portraitMonitoringScreen = false))
+    }
+
     @Test
     fun invalidPasswordExplainsHowToCreateAnAccountWithoutProviderBranding() {
         val message = accountErrorMessage(IllegalArgumentException("Incorrect username or password."))

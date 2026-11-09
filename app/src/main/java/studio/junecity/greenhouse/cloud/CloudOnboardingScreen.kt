@@ -110,6 +110,7 @@ fun newDeviceSecret(): String = ByteArray(32).also(SecureRandom()::nextBytes).le
 fun CloudOnboardingGate(
     configuration: CognitoConfiguration?,
     configurationError: String?,
+    portraitMonitoringScreen: Boolean = false,
     onEnrolled: (CloudDeviceRole) -> Unit,
     content: @Composable () -> Unit
 ) {
@@ -120,7 +121,7 @@ fun CloudOnboardingGate(
     val showMonitoring = configurationError == null &&
         (configuration == null || (enrollment != null && sessionValidated))
 
-    AppOrientation(monitoring = showMonitoring)
+    AppOrientation(monitoring = showMonitoring, portraitMonitoringScreen = portraitMonitoringScreen)
 
     when {
         configurationError != null -> CloudSetupShell(
@@ -446,14 +447,17 @@ private fun OnboardingCard(
 }
 
 @Composable
-private fun AppOrientation(monitoring: Boolean) {
+private fun AppOrientation(monitoring: Boolean, portraitMonitoringScreen: Boolean) {
     val activity = androidx.compose.ui.platform.LocalContext.current.findActivity()
-    val orientation = if (monitoring) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-    else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    val orientation = monitoringOrientation(monitoring, portraitMonitoringScreen)
     SideEffect {
         if (activity != null && activity.requestedOrientation != orientation) activity.requestedOrientation = orientation
     }
 }
+
+internal fun monitoringOrientation(monitoring: Boolean, portraitMonitoringScreen: Boolean): Int =
+    if (!monitoring || portraitMonitoringScreen) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this

@@ -525,14 +525,24 @@ def approve_server_pairing(principal: Principal, request_id: str):
         raise AccessDenied("expired_used_or_conflicting")
     device_id = request["serverDeviceId"]
     greenhouse_id = request["greenhouseId"]
+    existing_device = table.get_item(
+        Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"}, ConsistentRead=True
+    ).get("Item")
+    if existing_device and (
+        existing_device.get("tenantId") != principal.tenant_id
+        or existing_device.get("accountId") != principal.account_id
+        or existing_device.get("role") != "GREENHOUSE_SERVER"
+    ):
+        raise AccessDenied("device_owned_by_another_account")
     existing_greenhouse = table.get_item(Key={"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
     created_at = int(existing_greenhouse.get("createdAt", now)) if existing_greenhouse else now
+    device_created_at = int(existing_device.get("createdAt", now)) if existing_device else now
     device = {
         "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id, "role": "GREENHOUSE_SERVER",
-        "greenhouseId": greenhouse_id, "enabled": True, "communicationSuspended": False, "createdAt": now,
+        "greenhouseId": greenhouse_id, "enabled": True, "communicationSuspended": False, "createdAt": device_created_at,
         "deviceSecretHash": request["deviceSecretHash"],
-        "adminEntity": "DEVICE", "adminSort": f"{now:020d}#{device_id}",
+        "adminEntity": "DEVICE", "adminSort": f"{device_created_at:020d}#{device_id}",
     }
     greenhouse = {
         **(existing_greenhouse or {}), "pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA",
@@ -541,18 +551,33 @@ def approve_server_pairing(principal: Principal, request_id: str):
         "createdAt": created_at, "updatedAt": now, "adminEntity": "GREENHOUSE",
         "adminSort": f"{created_at:020d}#{greenhouse_id}",
     }
+    if existing_device:
+        device_write = {"Update": {
+            "TableName": table.name, "Key": {"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
+            "UpdateExpression": (
+                "SET greenhouseId=:greenhouse, enabled=:enabled, communicationSuspended=:connected, "
+                "deviceSecretHash=:secret, reauthorizedAt=:now, adminEntity=:entity, adminSort=:sort "
+                "REMOVE revokedAt, revokedBy, replacedAt, replacedBy"
+            ),
+            "ConditionExpression": "tenantId=:tenant AND accountId=:account AND #role=:role",
+            "ExpressionAttributeNames": {"#role": "role"},
+            "ExpressionAttributeValues": {
+                ":greenhouse": greenhouse_id, ":enabled": True, ":connected": False,
+                ":secret": request["deviceSecretHash"], ":now": now, ":entity": "DEVICE",
+                ":sort": f"{device_created_at:020d}#{device_id}", ":tenant": principal.tenant_id,
+                ":account": principal.account_id, ":role": "GREENHOUSE_SERVER",
+            },
+        }}
+    else:
+        device_write = {"Put": {
+            "TableName": table.name, "Item": device, "ConditionExpression": "attribute_not_exists(pk)"
+        }}
     transaction = [
-        {"Put": {"TableName": table.name, "Item": device,
-                 "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:role)",
-                 "ExpressionAttributeNames": {"#role": "role"},
-                 "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id, ":role": "GREENHOUSE_SERVER"}}},
+        device_write,
         {"Put": {"TableName": table.name, "Item": greenhouse,
                  "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
                  "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id}}},
-        {"Put": {"TableName": table.name, "Item": account_device_record(device),
-                 "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:role)",
-                 "ExpressionAttributeNames": {"#role": "role"},
-                 "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id, ":role": "GREENHOUSE_SERVER"}}},
+        {"Put": {"TableName": table.name, "Item": account_device_record(device)}},
         {"Update": {"TableName": table.name, "Key": {"pk": request["pk"], "sk": request["sk"]},
                     "UpdateExpression": "SET #state=:approved, approvedAt=:now, approvedBy=:client",
                     "ConditionExpression": "#state=:pending AND expiresAt>:now", "ExpressionAttributeNames": {"#state": "state"},

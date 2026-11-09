@@ -258,6 +258,12 @@ def list_customers(query: str = "") -> dict:
     customers = []
     bootstrapped_subjects = set()
     for item in accounts:
+        # Only a Cognito-linked account represents a customer. Older setup
+        # attempts created anonymous account shells; those are operational
+        # records, not separate customers, and must never inflate the customer
+        # directory or split a real owner's servers across fake rows.
+        if not item.get("cognitoSubject"):
+            continue
         safe = _safe_account(item)
         safe["setupComplete"] = True
         inventory = account_items(item["accountId"], "DEVICE#")
@@ -404,21 +410,24 @@ def dashboard() -> dict:
     devices = entity_items("DEVICE")
     entitlements = entity_items("ENTITLEMENT")
     sessions = entity_items("STREAM_SESSION")
-    safe_devices = [_safe_device(item, now) for item in devices]
+    customer_accounts = [item for item in accounts if item.get("cognitoSubject")]
+    customer_account_ids = {item["accountId"] for item in customer_accounts}
+    identity_subjects = {item["subject"] for item in identities}
+    registered_subjects = {item["cognitoSubject"] for item in customer_accounts}
+    pending_identities = [item for item in identities if item["subject"] not in registered_subjects]
+    safe_devices = [_safe_device(item, now) for item in devices if item.get("accountId") in customer_account_ids]
+    customer_entitlements = [item for item in entitlements if item.get("accountId") in customer_account_ids]
     active_sessions = [item for item in sessions if item.get("state") != "ENDED" and int(item.get("expiresAt", 0)) > now]
-    premium = [item for item in entitlements if item.get("source") == "GOOGLE_PLAY_VERIFIED" and item.get("state") == "ACTIVE"]
-    complimentary = [item for item in entitlements if (item.get("source") == "COMPLIMENTARY_BACKEND_GRANT" or item.get("videoAccessOverride") == "COMPLIMENTARY") and (not item.get("videoAccessOverrideExpiresAt") or int(item["videoAccessOverrideExpiresAt"]) > now)]
+    premium = [item for item in customer_entitlements if item.get("source") == "GOOGLE_PLAY_VERIFIED" and item.get("state") == "ACTIVE"]
+    complimentary = [item for item in customer_entitlements if (item.get("source") == "COMPLIMENTARY_BACKEND_GRANT" or item.get("videoAccessOverride") == "COMPLIMENTARY") and (not item.get("videoAccessOverrideExpiresAt") or int(item["videoAccessOverrideExpiresAt"]) > now)]
     server_devices = [item for item in safe_devices if item.get("role") == "GREENHOUSE_SERVER" and item.get("enabled")]
     connected_sensors = sum(item.get("sensorCount", 0) for item in safe_devices if item.get("online"))
-    registered_subjects = {item.get("cognitoSubject") for item in accounts if item.get("cognitoSubject")}
-    registered_subjects.update(item["subject"] for item in identities)
-    legacy_accounts = sum(1 for item in accounts if not item.get("cognitoSubject"))
     return {
         "generatedAt": now,
         "metrics": {
-            "totalCustomers": len(registered_subjects) + legacy_accounts,
-            "activeCustomers": sum(1 for item in accounts if item.get("state", "ACTIVE") == "ACTIVE"),
-            "freeAccounts": sum(1 for item in entitlements if item.get("plan", "FREE") == "FREE"),
+            "totalCustomers": len(registered_subjects | identity_subjects),
+            "activeCustomers": sum(1 for item in customer_accounts if item.get("state", "ACTIVE") == "ACTIVE") + sum(1 for item in pending_identities if item.get("enabled")),
+            "freeAccounts": sum(1 for item in customer_entitlements if item.get("plan", "FREE") == "FREE"),
             "premiumSubscribers": len(premium),
             "complimentaryPremium": len(complimentary),
             "activeServers": sum(1 for item in server_devices if item.get("online")),
@@ -427,8 +436,8 @@ def dashboard() -> dict:
             "activeCameraSessions": len(active_sessions),
         },
         "trends": {
-            "customerGrowth": _trend(identities or accounts),
-            "subscriptions": _trend(entitlements, lambda item: item.get("plan") != "FREE"),
+            "customerGrowth": _trend(identities or customer_accounts),
+            "subscriptions": _trend(customer_entitlements, lambda item: item.get("plan") != "FREE"),
             "reliability": [{
                 "date": _day(now),
                 "value": round(100 * sum(1 for item in server_devices if item.get("online")) / len(server_devices), 1),

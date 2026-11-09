@@ -120,6 +120,7 @@ class AdminDataTests(unittest.TestCase):
     def test_customer_search_uses_real_records(self):
         accounts = [{
             "accountId": "account-12345678", "tenantId": "tenant-12345678",
+            "cognitoSubject": "customer-sub",
             "displayName": "June Garden", "email": "june@example.test",
             "state": "ACTIVE", "createdAt": 1700000000,
         }]
@@ -142,6 +143,42 @@ class AdminDataTests(unittest.TestCase):
         self.assertEqual("PENDING_SETUP", result["customers"][0]["state"])
         self.assertFalse(result["customers"][0]["setupComplete"])
 
+    def test_customer_directory_excludes_anonymous_legacy_account_shells(self):
+        accounts = [
+            {"accountId": "account-orphan", "tenantId": "tenant-orphan", "createdAt": 1700000001},
+            {"accountId": "account-real", "tenantId": "tenant-real", "cognitoSubject": "real-subject", "email": "notify@junecity.com", "createdAt": 1700000000},
+        ]
+        with patch.object(admin_api, "entity_items", return_value=accounts), \
+             patch.object(admin_api, "customer_identities", return_value=[]):
+            result = admin_api.list_customers("")
+
+        self.assertEqual(1, result["count"])
+        self.assertEqual("account-real", result["customers"][0]["accountId"])
+
+    def test_dashboard_does_not_count_anonymous_account_shells_as_customers(self):
+        now = int(time.time())
+        data = {
+            "ACCOUNT": [
+                {"accountId": "account-orphan", "state": "ACTIVE", "createdAt": now},
+                {"accountId": "account-real", "cognitoSubject": "real-subject", "state": "ACTIVE", "createdAt": now},
+            ],
+            "DEVICE": [],
+            "ENTITLEMENT": [
+                {"accountId": "account-orphan", "plan": "FREE", "state": "ACTIVE", "createdAt": now},
+                {"accountId": "account-real", "plan": "FREE", "state": "ACTIVE", "createdAt": now},
+            ],
+            "STREAM_SESSION": [],
+        }
+        with patch.object(admin_api, "entity_items", side_effect=lambda value: data[value]), \
+             patch.object(admin_api, "customer_identities", return_value=[{"subject": "real-subject", "enabled": True, "createdAt": now}]), \
+             patch.object(admin_api, "cost_snapshot", return_value={"status": "UNAVAILABLE"}), \
+             patch.object(admin_api, "operation_alarms", return_value=[]):
+            result = admin_api.dashboard()
+
+        self.assertEqual(1, result["metrics"]["totalCustomers"])
+        self.assertEqual(1, result["metrics"]["activeCustomers"])
+        self.assertEqual(1, result["metrics"]["freeAccounts"])
+
     def test_pending_customer_detail_has_no_privileged_account_controls(self):
         identity = {
             "subject": "pending-subject", "email": "pending@example.test",
@@ -157,9 +194,9 @@ class AdminDataTests(unittest.TestCase):
     def test_dashboard_counts_only_backend_records(self):
         now = int(time.time())
         data = {
-            "ACCOUNT": [{"accountId": "a", "state": "ACTIVE", "createdAt": now}],
+            "ACCOUNT": [{"accountId": "a", "cognitoSubject": "customer-sub", "state": "ACTIVE", "createdAt": now}],
             "DEVICE": [{
-                "deviceId": "d", "role": "GREENHOUSE_SERVER", "enabled": True,
+                "deviceId": "d", "accountId": "a", "role": "GREENHOUSE_SERVER", "enabled": True,
                 "lastHeartbeat": now, "sensorCount": 4, "createdAt": now,
             }],
             "ENTITLEMENT": [{
@@ -169,7 +206,7 @@ class AdminDataTests(unittest.TestCase):
             "STREAM_SESSION": [{"state": "REQUESTED", "expiresAt": now + 60}],
         }
         with patch.object(admin_api, "entity_items", side_effect=lambda value: data[value]), \
-             patch.object(admin_api, "customer_identities", return_value=[]), \
+             patch.object(admin_api, "customer_identities", return_value=[{"subject": "customer-sub", "enabled": True, "createdAt": now}]), \
              patch.object(admin_api, "cost_snapshot", return_value={"status": "UNAVAILABLE"}), \
              patch.object(admin_api, "operation_alarms", return_value=[]):
             result = admin_api.dashboard()

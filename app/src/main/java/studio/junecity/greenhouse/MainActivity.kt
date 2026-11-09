@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
             CloudOnboardingGate(
                 configuration = cloudConfiguration.getOrNull(),
                 configurationError = cloudConfiguration.exceptionOrNull()?.message,
+                portraitMonitoringScreen = state.screen == AppScreen.Settings,
                 onEnrolled = { role ->
                     viewModel.completeCloudEnrollment(role)
                     if (role == CloudDeviceRole.GreenhouseServer && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {

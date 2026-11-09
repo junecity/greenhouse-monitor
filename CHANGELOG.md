@@ -2,6 +2,21 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-09 — Revoked-server re-pairing, portrait Settings, and customer reconciliation
+
+### Fixed
+- Fixed the revoke → fresh QR → approve workflow for the same greenhouse phone. Approval now verifies that an existing device belongs to the same customer, rotates its device secret, explicitly reauthorizes it, clears revocation/replacement markers, and preserves the greenhouse, configuration, sensor assignments, and history.
+- The administrator customer directory and dashboard no longer count anonymous legacy setup shells as customers. Only Cognito-linked customer accounts and confirmed pending identities appear; greenhouse servers remain inventory beneath their owning customer.
+
+### Changed
+- Settings now rotates to portrait independently while Dashboard, Zones, History, and Cameras stay landscape. Portrait Settings uses a single-column scrollable layout, horizontal category selector, stacked Connectivity/server controls, responsive greenhouse designer, larger typography, and compact icon-over-label bottom navigation.
+- Bumped Android to 2.7.6 (version code 19) and the configured ARM artifact name/version marker.
+
+### Testing
+- Passed 75 Android JVM tests with zero failures/errors, Android lint, debug assembly, 69 Python backend tests, Python compilation, 12 administrator portal tests, ESLint, and production build. `git diff --check` passed. The pre-existing non-fatal D8 Kotlin metadata warning remains.
+- Added regression coverage for same-device server reauthorization, portrait Settings orientation, anonymous legacy account exclusion, and customer metric reconciliation.
+- Physical portrait review on the Galaxy A71/Moto G7, same-Wi-Fi direct WebRTC, off-Wi-Fi TURN, and two-phone revoke/re-pair remain target-device tests and are not claimed as verified here.
+
 ## 2026-11-09 — Readable server controls and automatic camera authorization
 
 ### Fixed

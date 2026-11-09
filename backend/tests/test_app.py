@@ -371,6 +371,51 @@ class BootstrapApiTests(unittest.TestCase):
         disabled_keys = [item["Update"]["Key"] for item in transaction if "Update" in item and "replacedAt" in item["Update"].get("UpdateExpression", "")]
         self.assertEqual(2, len(disabled_keys))
 
+    def test_client_approval_reauthorizes_same_revoked_server_with_fresh_secret(self):
+        request_id = "request-reauthorize"
+        request = {
+            "pk": f"SERVER_PAIRING#{request_id}", "sk": "METADATA", "requestId": request_id,
+            "accountId": "account-existing", "tenantId": "tenant-existing", "greenhouseId": "greenhouse-12345678",
+            "greenhouseName": "North House", "serverDeviceId": "server-12345678", "replaceServerDeviceId": "server-12345678",
+            "deviceSecretHash": "b" * 64, "state": "PENDING_APPROVAL", "expiresAt": 4_000_000_000,
+        }
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+            ("DEVICE#client-12345678", "METADATA"): {
+                "deviceId": "client-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "VIEWER_CLIENT", "enabled": True,
+            },
+            (request["pk"], request["sk"]): request,
+            ("DEVICE#server-12345678", "METADATA"): {
+                "pk": "DEVICE#server-12345678", "sk": "METADATA", "deviceId": "server-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing", "role": "GREENHOUSE_SERVER",
+                "greenhouseId": "greenhouse-12345678", "enabled": False, "communicationSuspended": False,
+                "createdAt": 100, "revokedAt": 200, "revokedBy": "client-12345678",
+                "deviceSecretHash": "a" * 64,
+            },
+            ("GREENHOUSE#greenhouse-12345678", "METADATA"): {
+                "pk": "GREENHOUSE#greenhouse-12345678", "sk": "METADATA", "greenhouseId": "greenhouse-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing", "serverDeviceId": "server-12345678",
+                "createdAt": 100, "layoutVersion": 7,
+            },
+        })
+        app.table = fake
+
+        result = app.handler(event(
+            f"/v1/server-pairing/requests/{request_id}/approve", device_id="client-12345678",
+        ), None)
+
+        self.assertEqual(200, result["statusCode"])
+        transaction = fake.client.transactions[0]
+        device_update = transaction[0]["Update"]
+        self.assertEqual({"pk": "DEVICE#server-12345678", "sk": "METADATA"}, device_update["Key"])
+        self.assertEqual("b" * 64, device_update["ExpressionAttributeValues"][":secret"])
+        self.assertTrue(device_update["ExpressionAttributeValues"][":enabled"])
+        self.assertIn("REMOVE revokedAt, revokedBy", device_update["UpdateExpression"])
+        self.assertEqual(100, transaction[2]["Put"]["Item"]["createdAt"])
+        replaced = [item for item in transaction if "Update" in item and "SET enabled=:disabled, replacedAt" in item["Update"].get("UpdateExpression", "")]
+        self.assertEqual([], replaced)
+
     def test_server_device_secret_authentication_restores_role(self):
         secret = "secure-device-secret-12345678901234567890"
         fake = FakeTable({
