@@ -193,6 +193,13 @@
 - The admin stack's current Android version marker is deployed as 2.6.4 and the stack is `UPDATE_COMPLETE`. The existing real customer's password reset is confirmed by the identity provider, but its private-credential sign-in on a physical phone still must be performed by the owner using the 2.6.4 APK.
 
 ## Project memory / handoff log
+### 2026-11-08 — Server-authoritative client synchronization and camera test access
+- Android 2.7.2/code 15 makes the paired greenhouse Server the source of truth. Schema-2 greenhouse backups include current sensor identity/readings/status in addition to preferences, geometry, zones, notifications, and bounded history. Viewer Clients poll the authenticated backend, persist/display that snapshot, and never run the Govee provider or edit sensor assignments.
+- A newly enrolled Client is deliberately empty: its Govee credential, sensors, history, assignments, and preferences are cleared before waiting for the paired Server. The Govee API key remains encrypted and local to the Server phone. The Connectivity/Devices copy identifies server synchronization without changing the approved five-screen design.
+- Backup writes remain restricted to the currently authorized greenhouse Server. Same-account authorized Clients may read; an authorized replacement Server may also read the existing backup so the stable greenhouse configuration survives replacement. Import replaces local history and assignments to avoid accumulation on repeated sync.
+- The Owner-only admin customer detail uses the existing backend entitlement endpoint as a clear remote-camera test switch. Turning it on grants expiring complimentary `REMOTE_LIVE_VIDEO`; turning it off revokes that grant. This is not a client-side Premium bypass, and a verified paid entitlement remains backend-authoritative.
+- The application backend and configured admin portal are deployed in the existing development AWS stacks. Local checkpoint: 70 Android JVM tests + lint/configured ARM assembly, 60 Python tests + compilation, 12 portal tests + lint/build/audit, CloudFormation lint, SAM validate/build, APK signature/package/ABI checks. Target-phone client/server/Govee/WebRTC validation is still required.
+
 ### 2026-11-08 — Initial memory
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).
 - Added remote-connectivity upgrade requirements and required AGENTS.md + CHANGELOG.md workflow.

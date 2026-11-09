@@ -357,7 +357,7 @@ class BootstrapApiTests(unittest.TestCase):
         app.table = fake
         request = event(
             "/v1/device/greenhouses/greenhouse-12345678/backup", device_id="server-12345678", subject=None,
-            body={"backup": {"schema": 1, "preferences": {"active": "main"}, "zones": {}, "history": []}},
+            body={"backup": {"schema": 2, "preferences": {"active": "main"}, "zones": {}, "sensors": [], "history": []}},
         )
         request["headers"]["x-greenhouse-device-secret"] = secret
 
@@ -367,6 +367,85 @@ class BootstrapApiTests(unittest.TestCase):
         backup = fake.puts[0]["Item"]
         self.assertEqual("BACKUP", backup["sk"])
         self.assertNotIn(secret, backup["backupJson"])
+
+    def test_authorized_replacement_server_reads_existing_backup(self):
+        secret = "secure-device-secret-12345678901234567890"
+        backup = {"schema": 2, "preferences": {"active": "main"}, "zones": {}, "sensors": [], "history": []}
+        fake = FakeTable({
+            ("DEVICE#server-12345678", "METADATA"): {
+                "deviceId": "server-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "GREENHOUSE_SERVER", "greenhouseId": "greenhouse-12345678", "enabled": True,
+                "deviceSecretHash": app.hashlib.sha256(secret.encode()).hexdigest(),
+            },
+            ("ACCOUNT#account-existing", "METADATA"): {"accountId": "account-existing", "tenantId": "tenant-existing", "state": "ACTIVE"},
+            ("GREENHOUSE#greenhouse-12345678", "METADATA"): {
+                "greenhouseId": "greenhouse-12345678", "serverDeviceId": "server-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("GREENHOUSE#greenhouse-12345678", "BACKUP"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+                "backupJson": json.dumps(backup), "updatedAt": 100,
+            },
+        })
+        app.table = fake
+        request = event(
+            "/v1/device/greenhouses/greenhouse-12345678/backup", method="GET",
+            device_id="server-12345678", subject=None,
+        )
+        request["headers"]["x-greenhouse-device-secret"] = secret
+
+        result = app.handler(request, None)
+
+        self.assertEqual(200, result["statusCode"])
+        self.assertEqual(backup, json.loads(result["body"])["backup"])
+
+    def test_authorized_client_reads_server_backup_for_its_greenhouse(self):
+        backup = {"schema": 2, "preferences": {"active": "main"}, "zones": {}, "sensors": [], "history": []}
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+            ("DEVICE#client-12345678", "METADATA"): {
+                "deviceId": "client-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "VIEWER_CLIENT", "enabled": True,
+            },
+            ("GREENHOUSE#greenhouse-12345678", "METADATA"): {
+                "greenhouseId": "greenhouse-12345678", "serverDeviceId": "server-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+            ("GREENHOUSE#greenhouse-12345678", "BACKUP"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+                "backupJson": json.dumps(backup), "updatedAt": 100,
+            },
+        })
+        app.table = fake
+
+        result = app.handler(event(
+            "/v1/greenhouses/greenhouse-12345678/backup", method="GET", device_id="client-12345678",
+        ), None)
+
+        self.assertEqual(200, result["statusCode"])
+        self.assertEqual(backup, json.loads(result["body"])["backup"])
+
+    def test_client_cannot_overwrite_authoritative_server_backup(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+            ("DEVICE#client-12345678", "METADATA"): {
+                "deviceId": "client-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "VIEWER_CLIENT", "enabled": True,
+            },
+            ("GREENHOUSE#greenhouse-12345678", "METADATA"): {
+                "greenhouseId": "greenhouse-12345678", "serverDeviceId": "server-12345678",
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+            },
+        })
+        app.table = fake
+
+        result = app.handler(event(
+            "/v1/greenhouses/greenhouse-12345678/backup", method="POST", device_id="client-12345678",
+            body={"backup": {"schema": 2, "preferences": {}, "zones": {}, "sensors": [], "history": []}},
+        ), None)
+
+        self.assertEqual(403, result["statusCode"])
+        self.assertEqual("server_device", json.loads(result["body"])["error"])
 
     def test_device_inventory_and_revocation_are_account_scoped(self):
         fake = FakeTable({

@@ -61,6 +61,7 @@ import com.journeyapps.barcodescanner.ScanOptions
 import com.amplifyframework.auth.AuthException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.ui.DashboardTokens
@@ -205,7 +206,12 @@ private fun CloudOnboarding(
                     gateway.bootstrap()
                     val registered = if (existingEnrollment != null) gateway.currentDevice() else gateway.registerClientDevice()
                     val greenhouse = registered.greenhouseId ?: gateway.devices().firstOrNull { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled }?.device?.greenhouseId.orEmpty()
-                    if (existingEnrollment != null) onAuthenticated()
+                    if (existingEnrollment != null) {
+                        if (greenhouse.isNotBlank() && greenhouse != existingEnrollment.greenhouseId) {
+                            secure.saveCloudEnrollment(existingEnrollment.copy(greenhouseId = greenhouse))
+                        }
+                        onAuthenticated()
+                    }
                     else onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient))
                 }
             }.onFailure { message = accountErrorMessage(it) }
@@ -228,7 +234,9 @@ private fun CloudOnboarding(
                     val device = requireNotNull(status.device)
                     val completed = CloudEnrollment(deviceId, requireNotNull(device.greenhouseId), CloudDeviceRole.GreenhouseServer, serverSecret)
                     val deviceGateway = gatewayForEnrollment(context, configuration, completed)
-                    deviceGateway.greenhouseBackup(completed.greenhouseId)?.let { GreenhouseBackupStore(context).restore(it) }
+                    deviceGateway.greenhouseBackup(completed.greenhouseId)?.let {
+                        GreenhouseBackupStore(context).restore(it, CameraMode.CameraServer)
+                    }
                     onComplete(completed)
                     break
                 }

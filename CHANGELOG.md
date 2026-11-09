@@ -2,6 +2,23 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-08 — Server-authoritative monitoring sync and camera test control
+
+### Added
+- Added a persisted current-sensor snapshot to the greenhouse backup contract and automatic client synchronization of server preferences, greenhouse geometry, sensor identities/readings/status, zone assignments, alert preferences, and history.
+- Added server/replacement authorization tests for schema-2 backups plus client read-only enforcement.
+
+### Changed
+- New Viewer Client enrollments now begin with no Govee credentials, sample sensors, local history, zone assignments, or inherited greenhouse configuration. Clients wait for an approved greenhouse server and render its synchronized data; Govee setup and zone assignment remain available only on the Server phone.
+- Replacement Servers can restore the stable greenhouse backup while preserving their local Server camera role. Repeated client synchronization replaces imported history instead of duplicating rows.
+- The administrator customer detail screen now labels the existing backend-authoritative complimentary entitlement as a per-customer remote-camera test control, with explicit on/off actions and optional expiration. Verified Google Play entitlement remains authoritative for paid access.
+- Bumped Android to 2.7.2 (version code 15) and the configured ARM artifact name accordingly. The approved five monitoring screens were not redesigned.
+
+### Deployment and testing
+- Deployed the reviewed `greenhouse-monitor-dev` change set in `us-east-1`; CloudFormation completed `UPDATE_COMPLETE` without replacements. Published the live-configured administrator static build and completed its CloudFront invalidation. The public application API still returns 401 without authorization and the portal returns 200 with its configured CSP.
+- Passed 70 Android JVM tests, Android lint, configured ARM debug assembly, 60 Python backend tests and Python 3.13 compilation, 12 administrator portal tests, ESLint, static production build, zero-vulnerability npm audit, all CloudFormation lints, SAM validation, and SAM build.
+- Local APK verification passed for package `studio.junecity.greenhouse`, version 2.7.2/code 15, API 29 minimum, `armeabi-v7a` plus `arm64-v8a`, v2 signature, and the persisted debug certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`. Physical client/server synchronization, live Govee readings, QR approval, and remote WebRTC remain unverified on the target phones.
+
 ## 2026-11-08 — Client-displayed QR server pairing
 
 ### Changed

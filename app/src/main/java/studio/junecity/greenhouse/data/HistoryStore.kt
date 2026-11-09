@@ -29,10 +29,12 @@ class HistoryStore(context: Context) : SQLiteOpenHelper(context, "greenhouse_his
         val db=writableDatabase
         db.beginTransaction()
         try{
+            db.delete("readings",null,null)
             readings.forEach{reading->
                 db.insert("readings",null,ContentValues().apply{put("sensor_id",reading.sensorId);put("sensor_name",reading.sensorName);put("temperature",reading.temperatureF);put("humidity",reading.humidityPercent);put("recorded_at",reading.timestampEpochMs)})
             }
             db.setTransactionSuccessful()
         }finally{db.endTransaction()}
     }
+    fun clear(){writableDatabase.delete("readings",null,null)}
 }

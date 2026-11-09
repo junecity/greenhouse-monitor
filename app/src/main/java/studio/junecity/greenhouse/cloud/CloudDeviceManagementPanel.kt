@@ -257,7 +257,10 @@ fun CloudServerPairingPanel(
                     scope.launch {
                         busy = true
                         runCatching { gateway.approveServerPairing(request.requestId) }
-                            .onSuccess { approved = true; invitation = null; pendingRequest = null; message = null }
+                            .onSuccess {
+                                secure.saveCloudEnrollment(requireNotNull(enrollment).copy(greenhouseId = request.greenhouseId))
+                                approved = true; invitation = null; pendingRequest = null; message = null
+                            }
                             .onFailure { message = accountErrorMessage(it) }
                         busy = false
                     }

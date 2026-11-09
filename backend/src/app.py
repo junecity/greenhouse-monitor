@@ -548,15 +548,24 @@ def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bo
     greenhouse_id = require_resource_id(greenhouse_id)
     device = require_enabled_requester(principal)
     greenhouse = get_owned("GREENHOUSE", greenhouse_id, principal.tenant_id)
-    if device.get("role") != "GREENHOUSE_SERVER" or device.get("greenhouseId") != greenhouse_id or greenhouse.get("serverDeviceId") != principal.device_id:
+    if greenhouse.get("accountId") != principal.account_id:
+        raise AccessDenied("not_found")
+    authorized_server = (
+        device.get("role") == "GREENHOUSE_SERVER"
+        and device.get("greenhouseId") == greenhouse_id
+        and greenhouse.get("serverDeviceId") == principal.device_id
+    )
+    if write and not authorized_server:
         raise AccessDenied("server_device")
+    if not write and device.get("role") != "VIEWER_CLIENT" and not authorized_server:
+        raise AccessDenied("authorized_device_required")
     key = {"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "BACKUP"}
     if not write:
         item = table.get_item(Key=key, ConsistentRead=True).get("Item")
         return response(200, {"backup": json.loads(item["backupJson"]) if item else None, "updatedAt": int(item.get("updatedAt", 0)) if item else None})
     body = json.loads(event.get("body") or "{}")
     backup = body.get("backup")
-    if not isinstance(backup, dict) or backup.get("schema") != 1:
+    if not isinstance(backup, dict) or backup.get("schema") not in {1, 2}:
         return response(400, {"error": "valid_backup_required"})
     encoded = json.dumps(backup, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > 350_000:

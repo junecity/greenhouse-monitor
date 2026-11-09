@@ -49,6 +49,7 @@ class SecureSettingsStore(context: Context) {
     fun saveGoveeApiKey(value: String) {
         saveEncrypted("govee_key", value)
     }
+    fun clearGoveeApiKey() = prefs.edit().remove("govee_key").apply()
 
     fun saveCameraPairing(value: String) = saveEncrypted("camera_pairing", value)
     fun cameraPairing(): String? = loadEncrypted("camera_pairing")

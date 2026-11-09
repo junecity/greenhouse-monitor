@@ -114,9 +114,7 @@ class MainActivity : ComponentActivity() {
                 configuration = cloudConfiguration.getOrNull(),
                 configurationError = cloudConfiguration.exceptionOrNull()?.message,
                 onEnrolled = { role ->
-                    viewModel.updatePreferences { preferences ->
-                        preferences.copy(cameraMode = if (role == CloudDeviceRole.GreenhouseServer) CameraMode.CameraServer else CameraMode.ViewerClient)
-                    }
+                    viewModel.completeCloudEnrollment(role)
                     if (role == CloudDeviceRole.GreenhouseServer && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                         cameraPermission.launch(Manifest.permission.CAMERA)
                     }
