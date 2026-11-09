@@ -17,6 +17,7 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Deployed the updated administrator Lambda and version marker to `greenhouse-monitor-admin-dev`, published the live-configured portal, and started CloudFront invalidation `I6HPXCRXXC00T31LK83ZREOJMA`.
 - Passed 72 Android JVM tests with zero failures/errors, Android lint and debug assembly, 61 Python backend tests and compilation, 12 administrator portal tests, ESLint, production build, and zero-vulnerability npm audit.
 - Built `build-out/Greenhouse Monitor 2.7.3.apk`: 81,333,355 bytes, SHA-256 `7b21107844e09e595035659031be1947b36263f6a6d03c256775b51aaefb9b8a`, API 29 minimum, ARM32/ARM64 only, v2 signed with the persisted certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`, and containing only the deployed non-secret cloud configuration. Physical disconnect/reconnect, selected-interval timing, Govee reads, and remote WebRTC video remain unverified on the target phones.
+- GitHub Actions run `42552326235` passed the complete verification and configured ARM jobs for implementation commit `7042978`. Google Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` was replaced in place; metadata readback confirmed `Greenhouse Monitor 2.7.3.apk`, the Android package MIME type, and 81,333,355 bytes.
 
 ## 2026-11-08 — Server-authoritative monitoring sync and camera test control
 
