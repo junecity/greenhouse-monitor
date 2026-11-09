@@ -12,6 +12,7 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 ### Deployment and validation
 - Deployed both updated Lambdas and the static portal. Live smoke verification returned one customer, one greenhouse, and one nested revoked Server; dashboard `totalCustomers` is 1. No records were deleted.
 - Passed 71 backend tests and compilation, 12 portal tests, ESLint, production build, and `git diff --check`. Physical device behavior remains unverified.
+- Implementation commit `030bfa0` is pushed; GitHub Actions run `42602543507` passed both jobs. Delivered stable-signed ARM APK `Greenhouse Monitor 2.7.6.apk` (81,479,396 bytes; SHA-256 `97eba0e36aa636b5bc7cc1f40a03bdbfaba6928f28282ec8c6f2d9fbc1310433`; certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`) by replacing Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` in place; metadata readback matched.
 
 ## 2026-11-09 — Revoked-server re-pairing, portrait Settings, and customer reconciliation
 
