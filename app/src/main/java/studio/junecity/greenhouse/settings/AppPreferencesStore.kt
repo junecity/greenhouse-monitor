@@ -18,7 +18,7 @@ class AppPreferencesStore(context:Context){
         val greenhouses=JSONArray()
         p.greenhouses.forEach{g->
             val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet))}
-            greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",g.lengthFeet).put("width",g.widthFeet).put("height",g.heightFeet).put("positions",positions).put("shape",g.shape.name).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet))
+            greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",g.lengthFeet).put("width",g.widthFeet).put("height",g.heightFeet).put("positions",positions).put("shape",g.shape.name).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
         }
         val assignments=JSONObject();p.sensorGreenhouseIds.forEach{(sensor,greenhouse)->assignments.put(sensor,greenhouse)}
         return JSONObject().put("zip",p.zipCode).put("fahrenheit",p.temperatureFahrenheit).put("refresh",p.refreshMinutes).put("retention",p.historyRetentionDays).put("screen",p.keepScreenOn).put("boot",p.autoStart).put("active",p.activeGreenhouseId).put("cameraMode",p.cameraMode.name).put("cameraStreamQuality",p.cameraStreamQuality.name).put("notifications",notifications).put("greenhouses",greenhouses).put("sensorGreenhouses",assignments)
@@ -29,7 +29,8 @@ class AppPreferencesStore(context:Context){
             val x=array.getJSONObject(i);val po=x.optJSONObject("positions")?:JSONObject();val positions=mutableMapOf<String,SensorPosition>()
             po.keys().forEach{id->val p=po.getJSONObject(id);positions[id]=SensorPosition(p.optDouble("x"),p.optDouble("y"),p.optDouble("z"))}
             val shape=runCatching{GreenhouseShape.valueOf(x.optString("shape",GreenhouseShape.Rectangle.name))}.getOrDefault(GreenhouseShape.Rectangle)
-            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),x.optDouble("length",16.0),x.optDouble("width",8.0),x.optDouble("height").takeUnless{it.isNaN()},positions,shape,x.optDouble("attachedLength",16.0),x.optDouble("attachedWidth",8.0))
+            val legacyRefresh=DataSyncIntervals.normalize(o.optInt("refresh",1))
+            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),x.optDouble("length",16.0),x.optDouble("width",8.0),x.optDouble("height").takeUnless{it.isNaN()},positions,shape,x.optDouble("attachedLength",16.0),x.optDouble("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)))
         }
         if(greenhouses.isEmpty())greenhouses+=GreenhouseConfig()
         val n=o.optJSONObject("notifications")?:JSONObject()

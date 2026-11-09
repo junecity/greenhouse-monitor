@@ -230,6 +230,19 @@ class AdminDataTests(unittest.TestCase):
         with self.assertRaisesRegex(admin_api.AdminConflict, "google_play_subscription_is_authoritative"):
             admin_api.set_complimentary(principal, "account-12345678", None, "request")
 
+    def test_video_override_is_separate_from_google_play_billing(self):
+        self.fake.items[("ACCOUNT#account-12345678", "ENTITLEMENT")].update({
+            "plan": "PREMIUM", "source": "GOOGLE_PLAY_VERIFIED", "features": ["REMOTE_LIVE_VIDEO"],
+        })
+        principal = admin_api.AdminPrincipal("owner", "owner@example.test", "Owner")
+        admin_api.set_video_access(principal, "account-12345678", "DISABLED", None, "testing", "request")
+
+        update = self.fake.updates[0]
+        self.assertIn("videoAccessOverride", update["UpdateExpression"])
+        self.assertNotIn("plan=", update["UpdateExpression"])
+        self.assertEqual("DISABLED", update["ExpressionAttributeValues"][":mode"])
+        self.assertEqual("VIDEO_ACCESS_OVERRIDE_CHANGED", self.fake.puts[0]["action"])
+
     def test_handler_returns_secure_headers_and_role(self):
         result = admin_api.handler(event("/admin/v1/session"), SimpleNamespace(aws_request_id="request"))
         self.assertEqual(200, result["statusCode"])

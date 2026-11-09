@@ -11,9 +11,11 @@ class CloudJsonCodecTest {
         val value = CloudJsonCodec.device(JSONObject()
             .put("id", "server-12345678").put("tenantId", "tenant-1")
             .put("role", "GREENHOUSE_SERVER").put("enabled", true)
+            .put("communicationSuspended", true)
             .put("greenhouseId", "greenhouse-12345678"))
         assertEquals(CloudDeviceRole.GreenhouseServer, value.role)
         assertEquals("greenhouse-12345678", value.greenhouseId)
+        assertEquals(true, value.communicationSuspended)
     }
 
     @Test fun premiumEntitlementIsDecodedFromBackendVocabulary() {

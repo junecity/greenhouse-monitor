@@ -57,6 +57,10 @@ class AuthenticatedCloudGateway(
         request("POST", "/v1/devices/${segment(deviceId)}/state", JSONObject().put("enabled", enabled))
     )
 
+    suspend fun setDeviceConnected(deviceId: String, connected: Boolean): RegisteredDevice = CloudJsonCodec.device(
+        request("POST", "/v1/devices/${segment(deviceId)}/connection", JSONObject().put("connected", connected))
+    )
+
     suspend fun createServerInvitation(
         greenhouseId: String,
         greenhouseName: String,
@@ -109,6 +113,16 @@ class AuthenticatedCloudGateway(
                 .put("recordedAtEpochMs", heartbeat.recordedAtEpochMs)
                 .put("sensorConnectionHealthy", heartbeat.sensorConnectionHealthy)
                 .put("criticalTemperature", heartbeat.criticalTemperature)
+                .put("batteryPercent", heartbeat.batteryPercent)
+                .put("charging", heartbeat.charging)
+                .put("networkType", heartbeat.networkType)
+                .put("wifiSignalStrength", heartbeat.wifiSignalStrength)
+                .put("sensorCount", heartbeat.sensorCount)
+                .put("sensorProvider", heartbeat.sensorProvider)
+                .put("cameraStatus", heartbeat.cameraStatus)
+                .put("lastSensorSyncEpochMs", heartbeat.lastSensorSyncEpochMs)
+                .put("lastDataUploadEpochMs", heartbeat.lastDataUploadEpochMs)
+                .put("appVersion", heartbeat.appVersion)
         )
     }
 
@@ -248,7 +262,8 @@ object CloudJsonCodec {
         json.getString("id"), json.optString("tenantId"),
         CloudDeviceRole.valueOf(if (json.getString("role") == "GREENHOUSE_SERVER") "GreenhouseServer" else "ViewerClient"),
         json.optBoolean("enabled", true), json.optString("greenhouseId").ifBlank { null },
-        json.optBoolean("online", false), json.optLongOrNull("lastSeenAtEpochMs")
+        json.optBoolean("online", false), json.optLongOrNull("lastSeenAtEpochMs"),
+        json.optBoolean("communicationSuspended", false), json.optNullableString("clientRole")
     )
 
     fun entitlement(json: JSONObject): EntitlementSnapshot {

@@ -24,7 +24,7 @@ PENDING_SESSION_SECONDS = 300
 AUTHORIZATION_LEASE_SECONDS = 120
 MAXIMUM_SESSION_SECONDS = 4 * 60 * 60
 MAX_ALERT_QUERY_PAGES = 5
-SERVER_PAIRING_SECONDS = 300
+SERVER_PAIRING_SECONDS = 120
 
 
 def response(status: int, body: dict):
@@ -86,6 +86,8 @@ def account_device_record(device: dict) -> dict:
         "deviceId": device["deviceId"], "tenantId": device["tenantId"],
         "accountId": device["accountId"], "role": device["role"],
         "greenhouseId": device.get("greenhouseId"), "enabled": bool(device.get("enabled")),
+        "communicationSuspended": bool(device.get("communicationSuspended")),
+        "clientRole": device.get("clientRole"),
         "createdAt": int(device["createdAt"]),
         "adminEntity": "ACCOUNT_DEVICE",
         "adminSort": f"{int(device['createdAt']):020d}#{device['deviceId']}",
@@ -154,7 +156,7 @@ def register_server_device(event, principal: Principal):
     device = {
         "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
-        "role": "GREENHOUSE_SERVER", "greenhouseId": greenhouse_id, "enabled": True, "createdAt": now,
+        "role": "GREENHOUSE_SERVER", "greenhouseId": greenhouse_id, "enabled": True, "communicationSuspended": False, "createdAt": now,
         "adminEntity": "DEVICE", "adminSort": f"{now:020d}#{device_id}",
     }
     greenhouse = {
@@ -205,10 +207,13 @@ def register_client_device(event, principal: Principal):
     if existing and not existing.get("enabled"):
         raise AccessDenied("device_disabled")
     created_at = int(existing.get("createdAt", now)) if existing else now
+    account = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item", {})
+    primary_device_id = account.get("primaryClientDeviceId")
+    client_role = "PRIMARY_CLIENT" if not primary_device_id or primary_device_id == device_id else "ADDITIONAL_CLIENT"
     device = {
         "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
-        "role": "VIEWER_CLIENT", "enabled": True, "createdAt": created_at,
+        "role": "VIEWER_CLIENT", "clientRole": client_role, "enabled": True, "createdAt": created_at,
         "adminEntity": "DEVICE", "adminSort": f"{created_at:020d}#{device_id}",
     }
     table.meta.client.transact_write_items(TransactItems=[
@@ -232,7 +237,7 @@ def register_client_device(event, principal: Principal):
         }},
     ])
     return response(201 if not existing else 200, {
-        "id": device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "enabled": True,
+        "id": device_id, "tenantId": principal.tenant_id, "role": "VIEWER_CLIENT", "clientRole": client_role, "enabled": True,
     })
 
 
@@ -307,7 +312,7 @@ def claim_pairing_challenge(event, principal: Principal):
 
 def require_enabled_requester(principal: Principal) -> dict:
     requester = get_owned("DEVICE", principal.device_id, principal.tenant_id)
-    if not requester.get("enabled") or requester.get("accountId") != principal.account_id:
+    if not requester.get("enabled") or requester.get("communicationSuspended") or requester.get("accountId") != principal.account_id:
         raise AccessDenied("device_disabled")
     return requester
 
@@ -320,10 +325,13 @@ def require_client_requester(principal: Principal) -> dict:
 
 
 def current_device(principal: Principal):
-    device = require_enabled_requester(principal)
+    device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
+    if not device.get("enabled") or device.get("accountId") != principal.account_id:
+        raise AccessDenied("device_disabled")
     return response(200, {
         "id": device["deviceId"], "tenantId": device["tenantId"], "role": device["role"],
         "enabled": True, "greenhouseId": device.get("greenhouseId"),
+        "communicationSuspended": bool(device.get("communicationSuspended")), "clientRole": device.get("clientRole"),
     })
 
 
@@ -342,10 +350,11 @@ def list_devices(principal: Principal):
         last_heartbeat = int(primary.get("lastHeartbeat", 0))
         devices.append({
             "id": item["deviceId"], "tenantId": item["tenantId"], "role": item["role"],
-            "enabled": bool(primary.get("enabled")), "greenhouseId": item.get("greenhouseId"),
+            "enabled": bool(primary.get("enabled")), "communicationSuspended": bool(primary.get("communicationSuspended")),
+            "clientRole": primary.get("clientRole"), "greenhouseId": item.get("greenhouseId"),
             "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
             "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
-            "online": bool(primary.get("enabled")) and last_heartbeat > 0 and now - last_heartbeat <= 180,
+            "online": bool(primary.get("enabled")) and not primary.get("communicationSuspended") and last_heartbeat > 0 and now - last_heartbeat <= 180,
         })
     return response(200, {"devices": sorted(devices, key=lambda value: value["createdAtEpochMs"])})
 
@@ -360,6 +369,8 @@ def set_device_state(event, principal: Principal, device_id: str):
     if not isinstance(body.get("enabled"), bool):
         return response(400, {"error": "enabled_boolean_required"})
     enabled = body["enabled"]
+    if enabled and not target.get("enabled"):
+        raise AccessDenied("fresh_pairing_required")
     now = int(datetime.now(timezone.utc).timestamp())
     expression = "SET enabled=:enabled"
     if enabled:
@@ -388,8 +399,40 @@ def set_device_state(event, principal: Principal, device_id: str):
     ])
     return response(200, {
         "id": device_id, "tenantId": principal.tenant_id, "role": target["role"],
-        "enabled": enabled, "greenhouseId": target.get("greenhouseId"),
+        "enabled": enabled, "communicationSuspended": bool(target.get("communicationSuspended")),
+        "clientRole": target.get("clientRole"), "greenhouseId": target.get("greenhouseId"),
     })
+
+
+def set_device_connection(event, principal: Principal, device_id: str):
+    require_device_id(device_id)
+    require_client_requester(principal)
+    target = get_owned("DEVICE", device_id, principal.tenant_id)
+    if target.get("accountId") != principal.account_id or target.get("role") != "GREENHOUSE_SERVER":
+        raise AccessDenied("not_found")
+    if not target.get("enabled"):
+        raise AccessDenied("device_revoked")
+    body = json.loads(event.get("body") or "{}")
+    if not isinstance(body.get("connected"), bool):
+        return response(400, {"error": "connected_boolean_required"})
+    suspended = not body["connected"]
+    now = int(datetime.now(timezone.utc).timestamp())
+    expression = "SET communicationSuspended=:suspended, connectionChangedAt=:now, connectionChangedBy=:requester"
+    values = {
+        ":suspended": suspended, ":now": now, ":requester": principal.device_id,
+        ":tenant": principal.tenant_id, ":account": principal.account_id,
+    }
+    table.meta.client.transact_write_items(TransactItems=[
+        {"Update": {"TableName": table.name, "Key": {"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
+                    "UpdateExpression": expression, "ConditionExpression": "tenantId=:tenant AND accountId=:account AND enabled=:enabled",
+                    "ExpressionAttributeValues": {**values, ":enabled": True}}},
+        {"Update": {"TableName": table.name, "Key": {"pk": f"ACCOUNT#{principal.account_id}", "sk": f"DEVICE#{device_id}"},
+                    "UpdateExpression": expression, "ConditionExpression": "tenantId=:tenant AND accountId=:account AND enabled=:enabled",
+                    "ExpressionAttributeValues": {**values, ":enabled": True}}},
+    ])
+    return response(200, {"id": device_id, "tenantId": principal.tenant_id, "role": target["role"],
+                          "enabled": True, "communicationSuspended": suspended,
+                          "greenhouseId": target.get("greenhouseId")})
 
 
 def create_server_invitation(event, principal: Principal):
@@ -487,7 +530,7 @@ def approve_server_pairing(principal: Principal, request_id: str):
     device = {
         "pk": f"DEVICE#{device_id}", "sk": "METADATA", "deviceId": device_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id, "role": "GREENHOUSE_SERVER",
-        "greenhouseId": greenhouse_id, "enabled": True, "createdAt": now,
+        "greenhouseId": greenhouse_id, "enabled": True, "communicationSuspended": False, "createdAt": now,
         "deviceSecretHash": request["deviceSecretHash"],
         "adminEntity": "DEVICE", "adminSort": f"{now:020d}#{device_id}",
     }
@@ -499,11 +542,17 @@ def approve_server_pairing(principal: Principal, request_id: str):
         "adminSort": f"{created_at:020d}#{greenhouse_id}",
     }
     transaction = [
-        {"Put": {"TableName": table.name, "Item": device, "ConditionExpression": "attribute_not_exists(pk)"}},
+        {"Put": {"TableName": table.name, "Item": device,
+                 "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:role)",
+                 "ExpressionAttributeNames": {"#role": "role"},
+                 "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id, ":role": "GREENHOUSE_SERVER"}}},
         {"Put": {"TableName": table.name, "Item": greenhouse,
                  "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
                  "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id}}},
-        {"Put": {"TableName": table.name, "Item": account_device_record(device), "ConditionExpression": "attribute_not_exists(pk)"}},
+        {"Put": {"TableName": table.name, "Item": account_device_record(device),
+                 "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account AND #role=:role)",
+                 "ExpressionAttributeNames": {"#role": "role"},
+                 "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id, ":role": "GREENHOUSE_SERVER"}}},
         {"Update": {"TableName": table.name, "Key": {"pk": request["pk"], "sk": request["sk"]},
                     "UpdateExpression": "SET #state=:approved, approvedAt=:now, approvedBy=:client",
                     "ConditionExpression": "#state=:pending AND expiresAt>:now", "ExpressionAttributeNames": {"#state": "state"},
@@ -540,7 +589,7 @@ def server_pairing_status(event):
         return response(410, {"error": "pairing_request_expired"})
     body = {"requestId": request_id, "state": state, "expiresAt": int(request.get("expiresAt", 0))}
     if state == "APPROVED":
-        body.update({"id": device_id, "tenantId": request["tenantId"], "role": "GREENHOUSE_SERVER", "enabled": True, "greenhouseId": request["greenhouseId"]})
+        body.update({"id": device_id, "tenantId": request["tenantId"], "role": "GREENHOUSE_SERVER", "enabled": True, "communicationSuspended": False, "greenhouseId": request["greenhouseId"]})
     return response(200, body)
 
 
@@ -578,12 +627,30 @@ def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bo
     return response(204, {})
 
 
+def effective_video_entitlement(item: dict, now: int | None = None) -> dict:
+    """Apply the administrator video override without mutating billing records."""
+    now = now or int(datetime.now(timezone.utc).timestamp())
+    effective = dict(item)
+    mode = str(item.get("videoAccessOverride") or "SUBSCRIPTION_CONTROLLED")
+    override_expires = item.get("videoAccessOverrideExpiresAt")
+    if mode == "COMPLIMENTARY" and (override_expires is None or int(override_expires) > now):
+        effective.update({
+            "plan": "COMPLIMENTARY", "state": "ACTIVE", "source": "COMPLIMENTARY_BACKEND_GRANT",
+            "features": sorted(set(item.get("features", [])) | {"REMOTE_LIVE_VIDEO"}),
+            "expiresAt": int(override_expires) if override_expires else None,
+        })
+    elif mode == "DISABLED":
+        effective["features"] = [feature for feature in item.get("features", []) if feature != "REMOTE_LIVE_VIDEO"]
+    effective["videoAccessMode"] = mode
+    return effective
+
+
 def create_stream_session(event, principal: Principal, greenhouse_id: str):
     body = json.loads(event.get("body") or "{}")
     viewer = get_owned("DEVICE", principal.device_id, principal.tenant_id)
     greenhouse = get_owned("GREENHOUSE", greenhouse_id, principal.tenant_id)
     server = get_owned("DEVICE", greenhouse["serverDeviceId"], principal.tenant_id)
-    entitlement = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {})
+    entitlement = effective_video_entitlement(table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {}))
     authorize_stream(principal, viewer, server, greenhouse, entitlement)
 
     session_id = body.get("requestId")
@@ -638,7 +705,7 @@ def authorize_or_check_session_lease(principal: Principal, session: dict, now: i
         viewer = get_owned("DEVICE", principal.device_id, principal.tenant_id)
         greenhouse = get_owned("GREENHOUSE", session["greenhouseId"], principal.tenant_id)
         server = get_owned("DEVICE", session["serverDeviceId"], principal.tenant_id)
-        entitlement_item = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {})
+        entitlement_item = effective_video_entitlement(table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {}), now)
         authorize_stream(principal, viewer, server, greenhouse, entitlement_item, now)
         authorization_expires_at = now + AUTHORIZATION_LEASE_SECONDS
         if extend_viewer:
@@ -651,6 +718,9 @@ def authorize_or_check_session_lease(principal: Principal, session: dict, now: i
             )
             session["authorizationExpiresAt"] = authorization_expires_at
         return authorization_expires_at
+    server = get_owned("DEVICE", principal.device_id, principal.tenant_id)
+    if not server.get("enabled") or server.get("communicationSuspended"):
+        raise AccessDenied("device_disabled")
     require_active_session_lease(session, now)
     return int(session["authorizationExpiresAt"])
 
@@ -678,7 +748,7 @@ def pending_stream_session(principal: Principal, server_device_id: str):
     if principal.device_id != server_device_id:
         raise AccessDenied("device_mismatch")
     server = get_owned("DEVICE", server_device_id, principal.tenant_id)
-    if server.get("role") != "GREENHOUSE_SERVER" or not server.get("enabled"):
+    if server.get("role") != "GREENHOUSE_SERVER" or not server.get("enabled") or server.get("communicationSuspended"):
         raise AccessDenied("server_device")
     now = int(datetime.now(timezone.utc).timestamp())
     result = table.query(
@@ -708,10 +778,12 @@ def entitlement(principal: Principal):
     item = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {})
     if item.get("accountId") != principal.account_id:
         raise AccessDenied("entitlement_missing")
+    effective = effective_video_entitlement(item)
     return response(200, {
-        "accountId": principal.account_id, "plan": item.get("plan", "FREE"), "state": item.get("state", "EXPIRED"),
-        "source": item.get("source", "NONE"), "features": item.get("features", []),
-        "expiresAt": item.get("expiresAt"), "verifiedAt": item.get("verifiedAt", 0),
+        "accountId": principal.account_id, "plan": effective.get("plan", "FREE"), "state": effective.get("state", "EXPIRED"),
+        "source": effective.get("source", "NONE"), "features": effective.get("features", []),
+        "expiresAt": effective.get("expiresAt"), "verifiedAt": effective.get("verifiedAt", 0),
+        "videoAccessMode": effective.get("videoAccessMode", "SUBSCRIPTION_CONTROLLED"),
     })
 
 
@@ -809,7 +881,7 @@ def heartbeat(event, principal: Principal, device_id: str):
     if principal.device_id != device_id:
         raise AccessDenied("device_mismatch")
     device = get_owned("DEVICE", device_id, principal.tenant_id)
-    if device.get("role") != "GREENHOUSE_SERVER" or not device.get("enabled"):
+    if device.get("role") != "GREENHOUSE_SERVER" or not device.get("enabled") or device.get("communicationSuspended"):
         raise AccessDenied("server_device")
     body = json.loads(event.get("body") or "{}")
     now = int(datetime.now(timezone.utc).timestamp())
@@ -821,6 +893,12 @@ def heartbeat(event, principal: Principal, device_id: str):
     sensor_provider = str(body.get("sensorProvider", ""))[:64]
     camera_status = str(body.get("cameraStatus", ""))[:32]
     connection_error = str(body.get("connectionError", ""))[:240]
+    battery_percent = body.get("batteryPercent")
+    charging = body.get("charging")
+    network_type = str(body.get("networkType", ""))[:32]
+    wifi_signal = body.get("wifiSignalStrength")
+    last_sensor_sync_ms = body.get("lastSensorSyncEpochMs")
+    last_data_upload_ms = body.get("lastDataUploadEpochMs")
     set_parts = [
         "lastHeartbeat=:now", "heartbeatShard=:shard", "sensorConnectionHealthy=:sensor",
         "criticalTemperature=:critical", "adminEntity=:adminEntity", "adminSort=:adminSort",
@@ -844,6 +922,24 @@ def heartbeat(event, principal: Principal, device_id: str):
     if camera_status:
         set_parts.append("cameraStatus=:cameraStatus")
         expression_values[":cameraStatus"] = camera_status
+    if isinstance(battery_percent, int) and 0 <= battery_percent <= 100:
+        set_parts.append("batteryPercent=:batteryPercent")
+        expression_values[":batteryPercent"] = battery_percent
+    if isinstance(charging, bool):
+        set_parts.append("charging=:charging")
+        expression_values[":charging"] = charging
+    if network_type:
+        set_parts.append("networkType=:networkType")
+        expression_values[":networkType"] = network_type
+    if isinstance(wifi_signal, int) and -127 <= wifi_signal <= 0:
+        set_parts.append("wifiSignalStrength=:wifiSignalStrength")
+        expression_values[":wifiSignalStrength"] = wifi_signal
+    if isinstance(last_sensor_sync_ms, int) and 0 < last_sensor_sync_ms <= (now + 300) * 1000:
+        set_parts.append("lastSensorSync=:lastSensorSync")
+        expression_values[":lastSensorSync"] = last_sensor_sync_ms // 1000
+    if isinstance(last_data_upload_ms, int) and 0 < last_data_upload_ms <= (now + 300) * 1000:
+        set_parts.append("lastDataUpload=:lastDataUpload")
+        expression_values[":lastDataUpload"] = last_data_upload_ms // 1000
     if connection_error:
         set_parts.append("connectionError=:connectionError")
         expression_values[":connectionError"] = connection_error
@@ -925,6 +1021,8 @@ def handler(event, _context):
             return list_devices(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "state":
             return set_device_state(event, principal, parts[2])
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "connection":
+            return set_device_connection(event, principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "pairing-challenges":
             return create_pairing_challenge(principal, parts[2])
         if method == "POST" and parts == ["v1", "pairing-challenges", "claim"]:

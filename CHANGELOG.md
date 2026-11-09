@@ -300,6 +300,28 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - No infrastructure was deployed. SAM validation remains pending because the SAM CLI and AWS configuration are not available in the current environment.
 - Final post-rebase verification: Android `testDebugUnitTest`, `lintDebug`, and `assembleDebug` passed with 37 JVM tests; 8 Python tests and Python compilation passed. The debug APK SHA-256 is `acbecc053421b70607946ee206c46e6ec081bd69fe29fbab6c819ef797884ae7`.
 
+## 2026-11-08 — Android 2.7.4 server lifecycle and streaming authorization
+
+### Added
+- Client controls for temporary server disconnect/reconnect and permanent server revoke/fresh QR re-pair.
+- Explicit administrator Revoke Server action under each customer's greenhouse-server hierarchy.
+- Backend-enforced Subscription Controlled, Complimentary Access, and Disabled video modes, with audited changes and optional complimentary expiry.
+- Per-greenhouse 1, 5, 10, and 15 minute dashboard refresh settings and expanded server health reporting.
+- Regression coverage for stale greenhouse selection, disconnected/revoked devices, fresh pairing credentials, streaming override enforcement, and nested server administration.
+
+### Changed
+- Pairing invitations now expire after two minutes and can reauthorize a previously revoked physical server without deleting the stable greenhouse record.
+- Disconnect no longer masquerades as revocation: it suspends operational traffic while retaining a resumable credential; revoked credentials cannot be re-enabled without a fresh pairing.
+- Camera authorization and lease renewal deny disconnected/revoked servers and honor the separate customer video entitlement.
+- History imports/inserts deduplicate by sensor and original timestamp.
+
+### Validation
+- Backend: 66 unit tests passed; Python compilation passed.
+- Admin portal: 12 tests, ESLint, and production build passed.
+- Android: 74 JVM tests, lint, and debug APK assembly passed.
+- CloudFormation lint and `git diff --check` passed.
+- Physical same-Wi-Fi direct video and carrier-network TURN fallback remain unverified until exercised on the target phones.
+
 ## 2026-11-08 — Stage 6 heartbeat and alert foundations
 
 - Added Android-domain heartbeat reporting and explicit critical/high/normal alert policy without modifying the approved monitoring UI.

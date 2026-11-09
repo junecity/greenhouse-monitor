@@ -165,7 +165,8 @@ def _safe_account(item: dict, entitlement: dict | None = None) -> dict:
         "plan": entitlement.get("plan", "FREE"),
         "subscriptionState": entitlement.get("state", "ACTIVE"),
         "subscriptionSource": entitlement.get("source", "NONE"),
-        "complimentary": entitlement.get("source") == "COMPLIMENTARY_BACKEND_GRANT",
+        "complimentary": entitlement.get("source") == "COMPLIMENTARY_BACKEND_GRANT" or entitlement.get("videoAccessOverride") == "COMPLIMENTARY",
+        "videoAccessMode": entitlement.get("videoAccessOverride", "COMPLIMENTARY" if entitlement.get("source") == "COMPLIMENTARY_BACKEND_GRANT" else "SUBSCRIPTION_CONTROLLED"),
         "expiresAt": int(entitlement["expiresAt"]) if entitlement.get("expiresAt") else None,
     }
 
@@ -180,7 +181,10 @@ def _safe_device(item: dict, now: int | None = None) -> dict:
         "greenhouseId": item.get("greenhouseId"),
         "role": item.get("role"),
         "enabled": bool(item.get("enabled")),
-        "online": bool(item.get("enabled")) and heartbeat >= now - OFFLINE_TIMEOUT_SECONDS,
+        "communicationSuspended": bool(item.get("communicationSuspended")),
+        "authorizationStatus": "REVOKED" if not item.get("enabled") else "DISCONNECTED" if item.get("communicationSuspended") else "AUTHORIZED",
+        "clientRole": item.get("clientRole"),
+        "online": bool(item.get("enabled")) and not item.get("communicationSuspended") and heartbeat >= now - OFFLINE_TIMEOUT_SECONDS,
         "lastHeartbeat": heartbeat or None,
         "appVersion": item.get("appVersion"),
         "sensorCount": int(item.get("sensorCount", 0)),
@@ -189,6 +193,12 @@ def _safe_device(item: dict, now: int | None = None) -> dict:
         "sensorConnectionHealthy": item.get("sensorConnectionHealthy"),
         "criticalTemperature": item.get("criticalTemperature"),
         "connectionError": item.get("connectionError"),
+        "batteryPercent": int(item["batteryPercent"]) if item.get("batteryPercent") is not None else None,
+        "charging": item.get("charging"),
+        "networkType": item.get("networkType"),
+        "wifiSignalStrength": int(item["wifiSignalStrength"]) if item.get("wifiSignalStrength") is not None else None,
+        "lastSensorSync": int(item["lastSensorSync"]) if item.get("lastSensorSync") else None,
+        "lastDataUpload": int(item["lastDataUpload"]) if item.get("lastDataUpload") else None,
         "createdAt": int(item.get("createdAt", 0)),
     }
 
@@ -250,6 +260,10 @@ def list_customers(query: str = "") -> dict:
     for item in accounts:
         safe = _safe_account(item)
         safe["setupComplete"] = True
+        inventory = account_items(item["accountId"], "DEVICE#")
+        servers = [device for device in inventory if device.get("role") == "GREENHOUSE_SERVER"]
+        safe["serverCount"] = len(servers)
+        safe["greenhouseCount"] = len({device.get("greenhouseId") for device in servers if device.get("greenhouseId")})
         if item.get("cognitoSubject"):
             bootstrapped_subjects.add(str(item["cognitoSubject"]))
         haystack = " ".join(str(safe.get(key) or "") for key in ("accountId", "displayName", "email")).casefold()
@@ -259,6 +273,8 @@ def list_customers(query: str = "") -> dict:
         if identity["subject"] in bootstrapped_subjects:
             continue
         safe = _pending_customer(identity)
+        safe["serverCount"] = 0
+        safe["greenhouseCount"] = 0
         haystack = " ".join(str(safe.get(key) or "") for key in ("accountId", "displayName", "email")).casefold()
         if not normalized or normalized in haystack:
             customers.append(safe)
@@ -306,15 +322,26 @@ def customer_detail(account_id: str) -> dict:
             })
     greenhouses = []
     device_enabled = {device.get("deviceId"): bool(device.get("enabled")) for device in devices}
+    device_by_id = {device.get("deviceId"): device for device in devices}
     for greenhouse_id in sorted(greenhouse_ids):
         greenhouse = table.get_item(Key={"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item", {})
         if greenhouse.get("accountId") == account_id:
             server_device_id = greenhouse.get("serverDeviceId")
+            server = device_by_id.get(server_device_id, {})
             greenhouses.append({
                 "greenhouseId": greenhouse_id,
                 "name": greenhouse.get("name"),
                 "serverDeviceId": server_device_id,
                 "enabled": bool(greenhouse.get("enabled")) and device_enabled.get(server_device_id, False),
+                "authorizationStatus": server.get("authorizationStatus", "UNASSIGNED"),
+                "online": bool(server.get("online")),
+                "lastConnection": server.get("lastHeartbeat"),
+                "lastSensorSync": server.get("lastSensorSync"),
+                "cameraAvailability": server.get("cameraStatus"),
+                "sensorCount": server.get("sensorCount", 0),
+                "batteryPercent": server.get("batteryPercent"),
+                "charging": server.get("charging"),
+                "networkType": server.get("networkType"),
                 "createdAt": int(greenhouse.get("createdAt", 0)),
             })
     customer["devices"] = devices
@@ -335,7 +362,9 @@ def _safe_entitlement(item: dict) -> dict:
         "productId": item.get("productId"),
         "verificationStatus": item.get("verificationStatus", "NOT_CONFIGURED"),
         "verificationError": item.get("verificationError"),
-        "complimentary": item.get("source") == "COMPLIMENTARY_BACKEND_GRANT",
+        "complimentary": item.get("source") == "COMPLIMENTARY_BACKEND_GRANT" or item.get("videoAccessOverride") == "COMPLIMENTARY",
+        "videoAccessMode": item.get("videoAccessOverride", "COMPLIMENTARY" if item.get("source") == "COMPLIMENTARY_BACKEND_GRANT" else "SUBSCRIPTION_CONTROLLED"),
+        "videoAccessOverrideExpiresAt": int(item["videoAccessOverrideExpiresAt"]) if item.get("videoAccessOverrideExpiresAt") else None,
     }
 
 
@@ -377,8 +406,8 @@ def dashboard() -> dict:
     sessions = entity_items("STREAM_SESSION")
     safe_devices = [_safe_device(item, now) for item in devices]
     active_sessions = [item for item in sessions if item.get("state") != "ENDED" and int(item.get("expiresAt", 0)) > now]
-    premium = [item for item in entitlements if item.get("plan") != "FREE" and item.get("state") == "ACTIVE"]
-    complimentary = [item for item in premium if item.get("source") == "COMPLIMENTARY_BACKEND_GRANT"]
+    premium = [item for item in entitlements if item.get("source") == "GOOGLE_PLAY_VERIFIED" and item.get("state") == "ACTIVE"]
+    complimentary = [item for item in entitlements if (item.get("source") == "COMPLIMENTARY_BACKEND_GRANT" or item.get("videoAccessOverride") == "COMPLIMENTARY") and (not item.get("videoAccessOverrideExpiresAt") or int(item["videoAccessOverrideExpiresAt"]) > now)]
     server_devices = [item for item in safe_devices if item.get("role") == "GREENHOUSE_SERVER" and item.get("enabled")]
     connected_sensors = sum(item.get("sensorCount", 0) for item in safe_devices if item.get("online"))
     registered_subjects = {item.get("cognitoSubject") for item in accounts if item.get("cognitoSubject")}
@@ -390,7 +419,7 @@ def dashboard() -> dict:
             "totalCustomers": len(registered_subjects) + legacy_accounts,
             "activeCustomers": sum(1 for item in accounts if item.get("state", "ACTIVE") == "ACTIVE"),
             "freeAccounts": sum(1 for item in entitlements if item.get("plan", "FREE") == "FREE"),
-            "premiumSubscribers": len(premium) - len(complimentary),
+            "premiumSubscribers": len(premium),
             "complimentaryPremium": len(complimentary),
             "activeServers": sum(1 for item in server_devices if item.get("online")),
             "offlineServers": sum(1 for item in server_devices if not item.get("online")),
@@ -568,6 +597,49 @@ def revoke_complimentary(principal: AdminPrincipal, account_id: str, request_id:
     return {"accountId": account_id, "plan": "FREE", "state": "ACTIVE", "source": "NONE"}
 
 
+def set_video_access(principal: AdminPrincipal, account_id: str, mode: str, expires_at: int | None, reason: str | None, request_id: str) -> dict:
+    """Set the camera entitlement override without changing subscription billing records."""
+    require_permission(principal, "complimentary")
+    account = account_record(account_id)
+    current = entitlement_record(account_id)
+    allowed = {"SUBSCRIPTION_CONTROLLED", "COMPLIMENTARY", "DISABLED"}
+    if mode not in allowed:
+        raise AdminConflict("invalid_video_access_mode")
+    now = int(time.time())
+    if mode == "COMPLIMENTARY" and expires_at is not None and expires_at <= now:
+        raise AdminConflict("expiration_must_be_future")
+    previous = current.get("videoAccessOverride", "COMPLIMENTARY" if current.get("source") == "COMPLIMENTARY_BACKEND_GRANT" else "SUBSCRIPTION_CONTROLLED")
+    values = {":now": now, ":actor": principal.subject, ":account": account_id, ":tenant": account["tenantId"]}
+    if mode == "SUBSCRIPTION_CONTROLLED":
+        expression = "SET videoAccessChangedAt=:now, videoAccessChangedBy=:actor REMOVE videoAccessOverride, videoAccessOverrideExpiresAt, videoAccessOverrideReason"
+    else:
+        set_parts = ["videoAccessOverride=:mode", "videoAccessChangedAt=:now", "videoAccessChangedBy=:actor"]
+        remove_parts = []
+        values[":mode"] = mode
+        if mode == "COMPLIMENTARY" and expires_at:
+            set_parts.append("videoAccessOverrideExpiresAt=:expires")
+            values[":expires"] = expires_at
+        else:
+            remove_parts.append("videoAccessOverrideExpiresAt")
+        if reason:
+            set_parts.append("videoAccessOverrideReason=:reason")
+            values[":reason"] = reason[:240]
+        else:
+            remove_parts.append("videoAccessOverrideReason")
+        expression = f"SET {', '.join(set_parts)}"
+        if remove_parts:
+            expression += f" REMOVE {', '.join(remove_parts)}"
+    table.update_item(
+        Key={"pk": f"ACCOUNT#{account_id}", "sk": "ENTITLEMENT"},
+        UpdateExpression=expression,
+        ConditionExpression="accountId=:account AND tenantId=:tenant",
+        ExpressionAttributeValues=values,
+    )
+    detail = json.dumps({"previous": previous, "new": mode, "reason": (reason or "")[:240]}, separators=(",", ":"))
+    audit(principal, "VIDEO_ACCESS_OVERRIDE_CHANGED", "ENTITLEMENT", account_id, "SUCCESS", request_id, detail)
+    return _safe_entitlement(entitlement_record(account_id))
+
+
 def revoke_device(principal: AdminPrincipal, device_id: str, request_id: str) -> dict:
     require_permission(principal, "device_revoke")
     device = direct_device(device_id)
@@ -685,6 +757,10 @@ def handler(event, context):
             return response(200, set_complimentary(principal, parts[3], int(expires) if expires else None, request_id))
         if method == "DELETE" and len(parts) == 5 and parts[:3] == ["admin", "v1", "customers"] and parts[4] == "complimentary":
             return response(200, revoke_complimentary(principal, parts[3], request_id))
+        if method == "POST" and len(parts) == 5 and parts[:3] == ["admin", "v1", "customers"] and parts[4] == "video-access":
+            body = _body(event)
+            expires = body.get("expiresAt")
+            return response(200, set_video_access(principal, parts[3], str(body.get("mode") or ""), int(expires) if expires else None, str(body.get("reason") or "") or None, request_id))
         if method == "POST" and len(parts) == 5 and parts[:3] == ["admin", "v1", "customers"] and parts[4] == "recovery":
             return response(202, initiate_recovery(principal, parts[3], request_id))
         if method == "GET" and parts == ["admin", "v1", "devices"]:

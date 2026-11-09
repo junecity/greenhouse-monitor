@@ -39,7 +39,16 @@ data class MonitoringHealth(
     val serverDeviceId: String,
     val greenhouseId: String,
     val sensorConnectionHealthy: Boolean,
-    val criticalTemperature: Boolean
+    val criticalTemperature: Boolean,
+    val batteryPercent: Int? = null,
+    val charging: Boolean? = null,
+    val networkType: String? = null,
+    val sensorCount: Int? = null,
+    val sensorProvider: String? = null,
+    val cameraStatus: String? = null,
+    val lastSensorSyncEpochMs: Long? = null,
+    val lastDataUploadEpochMs: Long? = null,
+    val appVersion: String? = null
 )
 
 class HeartbeatReporter(
@@ -52,7 +61,16 @@ class HeartbeatReporter(
             greenhouseId = health.greenhouseId,
             recordedAtEpochMs = nowEpochMs(),
             sensorConnectionHealthy = health.sensorConnectionHealthy,
-            criticalTemperature = health.criticalTemperature
+            criticalTemperature = health.criticalTemperature,
+            batteryPercent = health.batteryPercent,
+            charging = health.charging,
+            networkType = health.networkType,
+            sensorCount = health.sensorCount,
+            sensorProvider = health.sensorProvider,
+            cameraStatus = health.cameraStatus,
+            lastSensorSyncEpochMs = health.lastSensorSyncEpochMs,
+            lastDataUploadEpochMs = health.lastDataUploadEpochMs,
+            appVersion = health.appVersion
         )
     )
 }

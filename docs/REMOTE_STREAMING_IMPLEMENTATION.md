@@ -79,6 +79,9 @@ UPnP must be disabled by default after WebRTC verification and removed only afte
 - Reconnect uses bounded exponential backoff and waits for network availability after handoff.
 - Viewer close/background/lock, lease expiry, and retry exhaustion close signaling, peer connection, camera capturer, video source, texture thread, factory, and EGL resources, then end the backend session.
 - The server sensor-monitoring path does not depend on a viewing session.
+- A temporarily disconnected or permanently revoked greenhouse server is denied stream creation, server-session polling, heartbeat, and lease renewal. Disconnect is resumable with the same credential; revoke requires a fresh approved pairing and credential.
+- Camera access is independent from device authorization. The backend evaluates the customer's Subscription Controlled, Complimentary Access, or Disabled video mode when the viewer starts a session and again at every renewable lease check.
+- Same-network peers still negotiate direct ICE when possible. Different-network peers use the same authenticated signaling session and AWS-managed TURN relay fallback; no router port forwarding or public UPnP exposure is required in cloud-configured builds.
 
 ## Delivered
 - `RemoteCameraAccessPolicy.kt`: pure entitlement decision logic for future UI/service integration.

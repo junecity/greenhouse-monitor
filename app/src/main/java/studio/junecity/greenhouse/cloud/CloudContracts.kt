@@ -19,7 +19,9 @@ data class RegisteredDevice(
     val enabled: Boolean = true,
     val greenhouseId: String? = null,
     val online: Boolean = false,
-    val lastSeenAtEpochMs: Long? = null
+    val lastSeenAtEpochMs: Long? = null,
+    val communicationSuspended: Boolean = false,
+    val clientRole: String? = null
 )
 
 data class AccountDevice(
@@ -149,7 +151,17 @@ data class GreenhouseHeartbeat(
     val greenhouseId: String,
     val recordedAtEpochMs: Long,
     val sensorConnectionHealthy: Boolean,
-    val criticalTemperature: Boolean
+    val criticalTemperature: Boolean,
+    val batteryPercent: Int? = null,
+    val charging: Boolean? = null,
+    val networkType: String? = null,
+    val wifiSignalStrength: Int? = null,
+    val sensorCount: Int? = null,
+    val sensorProvider: String? = null,
+    val cameraStatus: String? = null,
+    val lastSensorSyncEpochMs: Long? = null,
+    val lastDataUploadEpochMs: Long? = null,
+    val appVersion: String? = null
 )
 
 interface GreenhouseCloudGateway {

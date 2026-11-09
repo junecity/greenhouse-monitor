@@ -43,6 +43,11 @@ class AuthorizationTests(unittest.TestCase):
         with self.assertRaisesRegex(AccessDenied, "premium_required"):
             authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
 
+    def test_disconnected_server_cannot_start_or_maintain_video(self):
+        self.server["communicationSuspended"] = True
+        with self.assertRaisesRegex(AccessDenied, "disabled"):
+            authorize_stream(self.principal, self.viewer, self.server, self.greenhouse, self.entitlement, self.now)
+
 
 class HeartbeatPolicyTests(unittest.TestCase):
     def test_enabled_stale_server_is_missing(self):
@@ -50,6 +55,7 @@ class HeartbeatPolicyTests(unittest.TestCase):
 
     def test_disabled_or_recent_server_is_not_missing(self):
         self.assertFalse(is_missing_heartbeat({"enabled": False, "lastHeartbeat": 100}, 101))
+        self.assertFalse(is_missing_heartbeat({"enabled": True, "communicationSuspended": True, "lastHeartbeat": 100}, 101))
         self.assertFalse(is_missing_heartbeat({"enabled": True, "lastHeartbeat": 101}, 101))
 
 

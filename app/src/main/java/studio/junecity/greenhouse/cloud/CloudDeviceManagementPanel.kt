@@ -39,6 +39,14 @@ import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.ui.DashboardTokens
 import java.util.UUID
 
+internal fun connectivityServerCandidates(devices: List<AccountDevice>, preferredGreenhouseId: String): List<AccountDevice> {
+    val servers = devices.filter { it.device.role == CloudDeviceRole.GreenhouseServer }
+    val preferred = preferredGreenhouseId.takeIf(String::isNotBlank)?.let { greenhouseId ->
+        servers.filter { it.device.greenhouseId == greenhouseId }
+    }.orEmpty()
+    return preferred.ifEmpty { servers }
+}
+
 @Composable
 fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -106,13 +114,14 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
                 val servers = devices.filter { it.device.role == CloudDeviceRole.GreenhouseServer }
                 clients.forEach { item ->
                     val current = item.device.id == enrollment.deviceId
-                    DeviceRow(if (current) "This client" else "Authorized client", when { !item.device.enabled -> "Access removed"; current || item.device.online -> "Online"; else -> "Authorized · status unavailable" }, if (item.device.enabled) DashboardTokens.Green else DashboardTokens.Danger, d, t) {
+                    val clientLabel = when(item.device.clientRole){"PRIMARY_CLIENT"->"Primary client";"ADDITIONAL_CLIENT"->"Additional client";else->if(current)"This client" else "Authorized client"}
+                    DeviceRow(clientLabel, when { !item.device.enabled -> "Access removed"; current || item.device.online -> "Online"; else -> "Authorized · status unavailable" }, if (item.device.enabled) DashboardTokens.Green else DashboardTokens.Danger, d, t) {
                         if (!current && item.device.enabled) DeviceAction("Remove", false, d, t) { perform { gateway.setDeviceEnabled(item.device.id, false) } }
                     }
                 }
                 servers.forEachIndexed { index, item ->
-                    val active = item.device.greenhouseId == secure.cloudEnrollment()?.greenhouseId && item.device.enabled
-                    DeviceRow("Greenhouse ${index + 1}", when { !item.device.enabled -> "Server removed"; item.device.online -> "Server ${item.device.id.takeLast(8)} · Online"; else -> "Server ${item.device.id.takeLast(8)} · Offline" }, if (item.device.online) DashboardTokens.Green else if(item.device.enabled) DashboardTokens.Amber else DashboardTokens.Danger, d, t) {
+                    val active = item.device.greenhouseId == secure.cloudEnrollment()?.greenhouseId && item.device.enabled && !item.device.communicationSuspended
+                    DeviceRow("Greenhouse ${index + 1}", when { !item.device.enabled -> "Server revoked"; item.device.communicationSuspended -> "Server ${item.device.id.takeLast(8)} · Disconnected"; item.device.online -> "Server ${item.device.id.takeLast(8)} · Online"; else -> "Server ${item.device.id.takeLast(8)} · Offline" }, if (item.device.online) DashboardTokens.Green else if(item.device.enabled) DashboardTokens.Amber else DashboardTokens.Danger, d, t) {
                         if (item.device.enabled) {
                             DeviceAction(if (active) "Selected" else "View", active, d, t) {
                                 item.device.greenhouseId?.let { secure.saveCloudEnrollment(enrollment.copy(greenhouseId = it)) }
@@ -124,7 +133,10 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
                                     )
                                 }
                             }
-                            DeviceAction("Remove", false, d, t) { perform { gateway.setDeviceEnabled(item.device.id, false) } }
+                            DeviceAction(if(item.device.communicationSuspended)"Reconnect" else "Disconnect", false, d, t) { perform { gateway.setDeviceConnected(item.device.id, item.device.communicationSuspended) } }
+                            DeviceAction("Revoke Server", false, d, t) { perform { gateway.setDeviceEnabled(item.device.id, false) } }
+                        } else {
+                            DeviceAction("Pair Again", true, d, t) { perform { invitation = gateway.createServerInvitation(requireNotNull(item.device.greenhouseId), "Greenhouse ${index + 1}", item.device.id) } }
                         }
                     }
                 }
@@ -143,7 +155,7 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
                         Spacer(Modifier.width(d(16f)))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(d(6f))) {
                             Text("Scan on the greenhouse phone", color = DashboardTokens.Background, fontSize = t(17f), fontWeight = FontWeight.ExtraBold)
-                            Text("Expires in 5 minutes. You must approve the server after it scans.", color = Color.DarkGray, fontSize = t(13f))
+                            Text("Expires in 2 minutes. You must approve the server after it scans.", color = Color.DarkGray, fontSize = t(13f))
                             DeviceAction("Close QR", false, d, t) { invitation = null }
                         }
                     }
@@ -182,6 +194,7 @@ fun CloudServerPairingPanel(
     var expiresInSeconds by remember { mutableStateOf(0L) }
     var approved by remember { mutableStateOf(false) }
     var confirmDisconnect by remember { mutableStateOf(false) }
+    var confirmRevoke by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -219,9 +232,7 @@ fun CloudServerPairingPanel(
             devices = gateway.devices()
             pendingRequest = gateway.pendingServerPairings().firstOrNull()
             val selectedGreenhouse = enrollment?.greenhouseId.orEmpty()
-            val knownServer = devices.any {
-                it.device.role == CloudDeviceRole.GreenhouseServer && it.device.greenhouseId == selectedGreenhouse
-            }
+            val knownServer = connectivityServerCandidates(devices, selectedGreenhouse).isNotEmpty()
             if (pendingRequest == null && !knownServer) createInvitation()
         }.onFailure { message = accountErrorMessage(it) }
         busy = false
@@ -246,11 +257,10 @@ fun CloudServerPairingPanel(
         verticalArrangement = Arrangement.spacedBy(d(8f))
     ) {
         val selectedGreenhouse = enrollment?.greenhouseId.orEmpty()
-        val selectedServers = devices.filter {
-            it.device.role == CloudDeviceRole.GreenhouseServer && it.device.greenhouseId == selectedGreenhouse
-        }
-        val activeServer = selectedServers.firstOrNull { it.device.enabled }
-        val disconnectedServer = selectedServers.firstOrNull { !it.device.enabled }
+        val selectedServers = connectivityServerCandidates(devices, selectedGreenhouse)
+        val activeServer = selectedServers.firstOrNull { it.device.enabled && !it.device.communicationSuspended }
+        val disconnectedServer = selectedServers.firstOrNull { it.device.enabled && it.device.communicationSuspended }
+        val revokedServer = selectedServers.firstOrNull { !it.device.enabled }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Pair greenhouse server", color = Color.White, fontSize = t(20f), fontWeight = FontWeight.ExtraBold)
@@ -265,7 +275,7 @@ fun CloudServerPairingPanel(
             gateway == null -> Text("Sign in again to create a server pairing code.", color = DashboardTokens.Danger, fontSize = t(13f))
             confirmDisconnect && activeServer != null -> {
                 Text("Disconnect this greenhouse server?", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
-                Text("Monitoring data stays saved. The server loses access immediately and can be paired again with a new QR code.", color = DashboardTokens.Muted, fontSize = t(13f))
+                Text("Communication pauses, but the device credentials and greenhouse data remain registered. You can reconnect it without scanning again.", color = DashboardTokens.Muted, fontSize = t(13f))
                 Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
                     DeviceAction("Cancel", false, d, t) { confirmDisconnect = false }
                     DeviceAction("Confirm Disconnect", true, d, t) {
@@ -273,10 +283,29 @@ fun CloudServerPairingPanel(
                         scope.launch {
                             busy = true
                             runCatching {
+                                gateway.setDeviceConnected(server.device.id, false)
+                                devices = gateway.devices(); invitation = null; pendingRequest = null; approved = false; confirmDisconnect = false
+                                message = "Server disconnected. Reconnect it whenever you are ready."
+                            }.onFailure { message = accountErrorMessage(it) }
+                            busy = false
+                        }
+                    }
+                }
+            }
+            confirmRevoke && activeServer != null -> {
+                Text("Revoke this greenhouse server?", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
+                Text("Monitoring data stays saved. The server loses access immediately and can be paired again with a new QR code.", color = DashboardTokens.Muted, fontSize = t(13f))
+                Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
+                    DeviceAction("Cancel", false, d, t) { confirmRevoke = false }
+                    DeviceAction("Confirm Revoke", true, d, t) {
+                        val server = activeServer
+                        scope.launch {
+                            busy = true
+                            runCatching {
                                 gateway.setDeviceEnabled(server.device.id, false)
                                 devices = gateway.devices()
-                                invitation = null; pendingRequest = null; approved = false; confirmDisconnect = false
-                                message = "Server disconnected. Choose Reconnect Server when ready."
+                                invitation = null; pendingRequest = null; approved = false; confirmRevoke = false
+                                message = "Server access revoked. Choose Pair Again when ready."
                             }.onFailure { message = accountErrorMessage(it) }
                             busy = false
                         }
@@ -308,7 +337,7 @@ fun CloudServerPairingPanel(
             invitation == null && activeServer != null -> {
                 Text("Greenhouse server connected", color = DashboardTokens.Green, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
                 Text("Server ${activeServer.device.id.takeLast(8)} · ${if (activeServer.device.online) "Online" else "Authorized"}", color = Color.White, fontSize = t(14f))
-                Text("You can replace it without losing greenhouse settings, or disconnect it and reconnect later.", color = DashboardTokens.Muted, fontSize = t(12f))
+                Text("Disconnect temporarily, revoke its credentials, or replace it without losing greenhouse settings.", color = DashboardTokens.Muted, fontSize = t(12f))
                 Row(horizontalArrangement = Arrangement.spacedBy(d(8f))) {
                     DeviceAction("Replace Server", false, d, t) {
                         val server = activeServer
@@ -321,18 +350,32 @@ fun CloudServerPairingPanel(
                         }
                     }
                     DeviceAction("Disconnect Server", false, d, t) { confirmDisconnect = true }
+                    DeviceAction("Revoke Server", false, d, t) { confirmRevoke = true }
                 }
             }
             invitation == null && disconnectedServer != null -> {
                 Text("Greenhouse server disconnected", color = DashboardTokens.Amber, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
-                Text("Your greenhouse settings and history are preserved.", color = DashboardTokens.Muted, fontSize = t(13f))
+                Text("Credentials and greenhouse data are preserved. Reconnecting does not require a new QR code.", color = DashboardTokens.Muted, fontSize = t(13f))
                 DeviceAction("Reconnect Server", true, d, t, Modifier.fillMaxWidth()) {
                     val server = disconnectedServer
                     scope.launch {
                         busy = true
                         runCatching {
-                            createInvitation(selectedGreenhouse, "Greenhouse", server.device.id)
+                            gateway.setDeviceConnected(server.device.id, true)
+                            devices = gateway.devices()
                         }.onFailure { message = accountErrorMessage(it) }
+                        busy = false
+                    }
+                }
+            }
+            invitation == null && revokedServer != null -> {
+                Text("Greenhouse server revoked", color = DashboardTokens.Danger, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
+                Text("Its old credential cannot reconnect. Pair again to issue a fresh device credential while preserving greenhouse data.", color = DashboardTokens.Muted, fontSize = t(13f))
+                DeviceAction("Pair Again", true, d, t, Modifier.fillMaxWidth()) {
+                    val server = revokedServer
+                    scope.launch {
+                        busy = true
+                        runCatching { createInvitation(server.device.greenhouseId ?: selectedGreenhouse, "Greenhouse", server.device.id) }.onFailure { message = accountErrorMessage(it) }
                         busy = false
                     }
                 }

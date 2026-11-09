@@ -218,6 +218,7 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual(201, result["statusCode"])
         transaction = fake.client.transactions[0]
         self.assertEqual("VIEWER_CLIENT", transaction[0]["Put"]["Item"]["role"])
+        self.assertEqual("PRIMARY_CLIENT", transaction[0]["Put"]["Item"]["clientRole"])
         self.assertIn("primaryClientDeviceId=if_not_exists", transaction[2]["Update"]["UpdateExpression"])
 
     def test_server_invitation_is_created_by_an_enabled_client(self):
@@ -240,6 +241,57 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual("greenhouse-12345678", body["greenhouseId"])
         self.assertGreaterEqual(len(body["displayCode"]), 24)
         self.assertEqual("SERVER_INVITATION", fake.puts[0]["Item"]["sk"])
+        self.assertEqual(app.SERVER_PAIRING_SECONDS, fake.puts[0]["Item"]["expiresAt"] - fake.puts[0]["Item"]["createdAt"])
+
+    def test_disconnect_preserves_credentials_while_revoke_invalidates_them(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+            ("DEVICE#client-12345678", "METADATA"): {
+                "deviceId": "client-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "VIEWER_CLIENT", "enabled": True,
+            },
+            ("DEVICE#server-12345678", "METADATA"): {
+                "deviceId": "server-12345678", "accountId": "account-existing", "tenantId": "tenant-existing",
+                "role": "GREENHOUSE_SERVER", "greenhouseId": "greenhouse-12345678", "enabled": True,
+            },
+        })
+        app.table = fake
+        disconnected = app.handler(event(
+            "/v1/devices/server-12345678/connection", device_id="client-12345678", body={"connected": False},
+        ), None)
+        revoked = app.handler(event(
+            "/v1/devices/server-12345678/state", device_id="client-12345678", body={"enabled": False},
+        ), None)
+
+        self.assertEqual(200, disconnected["statusCode"])
+        self.assertTrue(json.loads(disconnected["body"])["communicationSuspended"])
+        self.assertNotIn("enabled=:enabled", fake.client.transactions[0][0]["Update"]["UpdateExpression"])
+        self.assertEqual(200, revoked["statusCode"])
+        self.assertFalse(json.loads(revoked["body"])["enabled"])
+
+    def test_revoked_server_requires_fresh_pairing_instead_of_reenable(self):
+        fake = FakeTable({
+            ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},
+            ("DEVICE#client-12345678", "METADATA"): {"deviceId": "client-12345678", "accountId": "account-existing", "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True},
+            ("DEVICE#server-12345678", "METADATA"): {"deviceId": "server-12345678", "accountId": "account-existing", "tenantId": "tenant-existing", "role": "GREENHOUSE_SERVER", "enabled": False},
+        })
+        app.table = fake
+        result = app.handler(event(
+            "/v1/devices/server-12345678/state", device_id="client-12345678", body={"enabled": True},
+        ), None)
+
+        self.assertEqual(403, result["statusCode"])
+        self.assertEqual("fresh_pairing_required", json.loads(result["body"])["error"])
+
+    def test_video_override_controls_actual_entitlement_without_changing_subscription(self):
+        paid = {"accountId": "account-existing", "plan": "PREMIUM", "state": "ACTIVE", "source": "GOOGLE_PLAY_VERIFIED", "features": ["REMOTE_LIVE_VIDEO"]}
+        disabled = app.effective_video_entitlement({**paid, "videoAccessOverride": "DISABLED"}, now=100)
+        complimentary = app.effective_video_entitlement({"accountId": "account-existing", "plan": "FREE", "state": "ACTIVE", "source": "NONE", "features": [], "videoAccessOverride": "COMPLIMENTARY"}, now=100)
+
+        self.assertEqual("PREMIUM", disabled["plan"])
+        self.assertNotIn("REMOTE_LIVE_VIDEO", disabled["features"])
+        self.assertEqual("COMPLIMENTARY_BACKEND_GRANT", complimentary["source"])
+        self.assertIn("REMOTE_LIVE_VIDEO", complimentary["features"])
 
     def test_expired_server_qr_cannot_create_pairing_request(self):
         code = "abcdefghijklmnopqrstuvwxyz123456"
