@@ -15,7 +15,9 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Kept first-login automatic Client registration, passwordless Server scanning, encrypted role persistence, the full Devices management screen, and all existing Govee/camera/history behavior intact.
 
 ### Testing
-- `git diff --check` passed. Android JVM tests, lint, configured ARM assembly, APK verification, and physical two-phone pairing are pending the build checkpoint for this change.
+- `git diff --check` passed. GitHub Actions run `42543388030` passed Android JVM tests, lint, universal debug assembly, 57 backend tests, Python compilation, 12 admin-portal tests, portal lint/production build/dependency audit, AWS template lint, checksum generation, and configured ARM assembly/ABI verification.
+- The final ARM APK is version 2.7.1/code 14, contains `armeabi-v7a` and `arm64-v8a`, and is signed by the same persisted project certificate as prior installable builds. `apksigner` verified the v3 signature and certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`. Final size: 81,348,324 bytes; SHA-256: `f07211a0c2cdc41940682ad70c547f4f8a6c48557f16e51af51186a9c332dbad`.
+- The existing Google Drive APK was replaced in place and metadata readback confirmed its 2.7.1 filename and exact size. Physical two-phone scanning, client approval, reboot persistence, and Govee regression remain unverified on the Galaxy A71/Moto G7/Pixel hardware.
 
 ## 2026-11-08 — Direct-install ARM APK build option
 
