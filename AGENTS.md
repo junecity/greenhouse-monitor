@@ -199,6 +199,7 @@
 - Backup writes remain restricted to the currently authorized greenhouse Server. Same-account authorized Clients may read; an authorized replacement Server may also read the existing backup so the stable greenhouse configuration survives replacement. Import replaces local history and assignments to avoid accumulation on repeated sync.
 - The Owner-only admin customer detail uses the existing backend entitlement endpoint as a clear remote-camera test switch. Turning it on grants expiring complimentary `REMOTE_LIVE_VIDEO`; turning it off revokes that grant. This is not a client-side Premium bypass, and a verified paid entitlement remains backend-authoritative.
 - The application backend and configured admin portal are deployed in the existing development AWS stacks. Local checkpoint: 70 Android JVM tests + lint/configured ARM assembly, 60 Python tests + compilation, 12 portal tests + lint/build/audit, CloudFormation lint, SAM validate/build, APK signature/package/ABI checks. Target-phone client/server/Govee/WebRTC validation is still required.
+- GitHub Actions run `42548402194` passed for implementation commit `b7a71f1`, including both full regression and configured ARM jobs. Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` was replaced in place with `Greenhouse Monitor 2.7.2.apk`; metadata readback matched 81,300,591 local bytes. SHA-256: `bd87738960b92457a804c158848fa63e3e9eb34ca5ca77dd1b1b463454e85150`.
 
 ### 2026-11-08 — Initial memory
 - Located source on `codex/greenhouse-complete-upgrade` (main contains only initial commit).
