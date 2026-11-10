@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CompletableDeferred
@@ -20,6 +21,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import org.webrtc.VideoTrack
@@ -57,11 +59,10 @@ class CloudCameraServerService : Service() {
             .setContentTitle("Greenhouse camera ready")
             .setContentText(message)
             .setOngoing(true).setOnlyAlertOnce(true).build()
-        val type = when {
-            cameraActive && Build.VERSION.SDK_INT >= 30 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            Build.VERSION.SDK_INT >= 34 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            else -> 0
-        }
+        // Establish the camera foreground-service capability while the server app is visible.
+        // Android 14+ does not allow a background service to add the camera type later when a
+        // remote viewer arrives. The camera hardware still remains closed until serve().
+        val type = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else 0
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
     }
 
@@ -69,11 +70,18 @@ class CloudCameraServerService : Service() {
         val enrollment = SecureSettingsStore(this).cloudEnrollment()
         val configuration = runCatching { CloudRuntime.configurationOrNull() }.getOrNull()
         if (enrollment?.role != CloudDeviceRole.GreenhouseServer || configuration == null) {
+            Log.w(TAG, "Camera server stopped: enrollment or cloud configuration unavailable")
             stopSelf(); return
         }
-        val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
+        val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse {
+            Log.e(TAG, "Camera server authentication failed", it)
+            stopSelf(); return
+        }
+        Log.i(TAG, "Camera server ready for authorized on-demand sessions")
         while (scope.isActive) {
-            val pending = runCatching { gateway.pendingRemoteStreamingSession(enrollment.deviceId) }.getOrNull()
+            val pending = runCatching { gateway.pendingRemoteStreamingSession(enrollment.deviceId) }
+                .onFailure { Log.w(TAG, "Unable to poll for a camera session", it) }
+                .getOrNull()
             if (pending == null) delay(POLL_INTERVAL_MS) else serve(gateway, pending)
         }
     }
@@ -81,6 +89,7 @@ class CloudCameraServerService : Service() {
     private suspend fun serve(gateway: AuthenticatedCloudGateway, session: RemoteStreamingSession) {
         CloudCameraLease.setRemoteActive(true)
         showNotification("Authorized remote viewer connecting", cameraActive = true)
+        Log.i(TAG, "Starting authorized camera session ${session.id.take(8)}")
         delay(500L)
         val profile = CameraStreamProfile.from(AppPreferencesStore(this).load().cameraStreamQuality)
         try {
@@ -88,6 +97,7 @@ class CloudCameraServerService : Service() {
             var activeSession = session
             while (scope.isActive && attempt < MAX_ATTEMPTS && System.currentTimeMillis() < activeSession.expiresAtEpochMs) {
                 val disconnected = CompletableDeferred<String>()
+                val connectionReady = CompletableDeferred<Unit>()
                 val leaseJob = scope.launch {
                     while (isActive) {
                         delay(LEASE_RENEWAL_INTERVAL_MS)
@@ -98,16 +108,31 @@ class CloudCameraServerService : Service() {
                     }
                 }
                 val peer = LibWebRtcPeer(this, WebRtcRole.Master, KinesisWebSocketSignaling(), object : WebRtcPeerEvents {
-                    override fun onConnected() = showNotification("Encrypted live view active", cameraActive = true)
-                    override fun onDisconnected(reason: String) { disconnected.complete(reason) }
+                    override fun onConnected() {
+                        connectionReady.complete(Unit)
+                        Log.i(TAG, "Camera session ${activeSession.id.take(8)} connected")
+                        showNotification("Encrypted live view active", cameraActive = true)
+                    }
+                    override fun onDisconnected(reason: String) {
+                        Log.w(TAG, "Camera session ${activeSession.id.take(8)} disconnected: $reason")
+                        disconnected.complete(reason)
+                    }
                     override fun onRemoteVideo(track: VideoTrack) = Unit
                 }, profile)
                 currentPeer = peer
                 try {
                     peer.connect(activeSession)
                     val remaining = (activeSession.expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(1L)
-                    if (withTimeoutOrNull(remaining) { disconnected.await() } == null) break
-                } catch (_: Throwable) {
+                    val established = withTimeoutOrNull(CONNECTION_TIMEOUT_MS) {
+                        select {
+                            connectionReady.onAwait { true }
+                            disconnected.onAwait { false }
+                        }
+                    } ?: false
+                    if (!established) disconnected.complete("connection_timeout")
+                    if (established && withTimeoutOrNull(remaining) { disconnected.await() } == null) break
+                } catch (error: Throwable) {
+                    Log.e(TAG, "Camera session ${activeSession.id.take(8)} failed", error)
                     // A bounded retry below handles camera, signaling, and network-transition failures.
                 } finally {
                     leaseJob.cancel()
@@ -122,6 +147,7 @@ class CloudCameraServerService : Service() {
             }
         } finally {
             withContext(NonCancellable) { runCatching { gateway.endRemoteStreamingSession(session.id) } }
+            Log.i(TAG, "Camera session ${session.id.take(8)} ended")
             CloudCameraLease.setRemoteActive(false)
             showNotification("Waiting for an authorized viewer", cameraActive = false)
         }
@@ -142,7 +168,9 @@ class CloudCameraServerService : Service() {
         private const val NOTIFICATION_ID = 4173
         private const val POLL_INTERVAL_MS = 5_000L
         private const val LEASE_RENEWAL_INTERVAL_MS = 60_000L
+        private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val MAX_ATTEMPTS = 5
+        private const val TAG = "GreenhouseCamera"
         fun sync(context: Context, enabled: Boolean) {
             val intent = Intent(context, CloudCameraServerService::class.java)
             if (enabled) context.startForegroundService(intent) else context.stopService(intent)

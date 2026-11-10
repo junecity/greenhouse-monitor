@@ -2,6 +2,23 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-09 — WebRTC media negotiation repair (Android 2.7.9)
+
+### Fixed
+- Corrected Kinesis single-master signaling so Viewer offers and ICE messages omit `recipientClientId`; the previous empty string was invalid for the Viewer role and could prevent signaling from reaching the greenhouse Server.
+- Added the required receive-only video transceiver before the Viewer creates its offer. The offer now contains the video media section that the Server needs to return its front-camera track.
+- Buffered remote trickle-ICE candidates until remote SDP is applied instead of passing early candidates to libwebrtc before a usable transport exists.
+- Kept the greenhouse camera service registered as a camera foreground service from its visible app startup, allowing an authorized on-demand session to open the camera later under modern Android background restrictions. The camera hardware remains closed while no one is watching.
+- Added a 30-second connection-attempt timeout, bounded reconnect behavior, signaling-status decoding, and sanitized Server log diagnostics instead of allowing a failed attempt to wait indefinitely.
+
+### Validation
+- Passed 79 Android JVM tests, including new regressions for Viewer recipient omission, receive-only video negotiation, status responses, and early ICE buffering; Android lint and debug assembly also passed.
+- Passed all 72 backend tests. Installed and cold-launched the cloud-configured universal build on the Android emulator with no app fatal exception.
+- Built Android 2.7.9/code 22 as an API 29+ ARM32/ARM64 v2-signed APK: 81,497,199 bytes, SHA-256 `fb9f4fec1591a9419f25c5a871f39b16d7e44e133206e2f092e51d67d551a3e7`, certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`.
+
+### Remaining physical validation
+- The corrected APK must be installed on both the greenhouse Server and Client phones. Actual Galaxy front-camera frames, same-Wi-Fi direct ICE, cellular/TURN relay, and Wi-Fi/cellular handoff cannot be claimed until the two physical phones run this build.
+
 ## 2026-11-09 — Portrait Settings hamburger and unclipped controls (Android 2.7.8)
 
 ### Changed

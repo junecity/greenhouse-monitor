@@ -42,6 +42,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import org.webrtc.EglBase
@@ -117,6 +118,7 @@ fun CloudWebRtcFeed(
                 var activeSession = session
                 while (attempt < 5 && System.currentTimeMillis() < activeSession.expiresAtEpochMs) {
                     val disconnected = CompletableDeferred<String>()
+                    val connectionReady = CompletableDeferred<Unit>()
                     val leaseJob = launch {
                         while (true) {
                             delay(60_000L)
@@ -128,6 +130,7 @@ fun CloudWebRtcFeed(
                     }
                     val peer = LibWebRtcPeer(context, WebRtcRole.Viewer, KinesisWebSocketSignaling(), object : WebRtcPeerEvents {
                         override fun onConnected() {
+                            connectionReady.complete(Unit)
                             callbackScope.launch {
                                 connected = true
                                 message = "Secure junecity.studio live view"
@@ -140,7 +143,14 @@ fun CloudWebRtcFeed(
                     try {
                         peer.connect(activeSession)
                         val remaining = (activeSession.expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(1L)
-                        if (withTimeoutOrNull(remaining) { disconnected.await() } == null) break
+                        val established = withTimeoutOrNull(CONNECTION_TIMEOUT_MS) {
+                            select {
+                                connectionReady.onAwait { true }
+                                disconnected.onAwait { false }
+                            }
+                        } ?: false
+                        if (!established) disconnected.complete("connection_timeout")
+                        if (established && withTimeoutOrNull(remaining) { disconnected.await() } == null) break
                     } finally {
                         leaseJob.cancel()
                         peer.close()
@@ -155,7 +165,7 @@ fun CloudWebRtcFeed(
                     }
                 }
                 if (!connected) {
-                    message = "Live session ended"
+                    message = "Unable to connect to server camera"
                     onStatus(false, message)
                 }
             } finally {
@@ -215,3 +225,5 @@ fun CloudWebRtcFeed(
         )
     }
 }
+
+private const val CONNECTION_TIMEOUT_MS = 30_000L

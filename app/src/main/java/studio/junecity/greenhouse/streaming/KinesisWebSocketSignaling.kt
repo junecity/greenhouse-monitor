@@ -12,7 +12,14 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 object KinesisSignalingCodec {
-    data class Incoming(val type: String, val senderClientId: String? = null, val description: SignalingDescription? = null, val candidate: SignalingIceCandidate? = null)
+    data class Incoming(
+        val type: String,
+        val senderClientId: String? = null,
+        val description: SignalingDescription? = null,
+        val candidate: SignalingIceCandidate? = null,
+        val statusSuccess: Boolean? = null,
+        val statusCode: String? = null
+    )
 
     fun outgoingDescription(description: SignalingDescription, recipientClientId: String?): String = envelope(
         when (description.type.lowercase()) { "offer" -> "SDP_OFFER"; "answer" -> "SDP_ANSWER"; else -> error("Unsupported SDP type") },
@@ -30,6 +37,15 @@ object KinesisSignalingCodec {
         val envelope = JSONObject(text)
         val type = envelope.getString("messageType")
         val sender = envelope.optString("senderClientId").takeIf { it.isNotBlank() && it != "null" }
+        if (type == "STATUS_RESPONSE") {
+            val status = envelope.optJSONObject("statusResponse") ?: JSONObject()
+            return@runCatching Incoming(
+                type = type,
+                senderClientId = sender,
+                statusSuccess = status.optBoolean("success", false),
+                statusCode = status.optString("statusCode").takeIf(String::isNotBlank)
+            )
+        }
         val payload = JSONObject(String(Base64.getDecoder().decode(envelope.getString("messagePayload"))))
         when (type) {
             "SDP_OFFER", "SDP_ANSWER" -> Incoming(type, sender, description = SignalingDescription(payload.getString("type"), payload.getString("sdp")))
@@ -38,11 +54,15 @@ object KinesisSignalingCodec {
         }
     }.getOrElse { throw IllegalArgumentException("Invalid Kinesis signaling message", it) }
 
-    private fun envelope(action: String, payload: String, recipientClientId: String?) = JSONObject()
-        .put("action", action)
-        .put("recipientClientId", recipientClientId ?: "")
-        .put("messagePayload", Base64.getEncoder().encodeToString(payload.toByteArray()))
-        .toString()
+    private fun envelope(action: String, payload: String, recipientClientId: String?): String {
+        val envelope = JSONObject()
+            .put("action", action)
+            .put("messagePayload", Base64.getEncoder().encodeToString(payload.toByteArray()))
+        // Kinesis single-master signaling requires this field for messages from MASTER and
+        // requires it to be absent for messages from VIEWER. An empty string is not equivalent.
+        if (!recipientClientId.isNullOrBlank()) envelope.put("recipientClientId", recipientClientId)
+        return envelope.toString()
+    }
 }
 
 /** Connects to a backend-issued, short-lived SigV4 Kinesis signaling URL. */
@@ -70,6 +90,10 @@ class KinesisWebSocketSignaling(
                 runCatching { KinesisSignalingCodec.incoming(text) }
                     .onSuccess { message ->
                         if (recipientClientId == null && message.senderClientId != null) recipientClientId = message.senderClientId
+                        if (message.type == "STATUS_RESPONSE" && message.statusSuccess == false) {
+                            listener.onDisconnected("signaling_rejected_${message.statusCode ?: "unknown"}")
+                            return@onSuccess
+                        }
                         message.description?.let(listener::onDescription)
                         message.candidate?.let(listener::onIceCandidate)
                     }

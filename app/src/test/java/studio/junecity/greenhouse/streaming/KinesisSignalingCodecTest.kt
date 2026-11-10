@@ -2,6 +2,7 @@ package studio.junecity.greenhouse.streaming
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.util.Base64
 
@@ -25,11 +26,28 @@ class KinesisSignalingCodecTest {
     @Test fun iceCandidateRoundTripsFromAwsEnvelope() {
         val candidate = SignalingIceCandidate("0", 0, "candidate:1 1 UDP 1 192.0.2.1 5000 typ host")
         val outgoing = JSONObject(KinesisSignalingCodec.outgoingCandidate(candidate, null))
+        assertFalse(outgoing.has("recipientClientId"))
         val awsMessage = JSONObject()
             .put("messageType", "ICE_CANDIDATE")
             .put("messagePayload", outgoing.getString("messagePayload"))
             .toString()
         assertEquals(candidate, KinesisSignalingCodec.incoming(awsMessage).candidate)
+    }
+
+    @Test fun viewerOfferOmitsRecipientInsteadOfSendingInvalidEmptyId() {
+        val outgoing = JSONObject(KinesisSignalingCodec.outgoingDescription(SignalingDescription("offer", "v=0"), null))
+        assertFalse(outgoing.has("recipientClientId"))
+    }
+
+    @Test fun signalingStatusFailureIsDecodedWithoutRequiringPayload() {
+        val incoming = KinesisSignalingCodec.incoming(
+            JSONObject().put("messageType", "STATUS_RESPONSE").put(
+                "statusResponse",
+                JSONObject().put("success", false).put("statusCode", "400")
+            ).toString()
+        )
+        assertEquals(false, incoming.statusSuccess)
+        assertEquals("400", incoming.statusCode)
     }
 
     @Test(expected = IllegalArgumentException::class)

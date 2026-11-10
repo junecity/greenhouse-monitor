@@ -13,9 +13,11 @@ import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
+import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
@@ -28,6 +30,25 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 enum class WebRtcRole { Master, Viewer }
 internal fun WebRtcRole.initiatesOffer() = this == WebRtcRole.Viewer
+internal fun WebRtcRole.receivesRemoteVideo() = this == WebRtcRole.Viewer
+
+/** Holds trickle ICE until the peer has a remote SDP to attach it to. */
+internal class RemoteIceCandidateBuffer<T> {
+    private val pending = mutableListOf<T>()
+    private var remoteDescriptionReady = false
+
+    @Synchronized
+    fun receive(candidate: T): List<T> = if (remoteDescriptionReady) listOf(candidate) else {
+        pending += candidate
+        emptyList()
+    }
+
+    @Synchronized
+    fun remoteDescriptionApplied(): List<T> {
+        remoteDescriptionReady = true
+        return pending.toList().also { pending.clear() }
+    }
+}
 
 data class SignalingDescription(val type: String, val sdp: String)
 data class SignalingIceCandidate(val sdpMid: String?, val sdpMLineIndex: Int, val candidate: String)
@@ -71,6 +92,7 @@ class LibWebRtcPeer(
     private var textureHelper: SurfaceTextureHelper? = null
     private var videoSource: VideoSource? = null
     private var localTrack: VideoTrack? = null
+    private val remoteIceCandidates = RemoteIceCandidateBuffer<SignalingIceCandidate>()
     private val closed = AtomicBoolean(false)
 
     init {
@@ -94,6 +116,12 @@ class LibWebRtcPeer(
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         }
         peer = factory.createPeerConnection(configuration, peerObserver()) ?: error("Unable to create WebRTC peer")
+        if (role.receivesRemoteVideo()) {
+            peer?.addTransceiver(
+                MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
+                RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)
+            ) ?: error("Unable to create receive-only video transceiver")
+        }
         if (role == WebRtcRole.Master) attachCameraTrack()
         signaling.connect(session, this)
     }
@@ -105,12 +133,18 @@ class LibWebRtcPeer(
     override fun onDescription(description: SignalingDescription) {
         val remote = SessionDescription(SessionDescription.Type.fromCanonicalForm(description.type), description.sdp)
         peer?.setRemoteDescription(observer(onSuccess = {
+            remoteIceCandidates.remoteDescriptionApplied().forEach(::addRemoteIceCandidate)
             if (remote.type == SessionDescription.Type.OFFER) createAnswer()
         }), remote)
     }
 
     override fun onIceCandidate(candidate: SignalingIceCandidate) {
-        peer?.addIceCandidate(IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.candidate))
+        remoteIceCandidates.receive(candidate).forEach(::addRemoteIceCandidate)
+    }
+
+    private fun addRemoteIceCandidate(candidate: SignalingIceCandidate) {
+        val added = peer?.addIceCandidate(IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.candidate)) == true
+        if (!added) events.onDisconnected("ice_candidate_rejected")
     }
 
     override fun onDisconnected(reason: String) = events.onDisconnected(reason)
