@@ -2,6 +2,21 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-09 — Stream-session supersession and automatic Server camera (Android 2.8.0)
+
+### Fixed
+- A new Viewer request now ends older abandoned stream sessions for the same greenhouse before it is published. The greenhouse Server validates pending-session records, chooses the newest request by creation time, and removes stale queue pointers instead of answering an unrelated UUID while the current Client reconnects forever.
+- The paired backend device role is now authoritative for starting the greenhouse heartbeat and on-demand camera services. A greenhouse Server no longer depends on a separate local Camera Mode preference after QR pairing.
+- The Server checks its renewable authorization lease every ten seconds, so a superseded or revoked session releases the camera promptly. WebRTC now uses the AWS sample's bundle, ECDSA, RTCP-mux, and TCP-candidate policies and emits sanitized signaling/ICE diagnostics.
+
+### Validation
+- Passed 79 Android JVM tests, Android lint, debug assembly, and a new Android instrumentation test on the API 35 ARM emulator that opened the emulated front camera, connected Master and Viewer peers, and delivered a remote `VideoTrack`.
+- Passed all 74 backend tests, including new regressions for superseding an abandoned session and selecting the newest pending session. CloudFormation lint, account-aware SAM validation, and SAM build passed.
+
+### Remaining deployment and physical validation
+- The development backend update and cloud-configured APK are pending a renewed owner AWS session. The saved IAM credentials were rejected; the AWS root-user password must be entered by the owner in the open sign-in tab.
+- Real Galaxy front-camera frames, same-Wi-Fi direct ICE, cellular/TURN relay, and Wi-Fi/cellular handoff remain physical two-phone tests and are not claimed by the emulator test.
+
 ## 2026-11-09 — WebRTC media negotiation repair (Android 2.7.9)
 
 ### Fixed

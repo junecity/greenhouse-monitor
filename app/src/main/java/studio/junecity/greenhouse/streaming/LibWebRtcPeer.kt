@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.streaming
 
 import android.content.Context
+import android.util.Log
 import org.webrtc.AudioTrack
 import org.webrtc.Camera1Enumerator
 import org.webrtc.Camera2Enumerator
@@ -112,8 +113,12 @@ class LibWebRtcPeer(
                 .createIceServer()
         }
         val configuration = PeerConnection.RTCConfiguration(ice).apply {
+            bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            keyType = PeerConnection.KeyType.ECDSA
+            rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+            tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED
         }
         peer = factory.createPeerConnection(configuration, peerObserver()) ?: error("Unable to create WebRTC peer")
         if (role.receivesRemoteVideo()) {
@@ -182,6 +187,7 @@ class LibWebRtcPeer(
     private fun peerObserver() = object : PeerConnection.Observer {
         override fun onSignalingChange(state: PeerConnection.SignalingState) = Unit
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
+            Log.i(TAG, "${role.name} ICE state ${state.name}")
             when (state) {
                 PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> events.onConnected()
                 PeerConnection.IceConnectionState.DISCONNECTED, PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.CLOSED -> events.onDisconnected(state.name.lowercase())
@@ -189,7 +195,9 @@ class LibWebRtcPeer(
             }
         }
         override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
-        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) = Unit
+        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
+            Log.d(TAG, "${role.name} ICE gathering ${state.name}")
+        }
         override fun onIceCandidate(candidate: IceCandidate) = signaling.sendIceCandidate(SignalingIceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.sdp))
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
         override fun onAddStream(stream: MediaStream) = Unit
@@ -207,8 +215,14 @@ class LibWebRtcPeer(
     private fun observer(onSuccess: () -> Unit = {}, onDescription: (SessionDescription) -> Unit = {}) = object : SdpObserver {
         override fun onCreateSuccess(description: SessionDescription) = onDescription(description)
         override fun onSetSuccess() = onSuccess()
-        override fun onCreateFailure(error: String) = events.onDisconnected("sdp_create_failed")
-        override fun onSetFailure(error: String) = events.onDisconnected("sdp_set_failed")
+        override fun onCreateFailure(error: String) {
+            Log.w(TAG, "${role.name} SDP creation failed: $error")
+            events.onDisconnected("sdp_create_failed")
+        }
+        override fun onSetFailure(error: String) {
+            Log.w(TAG, "${role.name} SDP application failed: $error")
+            events.onDisconnected("sdp_set_failed")
+        }
     }
 
     override fun close() {
@@ -226,5 +240,7 @@ class LibWebRtcPeer(
         capturer = null
         peer = null
     }
+
+    private companion object { const val TAG = "GreenhouseWebRtc" }
 }
 

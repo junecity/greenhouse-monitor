@@ -689,6 +689,10 @@ def create_stream_session(event, principal: Principal, greenhouse_id: str):
     if not session_id or len(session_id) > 80:
         return response(400, {"error": "valid requestId required"})
     now = int(datetime.now(timezone.utc).timestamp())
+    # A greenhouse currently supports one live viewer. Retire any abandoned request before
+    # publishing the new pointer so the server cannot answer a stale UUID while the current
+    # viewer waits on a different signaling session.
+    retire_other_stream_sessions(principal, server["deviceId"], greenhouse_id, now)
     channel_arn = ensure_channel(greenhouse_id)
     viewer_connection = connection_config(channel_arn, "VIEWER", principal.device_id)
     item = {
@@ -708,6 +712,43 @@ def create_stream_session(event, principal: Principal, greenhouse_id: str):
         "createdAt": now, "expiresAt": now + PENDING_SESSION_SECONDS,
     })
     return response(201, stream_response(item, viewer_connection, None))
+
+
+def retire_stream_session_pointer(pointer: dict, session: dict | None, now: int):
+    """End a stale session and remove its server queue pointer without deleting history."""
+    session_id = pointer.get("sessionId")
+    if not session_id:
+        return
+    if session and session.get("state") != "ENDED":
+        table.update_item(
+            Key={"pk": session["pk"], "sk": session["sk"]},
+            UpdateExpression="SET #state=:state, endedAt=:now, endReason=:reason",
+            ExpressionAttributeNames={"#state": "state"},
+            ExpressionAttributeValues={":state": "ENDED", ":now": now, ":reason": "SUPERSEDED"},
+        )
+    table.delete_item(Key={"pk": pointer["pk"], "sk": pointer["sk"]})
+
+
+def server_stream_pointers(server_device_id: str) -> list[dict]:
+    result = table.query(
+        KeyConditionExpression=Key("pk").eq(f"DEVICE#{server_device_id}") & Key("sk").begins_with("STREAM_SESSION#"),
+        ScanIndexForward=False,
+        Limit=50,
+    )
+    return result.get("Items", [])
+
+
+def retire_other_stream_sessions(principal: Principal, server_device_id: str, greenhouse_id: str, now: int):
+    for pointer in server_stream_pointers(server_device_id):
+        session_id = pointer.get("sessionId")
+        session = table.get_item(
+            Key={"pk": f"STREAM_SESSION#{session_id}", "sk": "METADATA"}, ConsistentRead=True
+        ).get("Item") if session_id else None
+        if session and session.get("tenantId") != principal.tenant_id:
+            continue
+        if session and session.get("greenhouseId") != greenhouse_id:
+            continue
+        retire_stream_session_pointer(pointer, session, now)
 
 
 def stream_response(item: dict, connection: dict, peer_client_id: str | None):
@@ -783,16 +824,30 @@ def pending_stream_session(principal: Principal, server_device_id: str):
     if server.get("role") != "GREENHOUSE_SERVER" or not server.get("enabled") or server.get("communicationSuspended"):
         raise AccessDenied("server_device")
     now = int(datetime.now(timezone.utc).timestamp())
-    result = table.query(
-        KeyConditionExpression=Key("pk").eq(f"DEVICE#{server_device_id}") & Key("sk").begins_with("STREAM_SESSION#"),
-        ScanIndexForward=True, Limit=5,
-    )
-    pending = next((value for value in result.get("Items", []) if int(value.get("expiresAt", 0)) > now), None)
-    if not pending:
+    valid: list[tuple[dict, dict]] = []
+    for pointer in server_stream_pointers(server_device_id):
+        session_id = pointer.get("sessionId")
+        session = table.get_item(
+            Key={"pk": f"STREAM_SESSION#{session_id}", "sk": "METADATA"}, ConsistentRead=True
+        ).get("Item") if session_id else None
+        usable = (
+            session
+            and session.get("tenantId") == principal.tenant_id
+            and session.get("serverDeviceId") == server_device_id
+            and session.get("state") != "ENDED"
+            and int(session.get("expiresAt", 0)) > now
+            and int(pointer.get("expiresAt", 0)) > now
+        )
+        if usable:
+            valid.append((pointer, session))
+        elif not session or session.get("tenantId") == principal.tenant_id:
+            retire_stream_session_pointer(pointer, session, now)
+    if not valid:
         return response(204, {})
-    session = table.get_item(Key={"pk": f"STREAM_SESSION#{pending['sessionId']}", "sk": "METADATA"}, ConsistentRead=True).get("Item")
-    if not session or session.get("tenantId") != principal.tenant_id:
-        raise AccessDenied("not_found")
+    valid.sort(key=lambda pair: int(pair[1].get("createdAt", 0)), reverse=True)
+    pending, session = valid[0]
+    for stale_pointer, stale_session in valid[1:]:
+        retire_stream_session_pointer(stale_pointer, stale_session, now)
     connection = connection_config(session["signalingChannelArn"], "MASTER", None)
     table.update_item(Key={"pk": session["pk"], "sk": session["sk"]}, UpdateExpression="SET #state=:state", ExpressionAttributeNames={"#state": "state"}, ExpressionAttributeValues={":state": "CONNECTING"})
     return response(200, stream_response(session, connection, session["viewerDeviceId"]))

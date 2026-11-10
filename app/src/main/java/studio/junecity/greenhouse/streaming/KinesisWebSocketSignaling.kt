@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.streaming
 
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -85,26 +86,35 @@ class KinesisWebSocketSignaling(
         this.listener = listener
         recipientClientId = session.peerClientId
         socket = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) = listener.onConnected()
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.i(TAG, "Kinesis signaling socket opened as ${if (recipientClientId == null) "viewer" else "master"}")
+                listener.onConnected()
+            }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 runCatching { KinesisSignalingCodec.incoming(text) }
                     .onSuccess { message ->
+                        Log.d(TAG, "Kinesis signaling received ${message.type}")
                         if (recipientClientId == null && message.senderClientId != null) recipientClientId = message.senderClientId
                         if (message.type == "STATUS_RESPONSE" && message.statusSuccess == false) {
+                            Log.w(TAG, "Kinesis signaling rejected a message: ${message.statusCode ?: "unknown"}")
                             listener.onDisconnected("signaling_rejected_${message.statusCode ?: "unknown"}")
                             return@onSuccess
                         }
                         message.description?.let(listener::onDescription)
                         message.candidate?.let(listener::onIceCandidate)
                     }
-                    .onFailure { listener.onDisconnected("invalid_signaling_message") }
+                    .onFailure {
+                        Log.w(TAG, "Kinesis signaling returned an invalid message", it)
+                        listener.onDisconnected("invalid_signaling_message")
+                    }
             }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(code, reason)
                 if (!closed.get()) listener.onDisconnected("signaling_closed")
             }
             override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) {
-                if (!closed.get()) listener.onDisconnected("signaling_failure")
+                Log.w(TAG, "Kinesis signaling socket failed with HTTP ${response?.code ?: "network"}", error)
+                if (!closed.get()) listener.onDisconnected("signaling_failure_${response?.code ?: "network"}")
             }
         })
     }
@@ -123,5 +133,7 @@ class KinesisWebSocketSignaling(
         socket = null
         listener = null
     }
+
+    private companion object { const val TAG = "GreenhouseWebRtc" }
 }
 

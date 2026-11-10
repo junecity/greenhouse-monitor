@@ -1,6 +1,6 @@
 # Remote camera streaming — implementation contract
 
-Status: **Implementation connected and build-tested; AWS deployment and physical interoperability are still unverified.**
+Status: **Implementation connected, backend session-race repair build-tested, and Android media tested on an emulator; the latest backend deployment and physical interoperability remain pending.**
 
 ## Product rules
 - Galaxy A71 or customer's old Android phone remains the server, sensor processor, display and camera.
@@ -81,6 +81,7 @@ UPnP must be disabled by default after WebRTC verification and removed only afte
 - The server sensor-monitoring path does not depend on a viewing session.
 - A temporarily disconnected or permanently revoked greenhouse server is denied stream creation, server-session polling, heartbeat, and lease renewal. Disconnect is resumable with the same credential; revoke requires a fresh approved pairing and credential.
 - Camera access is independent from device authorization. The backend evaluates the customer's Subscription Controlled, Complimentary Access, or Disabled video mode when the viewer starts a session and again at every renewable lease check.
+- The current product supports one active Viewer per greenhouse. Creating a new session ends older same-greenhouse requests, and the Server chooses the newest valid pending session by creation time rather than DynamoDB UUID sort order.
 - Same-network peers still negotiate direct ICE when possible. Different-network peers use the same authenticated signaling session and AWS-managed TURN relay fallback; no router port forwarding or public UPnP exposure is required in cloud-configured builds.
 
 ## Delivered

@@ -50,6 +50,7 @@ class FakeTable:
         self.query_items = []
         self.updates = []
         self.puts = []
+        self.deletes = []
 
     def get_item(self, Key, **_kwargs):
         value = self.items.get((Key["pk"], Key["sk"]))
@@ -64,6 +65,10 @@ class FakeTable:
 
     def put_item(self, **kwargs):
         self.puts.append(kwargs)
+        return {}
+
+    def delete_item(self, **kwargs):
+        self.deletes.append(kwargs)
         return {}
 
 
@@ -224,6 +229,102 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual("tenant-existing", device["tenantId"])
         self.assertEqual("account-existing", greenhouse["accountId"])
         self.assertEqual("greenhouse-12345678", device["greenhouseId"])
+
+    @patch("app.connection_config", return_value={
+        "signalingWebSocketUrl": "wss://signed.example",
+        "iceServers": [{"urls": ["stun:stun.example:443"]}],
+    })
+    @patch("app.ensure_channel", return_value="arn:channel")
+    def test_new_stream_request_supersedes_abandoned_session(self, _ensure, _connection):
+        now = 2_000_000_000
+        old_session = {
+            "pk": "STREAM_SESSION#old-session", "sk": "METADATA",
+            "tenantId": "tenant-existing", "accountId": "account-existing",
+            "greenhouseId": "greenhouse-12345678", "serverDeviceId": "server-12345678",
+            "viewerDeviceId": "viewer-12345678", "state": "REQUESTED",
+            "createdAt": now - 30, "expiresAt": now + 120,
+        }
+        fake = FakeTable({
+            ("DEVICE#viewer-12345678", "METADATA"): {
+                "deviceId": "viewer-12345678", "tenantId": "tenant-existing",
+                "accountId": "account-existing", "role": "VIEWER_CLIENT", "enabled": True,
+            },
+            ("DEVICE#server-12345678", "METADATA"): {
+                "deviceId": "server-12345678", "tenantId": "tenant-existing",
+                "accountId": "account-existing", "role": "GREENHOUSE_SERVER", "enabled": True,
+                "greenhouseId": "greenhouse-12345678",
+            },
+            ("GREENHOUSE#greenhouse-12345678", "METADATA"): {
+                "greenhouseId": "greenhouse-12345678", "tenantId": "tenant-existing",
+                "accountId": "account-existing", "serverDeviceId": "server-12345678", "enabled": True,
+            },
+            ("ACCOUNT#account-existing", "ENTITLEMENT"): {
+                "accountId": "account-existing", "tenantId": "tenant-existing",
+                "videoAccessOverride": "COMPLIMENTARY", "features": [],
+            },
+            ("STREAM_SESSION#old-session", "METADATA"): old_session,
+        })
+        fake.query_items = [{
+            "pk": "DEVICE#server-12345678", "sk": "STREAM_SESSION#old-session",
+            "sessionId": "old-session", "expiresAt": now + 120,
+        }]
+        app.table = fake
+
+        with patch("app.datetime") as clock:
+            clock.now.return_value = __import__("datetime").datetime.fromtimestamp(now, __import__("datetime").timezone.utc)
+            clock.side_effect = lambda *args, **kwargs: __import__("datetime").datetime(*args, **kwargs)
+            result = app.create_stream_session(
+                {"body": json.dumps({"requestId": "new-session"})},
+                app.Principal("account-existing", "tenant-existing", "viewer-12345678"),
+                "greenhouse-12345678",
+            )
+
+        self.assertEqual(201, result["statusCode"])
+        self.assertEqual("old-session", fake.deletes[0]["Key"]["sk"].split("#", 1)[1])
+        self.assertEqual("SUPERSEDED", fake.updates[0]["ExpressionAttributeValues"][":reason"])
+
+    @patch("app.connection_config", return_value={
+        "signalingWebSocketUrl": "wss://signed.example",
+        "iceServers": [{"urls": ["stun:stun.example:443"]}],
+    })
+    def test_server_picks_newest_pending_stream_and_retires_older_one(self, _connection):
+        now = 2_000_000_000
+        old_session = {
+            "pk": "STREAM_SESSION#old-session", "sk": "METADATA", "tenantId": "tenant-existing",
+            "greenhouseId": "greenhouse-12345678", "serverDeviceId": "server-12345678",
+            "viewerDeviceId": "viewer-old", "signalingChannelArn": "arn:channel", "state": "REQUESTED",
+            "createdAt": now - 30, "expiresAt": now + 120, "authorizationExpiresAt": now + 60,
+        }
+        new_session = {
+            "pk": "STREAM_SESSION#new-session", "sk": "METADATA", "tenantId": "tenant-existing",
+            "greenhouseId": "greenhouse-12345678", "serverDeviceId": "server-12345678",
+            "viewerDeviceId": "viewer-new", "signalingChannelArn": "arn:channel", "state": "REQUESTED",
+            "createdAt": now - 5, "expiresAt": now + 120, "authorizationExpiresAt": now + 60,
+        }
+        fake = FakeTable({
+            ("DEVICE#server-12345678", "METADATA"): {
+                "deviceId": "server-12345678", "tenantId": "tenant-existing",
+                "accountId": "account-existing", "role": "GREENHOUSE_SERVER", "enabled": True,
+            },
+            ("STREAM_SESSION#old-session", "METADATA"): old_session,
+            ("STREAM_SESSION#new-session", "METADATA"): new_session,
+        })
+        fake.query_items = [
+            {"pk": "DEVICE#server-12345678", "sk": "STREAM_SESSION#old-session", "sessionId": "old-session", "expiresAt": now + 120},
+            {"pk": "DEVICE#server-12345678", "sk": "STREAM_SESSION#new-session", "sessionId": "new-session", "expiresAt": now + 120},
+        ]
+        app.table = fake
+
+        with patch("app.datetime") as clock:
+            clock.now.return_value = __import__("datetime").datetime.fromtimestamp(now, __import__("datetime").timezone.utc)
+            result = app.pending_stream_session(
+                app.Principal("account-existing", "tenant-existing", "server-12345678"),
+                "server-12345678",
+            )
+
+        self.assertEqual(200, result["statusCode"])
+        self.assertEqual("new-session", json.loads(result["body"])["id"])
+        self.assertEqual("STREAM_SESSION#old-session", fake.deletes[0]["Key"]["sk"])
 
     def test_authenticated_phone_is_automatically_registered_as_client(self):
         fake = FakeTable({

@@ -96,11 +96,11 @@ class MainActivity : ComponentActivity() {
                 CloudAlertService.sync(applicationContext, enrollment != null && cloudConfiguration.getOrNull() != null)
                 CloudHeartbeatService.sync(
                     applicationContext,
-                    state.preferences.cameraMode == CameraMode.CameraServer && enrollment?.role == CloudDeviceRole.GreenhouseServer
+                    enrollment?.role == CloudDeviceRole.GreenhouseServer
                 )
                 CloudCameraServerService.sync(
                     applicationContext,
-                    state.preferences.cameraMode == CameraMode.CameraServer && enrollment?.role == CloudDeviceRole.GreenhouseServer &&
+                    enrollment?.role == CloudDeviceRole.GreenhouseServer &&
                         ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
                 )
             }

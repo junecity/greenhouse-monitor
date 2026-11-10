@@ -167,7 +167,9 @@ class CloudCameraServerService : Service() {
         private const val CHANNEL = "greenhouse_cloud_camera"
         private const val NOTIFICATION_ID = 4173
         private const val POLL_INTERVAL_MS = 5_000L
-        private const val LEASE_RENEWAL_INTERVAL_MS = 60_000L
+        // Detect a viewer replacement or abandoned authorization quickly instead of holding the
+        // camera on an obsolete session for the full two-minute authorization lease.
+        private const val LEASE_RENEWAL_INTERVAL_MS = 10_000L
         private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val MAX_ATTEMPTS = 5
         private const val TAG = "GreenhouseCamera"
