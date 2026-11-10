@@ -12,6 +12,8 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 ### Validation
 - Passed 79 Android JVM tests, Android lint, debug assembly, and a new Android instrumentation test on the API 35 ARM emulator that opened the emulated front camera, connected Master and Viewer peers, and delivered a remote `VideoTrack`.
 - Passed all 74 backend tests, including new regressions for superseding an abandoned session and selecting the newest pending session. CloudFormation lint, account-aware SAM validation, and SAM build passed.
+- GitHub Actions run `42751121672` passed both the full verification and configured ARM APK jobs for implementation commit `60eb363`.
+- Built and verified `build-out/Greenhouse Monitor 2.8.0.apk` as an API 29+ ARM32/ARM64 v2-signed APK (81,497,199 bytes; SHA-256 `20b695e8b41886187f7c40d7f231c91a217507ba290afb68768835620d9ec819`; certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`). Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` was replaced in place with the plain APK, and metadata readback matched the filename, Android-package MIME type, and byte size.
 
 ### Remaining deployment and physical validation
 - The development backend update and cloud-configured APK are pending a renewed owner AWS session. The saved IAM credentials were rejected; the AWS root-user password must be entered by the owner in the open sign-in tab.

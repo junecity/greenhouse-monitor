@@ -43,7 +43,7 @@ Parameters:
     Default: studio.junecity.greenhouse
   CurrentAndroidVersion:
     Type: String
-    Default: 2.7.9
+    Default: 2.8.0
 
 Conditions:
   HasCustomDomain: !And
