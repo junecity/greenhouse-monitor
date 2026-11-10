@@ -2,6 +2,13 @@ package studio.junecity.greenhouse.streaming
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.webrtc.AudioTrack
 import org.webrtc.Camera1Enumerator
 import org.webrtc.Camera2Enumerator
@@ -95,6 +102,8 @@ class LibWebRtcPeer(
     private var localTrack: VideoTrack? = null
     private val remoteIceCandidates = RemoteIceCandidateBuffer<SignalingIceCandidate>()
     private val closed = AtomicBoolean(false)
+    private val answerReceived = AtomicBoolean(false)
+    private val signalingScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     init {
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions())
@@ -132,10 +141,29 @@ class LibWebRtcPeer(
     }
 
     override fun onConnected() {
-        if (role.initiatesOffer()) createOffer()
+        if (role.initiatesOffer()) {
+            createOffer()
+            // The server polls for requests and can join after the initial offer was sent.
+            // Repeat the same offer (including gathered candidates) until an answer arrives.
+            signalingScope.launch {
+                while (isActive && !answerReceived.get() && !closed.get()) {
+                    delay(3_000L)
+                    if (!answerReceived.get() && !closed.get()) {
+                        peer?.localDescription?.let { description ->
+                            runCatching { signaling.sendDescription(SignalingDescription(description.type.canonicalForm(), description.description)) }
+                                .onFailure { events.onDisconnected("offer_retry_failed") }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun onDescription(description: SignalingDescription) {
+        if (closed.get()) return
+        if (role == WebRtcRole.Viewer && description.type.equals("answer", ignoreCase = true)) {
+            if (!answerReceived.compareAndSet(false, true)) return
+        }
         val remote = SessionDescription(SessionDescription.Type.fromCanonicalForm(description.type), description.sdp)
         peer?.setRemoteDescription(observer(onSuccess = {
             remoteIceCandidates.remoteDescriptionApplied().forEach(::addRemoteIceCandidate)
@@ -227,6 +255,7 @@ class LibWebRtcPeer(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        signalingScope.cancel()
         signaling.close()
         runCatching { capturer?.stopCapture() }
         capturer?.dispose()

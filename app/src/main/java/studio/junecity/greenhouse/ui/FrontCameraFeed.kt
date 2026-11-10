@@ -46,7 +46,9 @@ import android.util.Size
         else{
         val future=ProcessCameraProvider.getInstance(context)
         var provider:ProcessCameraProvider?=null
+        var disposed=false
         val listener=Runnable{
+            if(disposed || CloudCameraLease.remoteActive.value) return@Runnable
             runCatching{
                 val cameraProvider=future.get();provider=cameraProvider
                 val selector=when{cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)->CameraSelector.DEFAULT_FRONT_CAMERA;cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)->CameraSelector.DEFAULT_BACK_CAMERA;else->error("No camera available")}
@@ -57,7 +59,7 @@ import android.util.Size
             }.onFailure{active=false;message=it.message?:"Camera unavailable";onStatus(false,message)}
         }
         future.addListener(listener,ContextCompat.getMainExecutor(context))
-        onDispose{provider?.unbindAll();analysisExecutor.shutdown();onStatus(false,null)}
+        onDispose{disposed=true;provider?.unbindAll();analysisExecutor.shutdown();onStatus(false,null)}
         }
     }
     Box(modifier.clip(RoundedCornerShape(22.dp))){

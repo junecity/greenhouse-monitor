@@ -35,22 +35,31 @@ class LibWebRtcPeerInstrumentedTest {
         val masterConnected = CountDownLatch(1)
         val viewerConnected = CountDownLatch(1)
         val viewerTrack = CountDownLatch(1)
+        val viewerFrames = CountDownLatch(3)
 
         val master = LibWebRtcPeer(context, WebRtcRole.Master, masterTransport, events(masterConnected))
         val viewer = LibWebRtcPeer(context, WebRtcRole.Viewer, viewerTransport, object : WebRtcPeerEvents {
             override fun onConnected() = viewerConnected.countDown()
             override fun onDisconnected(reason: String) = Unit
-            override fun onRemoteVideo(track: VideoTrack) = viewerTrack.countDown()
+            override fun onRemoteVideo(track: VideoTrack) {
+                viewerTrack.countDown()
+                track.addSink { frame ->
+                    if (frame.buffer.width > 0 && frame.buffer.height > 0) viewerFrames.countDown()
+                }
+            }
         })
         peers += master
         peers += viewer
 
-        master.connect(session(peerClientId = "viewer-device"))
         viewer.connect(session(peerClientId = null))
+        // Match production: Viewer joins first; the Server only sees it on a later poll.
+        Thread.sleep(5_500L)
+        master.connect(session(peerClientId = "viewer-device"))
 
         assertTrue("Master ICE did not connect", masterConnected.await(20, TimeUnit.SECONDS))
         assertTrue("Viewer ICE did not connect", viewerConnected.await(20, TimeUnit.SECONDS))
         assertTrue("Viewer did not receive the camera video track", viewerTrack.await(10, TimeUnit.SECONDS))
+        assertTrue("Viewer did not decode camera frames", viewerFrames.await(15, TimeUnit.SECONDS))
     }
 
     private fun events(connected: CountDownLatch) = object : WebRtcPeerEvents {
@@ -82,11 +91,11 @@ class LibWebRtcPeerInstrumentedTest {
         }
 
         override fun sendDescription(description: SignalingDescription) {
-            remote.listener?.onDescription(description) ?: error("Remote signaling peer is not connected")
+            remote.listener?.onDescription(description)
         }
 
         override fun sendIceCandidate(candidate: SignalingIceCandidate) {
-            remote.listener?.onIceCandidate(candidate) ?: error("Remote signaling peer is not connected")
+            remote.listener?.onIceCandidate(candidate)
         }
 
         override fun close() = Unit

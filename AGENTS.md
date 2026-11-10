@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Latest checkpoint — 2026-11-10
+- User explicitly authorized a modern, simpler admin design. `admin-portal/components/app-shell.tsx`, `pages.tsx`, and `app/globals.css` now provide phone-width top navigation, customer cards, fewer initial overview metrics, expandable technical/security controls, and plain camera-access actions. Authorization and backend endpoints are unchanged.
+- Android 2.8.1/code 24 repeats the Viewer offer with gathered candidates until an answer arrives, allowing recovery when the Server joins signaling late. `FrontCameraFeed.kt` ignores a disposed asynchronous CameraX callback so it cannot reclaim capture during WebRTC handoff. These are resilience repairs, not a confirmed diagnosis of the owner's live failure.
+- The instrumentation test now deliberately joins the Server 5.5 seconds after the Viewer and requires three decoded nonempty video frames. It passed on the API 35 ARM emulator. Android unit/lint/configured ARM build, 74 backend tests, and 14 portal tests plus lint/build passed. Customer layout was rendered using synthetic test data in Chrome at 390px with document width exactly 390px; live authenticated portal use remains unverified.
+- Plain APK `build-out/Greenhouse Monitor 2.8.1.apk` is 81,497,199 bytes, SHA-256 `448f96025b259d11006205d2e19fe332637824d3427c6c3e981bc4d02042ff84`. Signature matches the persisted certificate. Stable Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` was replaced and metadata verified.
+- AWS CLI session is expired. The previous session-supersession backend fix and this portal update are NOT deployed. Complete owner browser authorization, inspect live signaling failures and server session pickup, deploy the reviewed application/portal updates, and test physical LAN/cellular streaming before declaring completion. Do not publish an unconfigured portal build; regenerate it with deployed environment values.
+
 ## Mandatory workflow for every Codex task
 1. Before planning or making ANY edits, read this root AGENTS.md in full, then read CHANGELOG.md and the relevant existing code. Re-read AGENTS.md before each distinct editing task/session. If missing or unreadable, stop and report the blocker.
 2. Inspect the current branch, diff, and existing implementation first. Build incrementally; never overwrite unrelated work.

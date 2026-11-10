@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Activity, BadgeDollarSign, ClipboardList, Gauge, Headphones, LogOut, Server, ShieldCheck, Users } from "lucide-react";
+import { Activity, BadgeDollarSign, ClipboardList, Gauge, Headphones, LogOut, Menu, X, Server, ShieldCheck, Users } from "lucide-react";
 import { useAuth } from "./auth-provider";
 import { useAdminQuery } from "@/hooks/use-admin-api";
 import type { Session } from "@/lib/types";
@@ -20,6 +21,7 @@ const navigation = [
 export function AppShell({ title, eyebrow, children, actions }: { title: string; eyebrow?: string; children: React.ReactNode; actions?: React.ReactNode }) {
   const auth = useAuth();
   const pathname = usePathname();
+  const [menuOpen, setMenuOpen] = useState(false);
   const session = useAdminQuery<Session>("/admin/v1/session");
 
   if (auth.state === "loading") return <FullState title="Checking administrator session" loading />;
@@ -28,13 +30,16 @@ export function AppShell({ title, eyebrow, children, actions }: { title: string;
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <div className="mobile-header"><strong>Greenhouse Monitor</strong><button className="secondary-button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} aria-controls="admin-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={20} /> : <Menu size={20} />}Menu</button></div>
+      {menuOpen && <button className="menu-backdrop" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
+      <aside id="admin-navigation" className={`sidebar ${menuOpen ? "is-open" : ""}`}>
         <div className="brand"><span className="brand-mark"><ShieldCheck size={22} /></span><span><strong>Greenhouse Monitor</strong><small>Private administration</small></span></div>
         <nav aria-label="Primary navigation">
-          {navigation.map(({ href, label, icon: Icon }) => {
+          {navigation.slice(0, 4).map(({ href, label, icon: Icon }) => {
             const active = href === "/" ? pathname === "/" : pathname.startsWith(href.replace(/\/$/, ""));
-            return <Link key={href} href={href} className={active ? "active" : ""}><Icon size={19} /><span>{label}</span></Link>;
+            return <Link key={href} href={href} onClick={() => setMenuOpen(false)} aria-current={active ? "page" : undefined} className={active ? "active" : ""}><Icon size={19} /><span>{label}</span></Link>;
           })}
+          <details className="advanced-navigation" open={navigation.slice(4).some(({ href }) => pathname.startsWith(href.replace(/\/$/, "")))}><summary>Tools & diagnostics</summary>{navigation.slice(4).map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setMenuOpen(false)} className={pathname.startsWith(href.replace(/\/$/, "")) ? "active" : ""}><Icon size={19} /><span>{label}</span></Link>)}</details>
         </nav>
         <div className="session-card"><span className="status-dot" /><div><strong>{session.data?.role || "Administrator"}</strong><small>{session.data?.email || "Verified session"}</small></div><button className="icon-button" onClick={() => void auth.signOut()} aria-label="Sign out"><LogOut size={18} /></button></div>
       </aside>

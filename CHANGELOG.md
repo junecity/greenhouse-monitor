@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-10 — Late-server video recovery and simplified administration (2.8.1)
+- Added periodic Viewer offer retransmission with gathered candidates until the Server answers, and blocked disposed CameraX callbacks from reopening local capture during remote handoff.
+- Strengthened the Android media test: Server joins 5.5 seconds late and Viewer must decode three nonempty frames. Passed on API 35 ARM emulator; this does not validate AWS signaling or physical-phone networks.
+- Simplified administration with a mobile top menu, customer cards, focused overview metrics, expandable account/security/diagnostic details, and clear Enable free access / Disable access controls using the existing authenticated backend.
+- Validation: Android unit tests, lint, configured ARM assembly, 74 backend tests, 14 portal tests, ESLint, TypeScript/static build, signature/package checks, and diff checks passed. Rendered synthetic customer layout in Chrome at 390px and confirmed no horizontal overflow. Existing nonfatal D8 metadata warnings remain.
+- Delivered the plain signed 2.8.1/code-24 APK to the existing Drive file and verified 81,497,199 bytes. SHA-256: `448f96025b259d11006205d2e19fe332637824d3427c6c3e981bc4d02042ff84`.
+- Blocker: AWS credentials remain expired. The prior backend fix and new portal are not live; owner sign-in, deployment, live Kinesis diagnosis, and physical LAN/cellular tests remain outstanding. No claim of restored customer streaming is made.
+
 ## 2026-11-09 — Stream-session supersession and automatic Server camera (Android 2.8.0)
 
 ### Fixed
