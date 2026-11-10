@@ -14,7 +14,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -34,7 +33,7 @@ object CloudAlertPollingPolicy {
 
 class CloudAlertService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var polling: Job? = null
+    private val polling = EnrollmentBoundWorker(scope)
     private lateinit var notifications: NotificationManager
 
     override fun onCreate() {
@@ -56,7 +55,7 @@ class CloudAlertService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (polling?.isActive != true) polling = scope.launch { pollLoop() }
+        polling.start(SecureSettingsStore(this).cloudEnrollment()) { pollLoop() }
         return START_STICKY
     }
 

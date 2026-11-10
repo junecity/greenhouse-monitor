@@ -7,6 +7,15 @@ import org.junit.Test
 import java.util.Base64
 
 class KinesisSignalingCodecTest {
+    @Test fun emptyAwsTextFramesDoNotFailTheStream() {
+        assertEquals("EMPTY", KinesisSignalingCodec.incoming("").type)
+        assertEquals("EMPTY", KinesisSignalingCodec.incoming(" \r\n").type)
+    }
+
+    @Test fun controlMessagesDoNotRequireMediaPayload() {
+        assertEquals("GO_AWAY", KinesisSignalingCodec.incoming("{\"messageType\":\"GO_AWAY\"}").type)
+        assertEquals("RECONNECT_ICE_SERVER", KinesisSignalingCodec.incoming("{\"messageType\":\"RECONNECT_ICE_SERVER\"}").type)
+    }
     @Test fun singleMasterViewerInitiatesOffer() {
         assertEquals(true, WebRtcRole.Viewer.initiatesOffer())
         assertEquals(false, WebRtcRole.Master.initiatesOffer())

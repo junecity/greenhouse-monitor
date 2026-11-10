@@ -2,6 +2,15 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-10 — Live AWS signaling repair and deployed administration (2.8.2)
+- Reproduced empty Kinesis text frames triggering Android signaling disconnects. Ignore empty frames without weakening malformed-SDP validation; process service control messages without parsing nonexistent media payloads; redact parser exception payloads from logs.
+- Restart credential-bound camera, heartbeat, and alert workers after re-pairing changes enrollment, waiting for prior camera cleanup. Added a regression for credential rotation without duplicate workers.
+- Added an opt-in disposable AWS/Android media test and relay-only test configuration. The stricter test first failed with repeated `invalid_signaling_message`; it passed after the repair. Both normal ICE and forced AWS TURN delivered decoded emulated-front-camera frames with no disconnect events. Local loopback media also passed. This is not a physical two-phone or carrier-handoff test.
+- Renewed deployment access, deployed the session-supersession backend and safe denial diagnostics, and published the modern administrator site with actual deployed configuration. CloudFront invalidation completed; both existing development stacks reached UPDATE_COMPLETE. Administrator version marker is 2.8.2. No unrelated infrastructure or customer data was changed.
+- Validation passed: 82 Android JVM tests, Android lint/configured ARM assembly, 74 backend tests, 14 portal tests and lint/live-configured build, CloudFormation lint, stable-signature/package checks, and install over the previous emulator APK. Pre-existing nonfatal D8 metadata warnings remain.
+- Delivered plain APK `Greenhouse Monitor 2.8.2.apk` (81,513,583 bytes) to the stable Drive file and verified metadata. SHA-256: `bf6f0b7495273c69c9d2ea781c9e60e4b727700867d3b9b6c7cf7435b5f1aa17`.
+- Remaining: install on both physical phones, verify current server authorization/heartbeat, same-Wi-Fi video, cellular/TURN video, handoff, and background lifecycle. Live rejected device credentials and stale server heartbeat were observed; the deployed code and emulator results do not prove the physical server recovered.
+
 ## 2026-11-10 — Late-server video recovery and simplified administration (2.8.1)
 - Added periodic Viewer offer retransmission with gathered candidates until the Server answers, and blocked disposed CameraX callbacks from reopening local capture during remote handoff.
 - Strengthened the Android media test: Server joins 5.5 seconds late and Viewer must decode three nonempty frames. Passed on API 35 ARM emulator; this does not validate AWS signaling or physical-phone networks.

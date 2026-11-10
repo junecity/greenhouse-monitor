@@ -12,12 +12,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import studio.junecity.greenhouse.model.GoveeSensor
 import studio.junecity.greenhouse.BuildConfig
 import studio.junecity.greenhouse.data.AndroidDeviceStatusProvider
@@ -48,7 +46,7 @@ object HeartbeatRetryPolicy {
 
 class CloudHeartbeatService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var reporting: Job? = null
+    private val reporting = EnrollmentBoundWorker(scope)
 
     override fun onCreate() {
         super.onCreate()
@@ -64,7 +62,7 @@ class CloudHeartbeatService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (reporting?.isActive != true) reporting = scope.launch { reportLoop() }
+        reporting.start(SecureSettingsStore(this).cloudEnrollment()) { reportLoop() }
         return START_STICKY
     }
 

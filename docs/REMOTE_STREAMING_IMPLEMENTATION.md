@@ -1,6 +1,12 @@
 # Remote camera streaming — implementation contract
 
-Status: **Implementation connected, backend session-race repair build-tested, and Android media tested on an emulator; the latest backend deployment and physical interoperability remain pending.**
+Status (2026-11-10): **Backend repair deployed; Android 2.8.2 decoded live camera frames through AWS signaling with normal ICE and forced AWS TURN on an ARM emulator. Physical phone interoperability remains unverified.**
+
+## Latest verification and regression
+- Empty text frames observed on live Kinesis sockets caused the Android parser to signal a disconnect. They are now ignored, consistent with the AWS SDK's treatment of unparseable non-events; real malformed SDP/ICE still fails. See the [AWS signaling client](https://github.com/awslabs/amazon-kinesis-video-streams-webrtc-sdk-js/blob/master/src/SignalingClient.ts).
+- Re-pairing now restarts services bound to an earlier device credential after old-session cleanup. Backend logs emit only a denial reason and templated route, without headers, credentials, or customer details.
+- Run `scripts/test-live-android-webrtc.py --adb /path/to/adb` after installing the debug and androidTest APKs; add `--relay-only` to prohibit direct candidates. This explicitly creates a brief billable diagnostic channel and deletes it afterward. It requires an authenticated AWS CLI session and boto3; do not run it implicitly in CI. No customer camera is accessed.
+- The test uses production signing/ICE code with diagnostic AWS credentials and asserts decoded frames plus no disconnect events. It does not exercise customer sign-in or entitlement issuance, and does not prove phone-to-phone/cellular behavior. Backend authorization has separate automated coverage. Both physical phones must install the updated APK before acceptance testing.
 
 ## Product rules
 - Galaxy A71 or customer's old Android phone remains the server, sensor processor, display and camera.
@@ -63,7 +69,7 @@ Do not retire the existing remote path until all of these pass on the Galaxy A71
 
 UPnP must be disabled by default after WebRTC verification and removed only after a rollback release is available.
 
-## Current status
+## Historical implementation notes (superseded by latest checkpoint above)
 
 - Existing local/encrypted-JPEG path: implemented; previously device-rendered, not revalidated in this stage.
 - Identity, tenant/device authorization, backend entitlement, pairing, heartbeat, and WebRTC session contracts: implemented as credential-free foundations.

@@ -14,7 +14,6 @@ import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -37,7 +36,7 @@ import studio.junecity.greenhouse.streaming.WebRtcRole
 /** Polls only for authorized, on-demand sessions; the camera opens only while a viewer is connected. */
 class CloudCameraServerService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var worker: Job? = null
+    private val worker = EnrollmentBoundWorker(scope)
     private var currentPeer: LibWebRtcPeer? = null
 
     override fun onCreate() {
@@ -49,7 +48,7 @@ class CloudCameraServerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (worker?.isActive != true) worker = scope.launch { pollForSessions() }
+        worker.start(SecureSettingsStore(this).cloudEnrollment()) { pollForSessions() }
         return START_STICKY
     }
 

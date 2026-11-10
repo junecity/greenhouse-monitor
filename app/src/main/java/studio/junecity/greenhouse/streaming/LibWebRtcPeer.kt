@@ -90,7 +90,8 @@ class LibWebRtcPeer(
     private val role: WebRtcRole,
     private val signaling: KinesisSignalingTransport,
     private val events: WebRtcPeerEvents,
-    private val captureProfile: CameraStreamProfile = CameraStreamProfile.from(CameraStreamQuality.Balanced)
+    private val captureProfile: CameraStreamProfile = CameraStreamProfile.from(CameraStreamQuality.Balanced),
+    private val iceTransportPolicy: PeerConnection.IceTransportsType = PeerConnection.IceTransportsType.ALL
 ) : WebRtcPeer, KinesisSignalingTransport.Listener {
     private val appContext = context.applicationContext
     private val egl = EglBase.create()
@@ -122,6 +123,7 @@ class LibWebRtcPeer(
                 .createIceServer()
         }
         val configuration = PeerConnection.RTCConfiguration(ice).apply {
+            iceTransportsType = iceTransportPolicy
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN

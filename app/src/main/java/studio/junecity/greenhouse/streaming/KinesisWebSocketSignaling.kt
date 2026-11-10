@@ -35,6 +35,9 @@ object KinesisSignalingCodec {
     )
 
     fun incoming(text: String): Incoming = runCatching {
+        // Kinesis can send empty text frames between signaling events. These are not
+        // malformed SDP and must not tear down an otherwise healthy camera session.
+        if (text.isBlank()) return@runCatching Incoming("EMPTY")
         val envelope = JSONObject(text)
         val type = envelope.getString("messageType")
         val sender = envelope.optString("senderClientId").takeIf { it.isNotBlank() && it != "null" }
@@ -47,6 +50,7 @@ object KinesisSignalingCodec {
                 statusCode = status.optString("statusCode").takeIf(String::isNotBlank)
             )
         }
+        if (type !in setOf("SDP_OFFER", "SDP_ANSWER", "ICE_CANDIDATE")) return@runCatching Incoming(type, sender)
         val payload = JSONObject(String(Base64.getDecoder().decode(envelope.getString("messagePayload"))))
         when (type) {
             "SDP_OFFER", "SDP_ANSWER" -> Incoming(type, sender, description = SignalingDescription(payload.getString("type"), payload.getString("sdp")))
@@ -93,6 +97,7 @@ class KinesisWebSocketSignaling(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 runCatching { KinesisSignalingCodec.incoming(text) }
                     .onSuccess { message ->
+                        if (message.type == "EMPTY") return@onSuccess
                         Log.d(TAG, "Kinesis signaling received ${message.type}")
                         if (recipientClientId == null && message.senderClientId != null) recipientClientId = message.senderClientId
                         if (message.type == "STATUS_RESPONSE" && message.statusSuccess == false) {
@@ -100,11 +105,16 @@ class KinesisWebSocketSignaling(
                             listener.onDisconnected("signaling_rejected_${message.statusCode ?: "unknown"}")
                             return@onSuccess
                         }
+                        if (message.type == "GO_AWAY" || message.type == "RECONNECT_ICE_SERVER") {
+                            listener.onDisconnected("signaling_refresh_required")
+                            return@onSuccess
+                        }
                         message.description?.let(listener::onDescription)
                         message.candidate?.let(listener::onIceCandidate)
                     }
                     .onFailure {
-                        Log.w(TAG, "Kinesis signaling returned an invalid message", it)
+                        // Parser exceptions can contain signaling payloads. Keep logs redacted.
+                        Log.w(TAG, "Kinesis signaling returned an invalid message")
                         listener.onDisconnected("invalid_signaling_message")
                     }
             }

@@ -1144,6 +1144,10 @@ def handler(event, _context):
             return heartbeat(event, principal, parts[2])
         return response(404, {"error": "not_found"})
     except AccessDenied as error:
+        print(json.dumps({
+            "event": "authorization_denied", "reason": str(error),
+            "routeKey": event.get("routeKey", "unknown"),
+        }))
         return response(403, {"error": str(error)})
     except ClientError as error:
         aws_error = error.response.get("Error", {})
