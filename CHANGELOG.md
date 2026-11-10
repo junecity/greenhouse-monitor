@@ -15,6 +15,7 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Passed 79 Android JVM tests, including new regressions for Viewer recipient omission, receive-only video negotiation, status responses, and early ICE buffering; Android lint and debug assembly also passed.
 - Passed all 72 backend tests. Installed and cold-launched the cloud-configured universal build on the Android emulator with no app fatal exception.
 - Built Android 2.7.9/code 22 as an API 29+ ARM32/ARM64 v2-signed APK: 81,497,199 bytes, SHA-256 `fb9f4fec1591a9419f25c5a871f39b16d7e44e133206e2f092e51d67d551a3e7`, certificate SHA-256 `b94e4b6a71111e3e0f79c53d2a027baeabcfe148444f752ade85e71afa0f92eb`.
+- Implementation commit `6dc3075` is pushed; GitHub Actions run `42745606532` passed the full verification and configured ARM APK jobs. Replaced Drive file `19NBhnl5JRIscX6MaR5q7nFPM_a2plNXR` in place and verified the 2.7.9 filename, Android-package MIME type, and 81,497,199-byte remote size.
 
 ### Remaining physical validation
 - The corrected APK must be installed on both the greenhouse Server and Client phones. Actual Galaxy front-camera frames, same-Wi-Fi direct ICE, cellular/TURN relay, and Wi-Fi/cellular handoff cannot be claimed until the two physical phones run this build.
