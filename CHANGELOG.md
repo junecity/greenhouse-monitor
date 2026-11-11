@@ -2,6 +2,13 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-10 — Single-phone monitoring, drawn floor plans, simpler device management (2.9.0)
+- Add Govee H5179 sensors on an authenticated phone without pairing a server. Standalone storage and provider credentials are independent of paired-server data. Returning to paired mode restores server sync and on-demand video.
+- Draw and resize a greenhouse, including triangles and concave outlines. Straighten near-square corners, calculate area and drag sensors into the footprint. Placement by name and tap is also supported. Preserve existing T and rectangle geometry.
+- Reduce Settings categories and repeated actions. Admin Customers opens a focused mobile profile, shows named greenhouses, and keeps technical IDs, account recovery, and optional camera policy fields in details.
+- Tests passed: 92 Android JVM, seven emulator cases (one additional opt-in live AWS case skipped), 74 backend, 14 portal. Android lint, configured ARM assembly, upgrade-install/signature, portal lint/configured build and mobile/desktop overflow checks passed. Initial gesture test caught scroll interception, fixed and rerun. Physical Govee hardware and carrier streaming were not tested.
+- Signed plain APK uploaded in place to Drive. Portal publication awaits renewed AWS credentials; the existing deployed portal has not been updated.
+
 ## 2026-11-10 — Reopen a paired camera client (2.8.4)
 - Preserve the selected greenhouse across account-device validation. Recover saved literal-null greenhouse IDs using the customer's eligible servers. Sensor sync and camera startup share the restored selection.
 - Tag signaling media with the viewing session. Ignore stale offers, answers and ICE from earlier views. Release the viewer lock before the old session DELETE and check for superseded server leases during viewing.

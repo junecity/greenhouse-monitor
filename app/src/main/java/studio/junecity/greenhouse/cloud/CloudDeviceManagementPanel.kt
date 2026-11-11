@@ -127,7 +127,7 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
                     DeviceRow("Greenhouse ${index + 1}", when { !item.device.enabled -> "Server revoked"; item.device.communicationSuspended -> "Server ${item.device.id.takeLast(8)} · Disconnected"; item.device.online -> "Server ${item.device.id.takeLast(8)} · Online"; else -> "Server ${item.device.id.takeLast(8)} · Offline" }, if (item.device.online) DashboardTokens.Green else if(item.device.enabled) DashboardTokens.Amber else DashboardTokens.Danger, d, t) {
                         if (item.device.enabled) {
                             DeviceAction(if (active) "Selected" else "View", active, d, t) {
-                                item.device.greenhouseId?.let { secure.saveCloudEnrollment(enrollment.copy(greenhouseId = it)) }
+                                item.device.greenhouseId?.let { secure.saveCloudEnrollment(enrollment.copy(greenhouseId = it, localSensors=false)) }
                             }
                             DeviceAction("Replace", false, d, t) {
                                 perform {
@@ -267,9 +267,9 @@ fun CloudServerPairingPanel(
         val revocableServer = activeServer ?: disconnectedServer
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Pair greenhouse server", color = Color.White, fontSize = t(24f), fontWeight = FontWeight.ExtraBold)
-                Text(
-                    "Scan this code on the phone that will stay in the greenhouse.",
+                Text(if(revocableServer==null)"Pair greenhouse server" else "Greenhouse connection", color = Color.White, fontSize = t(24f), fontWeight = FontWeight.ExtraBold)
+                if(invitation!=null)Text(
+                    "Scan on the greenhouse phone.",
                     color = DashboardTokens.Muted,
                     fontSize = t(15f),
                     lineHeight = t(19f)
@@ -335,7 +335,7 @@ fun CloudServerPairingPanel(
                         busy = true
                         runCatching { gateway.approveServerPairing(request.requestId) }
                             .onSuccess {
-                                secure.saveCloudEnrollment(requireNotNull(enrollment).copy(greenhouseId = request.greenhouseId))
+                                secure.saveCloudEnrollment(requireNotNull(enrollment).copy(greenhouseId = request.greenhouseId, localSensors=false))
                                 approved = true; invitation = null; pendingRequest = null; message = null
                             }
                             .onFailure { message = accountErrorMessage(it) }

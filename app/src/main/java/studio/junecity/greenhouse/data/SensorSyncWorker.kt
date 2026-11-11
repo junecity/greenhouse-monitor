@@ -2,6 +2,7 @@ package studio.junecity.greenhouse.data
 
 import android.content.Context
 import androidx.work.*
+import studio.junecity.greenhouse.settings.isStandaloneClient
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.settings.ZoneAssignmentStore
 import studio.junecity.greenhouse.settings.AppPreferencesStore
@@ -14,12 +15,14 @@ import java.util.concurrent.TimeUnit
 class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(context,params){
     override suspend fun doWork():Result{
         val secure=SecureSettingsStore(applicationContext)
-        if(secure.cloudEnrollment()?.role==CloudDeviceRole.ViewerClient)return Result.success()
-        val key=secure.goveeApiKey() ?: return Result.success()
+        val owner = secure.cloudEnrollment()
+        val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
+        val key=secure.sensorKey(owner) ?: return Result.success()
         return runCatching{
-            val provider=GoveeSensorProvider();val credential=SensorProviderCredential.ApiKey(key);val history=HistoryStore(applicationContext);val notifier=AlertNotifier(applicationContext);val zones=ZoneAssignmentStore(applicationContext);val preferences=AppPreferencesStore(applicationContext).load()
+            val provider=GoveeSensorProvider();val credential=SensorProviderCredential.ApiKey(key);val history=HistoryStore(applicationContext,suffix);val notifier=AlertNotifier(applicationContext,suffix);val zones=ZoneAssignmentStore(applicationContext,suffix);val preferences=AppPreferencesStore(applicationContext,suffix).load()
             val sensors=provider.discover(credential).map{device->provider.read(credential,device).toLegacySensor(greenhouseId=preferences.sensorGreenhouseIds[device.deviceId]?:preferences.activeGreenhouse.id,zone=zones.zone(device.deviceId))}
-            CurrentSensorStore(applicationContext).save(sensors)
+            if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return Result.success()
+            CurrentSensorStore(applicationContext,suffix).save(sensors)
             sensors.filter{it.online}.forEach{history.insert(it);notifier.evaluate(it)}
             Result.success()
         }.getOrElse{Result.retry()}

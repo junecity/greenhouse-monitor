@@ -208,3 +208,32 @@ dd { margin: 6px 0 0; font-size: 12px; overflow-wrap: anywhere; }
   .action-row > button { flex: 1 1 150px; }
   .detail-heading { flex-wrap: wrap; }
 }
+
+.fleet-section { display: grid; gap: .65rem; }
+.fleet-section h3, .camera-policy h3, .fleet-line strong { display: flex; align-items: center; gap: .55rem; }
+.fleet-section h3 svg, .camera-policy h3 svg { color: var(--amber, #ffb347); }
+.fleet-section h3 span { color: var(--muted); font-size: .85em; }
+.fleet-card { background: var(--panel, #191c20); border: 1px solid var(--border, #353a40); border-radius: 14px; padding: .9rem 1rem; min-width: 0; }
+.fleet-line { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .55rem; }
+.fleet-card small { display: block; margin: .45rem 0; color: var(--muted); overflow-wrap: anywhere; }
+.fleet-card details { margin-top: .65rem; }
+.detail-stack .action-row { gap: .5rem; flex-wrap: wrap; }
+.detail-stack button { min-height: 44px; border-radius: 10px; padding: .65rem 1rem; }
+.camera-policy .action-row > .secondary-button { background: #ffb347; color: #17120c; border-color: #ffb347; }
+.detail-stack button:focus-visible, .detail-stack summary:focus-visible { outline: 2px solid #ffb347; outline-offset: 3px; }
+.definition-grid dd, td details { overflow-wrap: anywhere; }
+
+.policy-editor { display: grid; gap: .85rem; margin-top: 1rem; }
+.policy-editor select { width: 100%; min-height: 44px; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: .6rem .75rem; font: inherit; }
+.camera-policy .action-row > .secondary-button:last-child { background: var(--surface-2); border-color: var(--line); color: var(--text); }
+
+.back-to-directory { display: none; }
+.customer-workspace .disclosure { padding: .65rem 0; margin: 0; border: 0; border-radius: 0; border-top: 1px solid var(--line); }
+.customer-workspace .disclosure summary { min-height: 36px; padding: .4rem 0; color: var(--muted); }
+.customer-workspace .fleet-card .disclosure { margin-top: .65rem; padding-bottom: 0; }
+@media (max-width: 1000px) {
+  .customer-workspace:not(.profile-open) > .detail-panel,
+  .customer-workspace.profile-open > .table-panel,
+  .main-content:has(.customer-workspace.profile-open) > .page-header { display: none; }
+  .profile-open .back-to-directory { display: inline-flex; align-items: center; justify-self: start; gap: .45rem; min-height: 44px; border: 0; padding: .5rem 0; color: var(--amber); background: transparent; font: inherit; cursor: pointer; }
+}

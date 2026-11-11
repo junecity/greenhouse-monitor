@@ -6,8 +6,8 @@ import org.json.JSONObject
 import studio.junecity.greenhouse.model.GoveeSensor
 
 /** The server's latest sensor snapshot, persisted so cloud sync is independent of the UI process. */
-class CurrentSensorStore(context: Context) {
-    private val preferences = context.getSharedPreferences("greenhouse_current_sensors", Context.MODE_PRIVATE)
+class CurrentSensorStore(context: Context, private val suffix: String = "") {
+    private val preferences = context.getSharedPreferences("greenhouse_current_sensors$suffix", Context.MODE_PRIVATE)
 
     fun save(sensors: List<GoveeSensor>) {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).apply()

@@ -29,9 +29,10 @@ data class CloudEnrollment(
     val deviceId: String,
     val greenhouseId: String,
     val role: CloudDeviceRole,
-    val deviceSecret: String? = null
+    val deviceSecret: String? = null,
+    val localSensors: Boolean = false
 ) {
-    fun toJson() = JSONObject().put("deviceId", deviceId).put("greenhouseId", greenhouseId).put("role", role.name).put("deviceSecret", deviceSecret).toString()
+    fun toJson() = JSONObject().put("deviceId", deviceId).put("greenhouseId", greenhouseId).put("role", role.name).put("deviceSecret", deviceSecret).put("localSensors",localSensors).toString()
     companion object {
         fun parse(value: String) = JSONObject(value).let {
             CloudEnrollment(
@@ -39,15 +40,30 @@ data class CloudEnrollment(
                 // Older clients persisted Android JSONObject.NULL as the literal "null".
                 it.optString("greenhouseId").takeUnless { id -> id == "null" }.orEmpty(),
                 CloudDeviceRole.valueOf(it.getString("role")),
-                if (it.has("deviceSecret") && !it.isNull("deviceSecret")) it.getString("deviceSecret").ifBlank { null } else null
+                if (it.has("deviceSecret") && !it.isNull("deviceSecret")) it.getString("deviceSecret").ifBlank { null } else null,
+                it.optBoolean("localSensors",false)
             )
         }
     }
 }
 
+fun CloudEnrollment?.isStandaloneClient() = this?.role == CloudDeviceRole.ViewerClient && (greenhouseId.isBlank() || localSensors)
+
 class SecureSettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("secure_greenhouse_settings", Context.MODE_PRIVATE)
     private val alias = "greenhouse_govee_api_key"
+
+    // A one-phone installation remains a viewer in the account's authorization model.
+    fun sensorKey(enrollment: CloudEnrollment?): String? = when {
+        enrollment.isStandaloneClient() -> loadEncrypted("standalone_govee")
+        enrollment?.role == CloudDeviceRole.ViewerClient -> null
+        else -> goveeApiKey()
+    }
+    fun saveSensorKey(enrollment: CloudEnrollment?, value: String) {
+        if (enrollment.isStandaloneClient()) saveEncrypted("standalone_govee", value)
+        else if (enrollment?.role != CloudDeviceRole.ViewerClient) saveGoveeApiKey(value)
+    }
+    fun clearStandaloneKey() = prefs.edit().remove("standalone_govee").apply()
 
     fun saveGoveeApiKey(value: String) {
         saveEncrypted("govee_key", value)
@@ -62,6 +78,13 @@ class SecureSettingsStore(context: Context) {
     fun clearCloudSession() = prefs.edit().remove("cloud_session").apply()
     fun saveCloudEnrollment(value: CloudEnrollment) = saveEncrypted("cloud_enrollment", value.toJson())
     fun cloudEnrollment(): CloudEnrollment? = loadEncrypted("cloud_enrollment")?.let { runCatching { CloudEnrollment.parse(it) }.getOrNull() }
+    fun watchEnrollment(onChange: () -> Unit): () -> Unit {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _,key ->
+            if (key == "cloud_enrollment") onChange()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     fun clearCloudEnrollment() = prefs.edit().remove("cloud_enrollment").apply()
     fun cloudDeviceId(): String = stableIdentifier("cloud_device_id", "device")
     fun cloudGreenhouseId(): String = stableIdentifier("cloud_greenhouse_id", "greenhouse")

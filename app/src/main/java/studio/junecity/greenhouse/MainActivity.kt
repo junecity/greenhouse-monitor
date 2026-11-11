@@ -80,6 +80,13 @@ class MainActivity : ComponentActivity() {
             val navigationDuration = accessibleMotionDuration(AppMotion.NavigationFadeMs)
             val cloudConfiguration = remember { runCatching { CloudRuntime.configurationOrNull() } }
             var cloudEnrollmentRevision by remember { mutableIntStateOf(0) }
+            DisposableEffect(Unit) {
+                val stopWatching = SecureSettingsStore(applicationContext).watchEnrollment {
+                    viewModel.selectStores()
+                    cloudEnrollmentRevision++
+                }
+                onDispose { stopWatching() }
+            }
             var now by remember { mutableStateOf(LocalDateTime.now()) }
             var status by remember { mutableStateOf(device.current()) }
 
@@ -92,7 +99,7 @@ class MainActivity : ComponentActivity() {
             }
             LaunchedEffect(state.preferences.cameraMode, cloudEnrollmentRevision) {
                 val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
-                if (state.preferences.cameraMode == CameraMode.CameraServer && enrollment == null) {
+                if (state.preferences.cameraMode == CameraMode.CameraServer && enrollment == null && cloudConfiguration.getOrNull() == null && cloudConfiguration.isSuccess) {
                     CameraStreamServer.start(applicationContext, allowPublicMapping = true)
                 } else CameraStreamServer.stop()
                 CloudAlertService.sync(applicationContext, enrollment != null && cloudConfiguration.getOrNull() != null)

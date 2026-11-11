@@ -226,7 +226,8 @@ private fun CloudOnboarding(
                 if (auth.isSignedIn()) {
                     if (existingEnrollment == null) gateway.bootstrap()
                     val registered = if (existingEnrollment != null) gateway.currentDevice() else gateway.registerClientDevice()
-                    val greenhouse = resolveClientGreenhouse(existingEnrollment?.greenhouseId, registered.greenhouseId, gateway::devices)
+                    val greenhouse = if(existingEnrollment?.localSensors==true) existingEnrollment.greenhouseId else
+                        resolveClientGreenhouse(existingEnrollment?.greenhouseId, registered.greenhouseId, gateway::devices)
                     if (existingEnrollment != null) {
                         if (greenhouse.isNotBlank() && greenhouse != existingEnrollment.greenhouseId) {
                             secure.saveCloudEnrollment(existingEnrollment.copy(greenhouseId = greenhouse))

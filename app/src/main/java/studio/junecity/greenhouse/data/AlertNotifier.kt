@@ -8,11 +8,11 @@ import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.AppPreferencesStore
 import kotlin.math.roundToInt
 
-class AlertNotifier(private val context:Context){
-    private val manager=context.getSystemService(NotificationManager::class.java);private val state=context.getSharedPreferences("alert_state",Context.MODE_PRIVATE)
+class AlertNotifier(private val context:Context,private val suffix:String=""){
+    private val manager=context.getSystemService(NotificationManager::class.java);private val state=context.getSharedPreferences("alert_state$suffix",Context.MODE_PRIVATE)
     init{manager.createNotificationChannel(NotificationChannel("greenhouse_quiet","Greenhouse status",NotificationManager.IMPORTANCE_LOW));manager.createNotificationChannel(NotificationChannel("greenhouse_alerts","Greenhouse alerts",NotificationManager.IMPORTANCE_HIGH))}
     fun evaluate(sensor:GoveeSensor){
-        val p=AppPreferencesStore(context).load().notifications;val now=System.currentTimeMillis();if(!p.masterEnabled||now<p.snoozedUntilEpochMs)return
+        val p=AppPreferencesStore(context,suffix).load().notifications;val now=System.currentTimeMillis();if(!p.masterEnabled||now<p.snoozedUntilEpochMs)return
         val condition=condition(sensor,p);val key="condition_${sensor.id}";val previous=state.getString(key,null);if(condition==null){if(previous!=null)state.edit().remove(key).apply();return}
         val last=state.getLong("sent_${sensor.id}",0);val due=previous!=condition||p.repeatedAlerts&&now-last>=p.repeatMinutes*60_000L
         state.edit().putString(key,condition).apply();if(!due)return

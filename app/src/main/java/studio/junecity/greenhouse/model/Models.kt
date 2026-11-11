@@ -9,21 +9,27 @@ enum class Metric { Temperature, Humidity, Vpd, DewPoint }
 enum class HistoryRange { Day, Week, Month }
 enum class CameraMode { CameraServer, ViewerClient }
 enum class CameraStreamQuality { DataSaver, Balanced, High }
-enum class GreenhouseShape { Rectangle, TShape }
+enum class GreenhouseShape { Rectangle, TShape, Drawn }
 data class SensorPosition(val xFeet:Double,val yFeet:Double,val heightFeet:Double=0.0){fun normalized(g:GreenhouseConfig)=NormalizedPosition((xFeet/g.planLengthFeet).coerceIn(0.0,1.0),(yFeet/g.planWidthFeet).coerceIn(0.0,1.0))}
 data class NormalizedPosition(val x:Double,val y:Double)
-data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap(),val shape:GreenhouseShape=GreenhouseShape.Rectangle,val attachedLengthFeet:Double=16.0,val attachedWidthFeet:Double=8.0,val refreshMinutes:Int=1){
+data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap(),val shape:GreenhouseShape=GreenhouseShape.Rectangle,val attachedLengthFeet:Double=16.0,val attachedWidthFeet:Double=8.0,val refreshMinutes:Int=1,val vertices:List<NormalizedPosition> = emptyList()){
     val planLengthFeet get()=if(shape==GreenhouseShape.TShape)max(lengthFeet,attachedWidthFeet) else lengthFeet
     val planWidthFeet get()=if(shape==GreenhouseShape.TShape)widthFeet+attachedLengthFeet else widthFeet
     val crossbarLeftFeet get()=if(shape==GreenhouseShape.TShape)(planLengthFeet-lengthFeet)/2.0 else 0.0
     val stemLeftFeet get()=if(shape==GreenhouseShape.TShape)(planLengthFeet-attachedWidthFeet)/2.0 else 0.0
-    val areaSquareFeet get()=lengthFeet*widthFeet+if(shape==GreenhouseShape.TShape)attachedLengthFeet*attachedWidthFeet else 0.0
+    val areaSquareFeet get()=if(shape==GreenhouseShape.Drawn) lengthFeet*widthFeet*DrawnPlan.area(vertices) else lengthFeet*widthFeet+if(shape==GreenhouseShape.TShape)attachedLengthFeet*attachedWidthFeet else 0.0
     fun containsPoint(xFeet:Double,yFeet:Double):Boolean{
+        if(shape==GreenhouseShape.Drawn)return DrawnPlan.contains(NormalizedPosition(xFeet/lengthFeet,yFeet/widthFeet),vertices)
         if(xFeet in crossbarLeftFeet..(crossbarLeftFeet+lengthFeet)&&yFeet in 0.0..widthFeet)return true
         if(shape!=GreenhouseShape.TShape||yFeet !in widthFeet..planWidthFeet)return false
         return xFeet in stemLeftFeet..(stemLeftFeet+attachedWidthFeet)
     }
     fun coercePoint(xFeet:Double,yFeet:Double):SensorPosition{
+        if(shape==GreenhouseShape.Drawn && vertices.isNotEmpty()){
+            if(containsPoint(xFeet,yFeet))return SensorPosition(xFeet,yFeet)
+            val edge=DrawnPlan.nearest(NormalizedPosition(xFeet,yFeet),vertices.map{NormalizedPosition(it.x*lengthFeet,it.y*widthFeet)})
+            return SensorPosition(edge.x,edge.y)
+        }
         val y=yFeet.coerceIn(0.0,planWidthFeet)
         val range=if(shape==GreenhouseShape.TShape&&y>widthFeet) stemLeftFeet..(stemLeftFeet+attachedWidthFeet) else crossbarLeftFeet..(crossbarLeftFeet+lengthFeet)
         return SensorPosition(xFeet.coerceIn(range.start,range.endInclusive),y)
@@ -50,4 +56,4 @@ object DataSyncIntervals {
 }
 
 data class AppPreferences(val zipCode:String="06382",val temperatureFahrenheit:Boolean=true,val refreshMinutes:Int=1,val historyRetentionDays:Int=30,val keepScreenOn:Boolean=true,val autoStart:Boolean=false,val greenhouses:List<GreenhouseConfig> = listOf(GreenhouseConfig()),val activeGreenhouseId:String="main",val notifications:NotificationPreferences=NotificationPreferences(),val sensorGreenhouseIds:Map<String,String> = emptyMap(),val cameraMode:CameraMode=CameraMode.CameraServer,val cameraStreamQuality:CameraStreamQuality=CameraStreamQuality.Balanced){val activeGreenhouse get()=greenhouses.firstOrNull{it.id==activeGreenhouseId}?:greenhouses.first();val activeRefreshMinutes get()=DataSyncIntervals.normalize(activeGreenhouse.refreshMinutes)}
-data class GreenhouseUiState(val screen:AppScreen=AppScreen.Dashboard,val metric:Metric=Metric.Temperature,val sensors:List<GoveeSensor> = emptyList(),val weather:WeatherReading=WeatherReading("06382","Outside (06382)",null,"Unavailable"),val history:List<HistoryReading> = emptyList(),val preferences:AppPreferences=AppPreferences(),val goveeConnected:Boolean=false,val refreshing:Boolean=false,val message:String?=null)
+data class GreenhouseUiState(val screen:AppScreen=AppScreen.Dashboard,val metric:Metric=Metric.Temperature,val sensors:List<GoveeSensor> = emptyList(),val weather:WeatherReading=WeatherReading("06382","Outside (06382)",null,"Unavailable"),val history:List<HistoryReading> = emptyList(),val preferences:AppPreferences=AppPreferences(),val standalone:Boolean=false,val goveeConnected:Boolean=false,val refreshing:Boolean=false,val message:String?=null)

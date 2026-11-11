@@ -5,8 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import studio.junecity.greenhouse.model.*
 
-class AppPreferencesStore(context:Context){
-    private val prefs=context.getSharedPreferences("greenhouse_preferences_v2",Context.MODE_PRIVATE)
+class AppPreferencesStore(context:Context,private val suffix:String=""){
+    private val prefs=context.getSharedPreferences("greenhouse_preferences_v2$suffix",Context.MODE_PRIVATE)
     fun load():AppPreferences=runCatching{prefs.getString("state",null)?.let{decode(JSONObject(it))}?:AppPreferences()}.getOrElse{AppPreferences()}
     fun save(value:AppPreferences){prefs.edit().putString("state",encode(value).toString()).apply()}
     fun clear(){prefs.edit().clear().apply()}
@@ -18,7 +18,7 @@ class AppPreferencesStore(context:Context){
         val greenhouses=JSONArray()
         p.greenhouses.forEach{g->
             val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet))}
-            greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",g.lengthFeet).put("width",g.widthFeet).put("height",g.heightFeet).put("positions",positions).put("shape",g.shape.name).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
+            greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",g.lengthFeet).put("width",g.widthFeet).put("height",g.heightFeet).put("positions",positions).put("shape",g.shape.name).put("vertices",JSONArray().also{points->g.vertices.forEach{points.put(JSONArray().put(it.x).put(it.y))}}).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
         }
         val assignments=JSONObject();p.sensorGreenhouseIds.forEach{(sensor,greenhouse)->assignments.put(sensor,greenhouse)}
         return JSONObject().put("zip",p.zipCode).put("fahrenheit",p.temperatureFahrenheit).put("refresh",p.refreshMinutes).put("retention",p.historyRetentionDays).put("screen",p.keepScreenOn).put("boot",p.autoStart).put("active",p.activeGreenhouseId).put("cameraMode",p.cameraMode.name).put("cameraStreamQuality",p.cameraStreamQuality.name).put("notifications",notifications).put("greenhouses",greenhouses).put("sensorGreenhouses",assignments)
@@ -28,9 +28,12 @@ class AppPreferencesStore(context:Context){
         for(i in 0 until array.length()){
             val x=array.getJSONObject(i);val po=x.optJSONObject("positions")?:JSONObject();val positions=mutableMapOf<String,SensorPosition>()
             po.keys().forEach{id->val p=po.getJSONObject(id);positions[id]=SensorPosition(p.optDouble("x"),p.optDouble("y"),p.optDouble("z"))}
-            val shape=runCatching{GreenhouseShape.valueOf(x.optString("shape",GreenhouseShape.Rectangle.name))}.getOrDefault(GreenhouseShape.Rectangle)
+            val points=x.optJSONArray("vertices")?.let{list->(0 until list.length().coerceAtMost(49)).mapNotNull{index->
+                list.optJSONArray(index)?.let{NormalizedPosition(it.optDouble(0),it.optDouble(1))}
+            }}.orEmpty()
+            val shape=runCatching{GreenhouseShape.valueOf(x.optString("shape",GreenhouseShape.Rectangle.name))}.getOrDefault(GreenhouseShape.Rectangle).let{if(it==GreenhouseShape.Drawn && (!DrawnPlan.valid(points) || points.any{v->v.x !in 0.0..1.0 || v.y !in 0.0..1.0})) GreenhouseShape.Rectangle else it}
             val legacyRefresh=DataSyncIntervals.normalize(o.optInt("refresh",1))
-            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),x.optDouble("length",16.0),x.optDouble("width",8.0),x.optDouble("height").takeUnless{it.isNaN()},positions,shape,x.optDouble("attachedLength",16.0),x.optDouble("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)))
+            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),x.optDouble("length",16.0),x.optDouble("width",8.0),x.optDouble("height").takeUnless{it.isNaN()},positions,shape,x.optDouble("attachedLength",16.0),x.optDouble("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),points)
         }
         if(greenhouses.isEmpty())greenhouses+=GreenhouseConfig()
         val n=o.optJSONObject("notifications")?:JSONObject()

@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import studio.junecity.greenhouse.model.GoveeSensor
 import studio.junecity.greenhouse.model.HistoryReading
 
-class HistoryStore(context: Context) : SQLiteOpenHelper(context, "greenhouse_history.db", null, 2) {
+class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOpenHelper(context, "greenhouse_history$suffix.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE readings(id INTEGER PRIMARY KEY AUTOINCREMENT, sensor_id TEXT NOT NULL, sensor_name TEXT NOT NULL, temperature REAL NOT NULL, humidity REAL NOT NULL, recorded_at INTEGER NOT NULL)")
         db.execSQL("CREATE INDEX readings_time ON readings(recorded_at DESC)")
