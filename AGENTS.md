@@ -1,6 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
-## Latest checkpoint — 2026-11-10 · Android 2.9.0 (code 28)
+## Deployment checkpoint — 2026-11-11
+- Published the tested admin export from `2487054` to the existing Greenhouse Monitor dev portal. CloudFront invalidation completed. All 30 published HTML routes and JavaScript/CSS assets checked matched the local export byte for byte. Chrome rendered secure sign-in on the customer route and the protected customer API returned HTTP 401 to an anonymous request. An authenticated owner walkthrough remains unverified on this deployment.
+- Android 2.9.0 passed the live Kinesis camera diagnostic on the API 35 emulator with normal ICE and again with forced TURN. Both runs opened two successive views and decoded frames each time. The diagnostic removed both temporary signaling channels. The Galaxy/Pixel cellular and physical Govee checks still require hardware.
+
+## Release checkpoint — 2026-11-10 · Android 2.9.0 (code 28)
 - Owner reports 2.8.4 working. Keep commit `775fba0` as the camera rollback baseline. This release adds native single-phone monitoring and simplifies Android Settings and the private admin customer workspace.
 - An authenticated viewer with no assigned greenhouse starts with Add sensors. Saving its Govee key selects standalone explicitly. GreenhouseViewModel, SecureSettingsStore and SensorSyncWorker use a separate encrypted key and separate local preferences, assignments, readings and history. This phone stays a client and offers no video while standalone. Server approval or selection resumes the established paired path. Standalone data stays on the phone and can be selected again in Devices → Manage phones. Enter Govee credentials on a newly paired server to collect there.
 - DrawnPlan, FloorPlanEditor, Models, AppPreferencesStore and StageScreens support finger-traced polygons and diagonal rectangle drags, snapped walls, adjustable dimensions, polygon area and sensor placement. Modify the plan on the collecting phone. The existing backup carries normalized vertices and sensor positions to paired viewers. Earlier clients can only render the older footprints. Update both phones for custom shapes.

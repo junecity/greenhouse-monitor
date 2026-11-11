@@ -2,6 +2,10 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-11 — Admin portal publication and live camera verification
+- Published the 2.9.0 customer management redesign to the existing admin portal. The CloudFront invalidation completed, 30 live routes and assets matched the export, Chrome rendered sign-in, and the protected customer directory API required authentication.
+- Two live Android emulator media tests passed using normal ICE and forced TURN. Both tested successive viewing sessions on the same signaling channel. No physical phone or carrier-network validation in this pass.
+
 ## 2026-11-10 — Single-phone monitoring, drawn floor plans, simpler device management (2.9.0)
 - Add Govee H5179 sensors on an authenticated phone without pairing a server. Standalone storage and provider credentials are independent of paired-server data. Returning to paired mode restores server sync and on-demand video.
 - Draw and resize a greenhouse, including triangles and concave outlines. Straighten near-square corners, calculate area and drag sensors into the footprint. Placement by name and tap is also supported. Preserve existing T and rectangle geometry.
