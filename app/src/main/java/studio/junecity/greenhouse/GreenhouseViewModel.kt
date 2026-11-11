@@ -21,7 +21,7 @@ class GreenhouseViewModel(app:Application):AndroidViewModel(app){
     private val initialEnrollment=secure.cloudEnrollment();private val initialSensors=if(initialEnrollment?.role==CloudDeviceRole.ViewerClient)currentSensors.load() else emptyList()
     private val _state=MutableStateFlow(GreenhouseUiState(sensors=initialSensors,preferences=preferences.load(),goveeConnected=if(initialEnrollment?.role==CloudDeviceRole.ViewerClient)initialSensors.isNotEmpty() else secure.goveeApiKey()!=null));val state=_state.asStateFlow()
     private var cloudSyncing=false
-    init{SensorSyncWorker.schedule(app);refreshWeather(true);if(secure.goveeApiKey()!=null&&initialEnrollment?.role!=CloudDeviceRole.ViewerClient)refreshSensors();viewModelScope.launch{while(true){delay(60_000L);if(secure.cloudEnrollment()?.role!=CloudDeviceRole.ViewerClient)refreshSensors(true)}};viewModelScope.launch{while(true){delay(_state.value.preferences.activeRefreshMinutes*60_000L);syncFromServer(true)}};viewModelScope.launch{while(true){delay(15*60_000L);refreshWeather(true)}}}
+    init{SensorSyncWorker.schedule(app);refreshWeather(true);if(secure.goveeApiKey()!=null&&initialEnrollment?.role!=CloudDeviceRole.ViewerClient)refreshSensors();viewModelScope.launch{while(true){delay(60_000L);if(secure.cloudEnrollment()?.role!=CloudDeviceRole.ViewerClient)refreshSensors(true)}};viewModelScope.launch{while(true){delay(15*60_000L);refreshWeather(true)}}}
     fun navigate(s:AppScreen){_state.value=_state.value.copy(screen=s,message=null);if(s==AppScreen.History)loadHistory()}
     fun selectMetric(m:Metric){_state.value=_state.value.copy(metric=m)}
     fun completeCloudEnrollment(role:CloudDeviceRole){
@@ -29,36 +29,68 @@ class GreenhouseViewModel(app:Application):AndroidViewModel(app){
             secure.clearGoveeApiKey();legacyZones.clear();currentSensors.clear();history.clear();preferences.clear()
             val clean=AppPreferences(cameraMode=CameraMode.ViewerClient);preferences.save(clean)
             _state.value=GreenhouseUiState(preferences=clean,message="Pair a greenhouse server to begin monitoring")
-            syncFromServer(false)
+            // The authenticated foreground lifecycle fetches the first snapshot.
         }else updatePreferences{it.copy(cameraMode=CameraMode.CameraServer)}
     }
     fun saveApiKey(key:String){if(secure.cloudEnrollment()?.role==CloudDeviceRole.ViewerClient){_state.value=_state.value.copy(message="Configure sensors on the greenhouse server phone");return};secure.saveGoveeApiKey(key);_state.value=_state.value.copy(goveeConnected=key.isNotBlank(),message=if(key.isBlank())"Govee disconnected" else "API key saved securely");if(key.isNotBlank())refreshSensors()}
     fun testConnection()=refreshSensors()
     fun refreshSensors(silent:Boolean=false){if(secure.cloudEnrollment()?.role==CloudDeviceRole.ViewerClient){syncFromServer(silent);return};val key=secure.goveeApiKey()?:return;viewModelScope.launch{if(!silent)_state.value=_state.value.copy(refreshing=true,message=null);runCatching{val credential=SensorProviderCredential.ApiKey(key);val discovered=govee.discover(credential);val prefs=_state.value.preferences;discovered.map{device->val old=_state.value.sensors.firstOrNull{it.id==device.deviceId};val zone=old?.zone?:legacyZones.zone(device.deviceId);govee.read(credential,device).toLegacySensor(greenhouseId=prefs.sensorGreenhouseIds[device.deviceId]?:old?.greenhouseId?:prefs.activeGreenhouse.id,zone=zone)}}.onSuccess{sensors->withContext(Dispatchers.IO){currentSensors.save(sensors);sensors.forEach{if(it.isFresh())history.insert(it);notifier.evaluate(it)};val n=_state.value.preferences.notifications;HeartbeatHealthStore(getApplication()).save(sensors,n.lowTemperatureF,n.highTemperatureF)};ensurePositions(sensors);_state.value=_state.value.copy(sensors=sensors,goveeConnected=true,refreshing=false,message="Updated ${sensors.size} sensors")}.onFailure{_state.value=_state.value.copy(refreshing=false,message=it.message?:"Govee refresh failed")}}}
-    fun syncFromServer(silent:Boolean=false){
-        val enrollment=secure.cloudEnrollment()?:return
-        if(enrollment.role!=CloudDeviceRole.ViewerClient||cloudSyncing)return
-        val configuration=runCatching{CloudRuntime.configurationOrNull()}.getOrNull()?:return
-        viewModelScope.launch{
-            cloudSyncing=true
-            if(!silent)_state.value=_state.value.copy(refreshing=true,message=null)
-            runCatching{
-                val gateway=gatewayForEnrollment(getApplication(),configuration,enrollment)
-                val greenhouseId=enrollment.greenhouseId.ifBlank{
-                    gateway.devices().firstOrNull{it.device.role==CloudDeviceRole.GreenhouseServer&&it.device.enabled}?.device?.greenhouseId.orEmpty()
-                }
-                if(greenhouseId.isBlank())return@runCatching null
-                if(greenhouseId!=enrollment.greenhouseId)secure.saveCloudEnrollment(enrollment.copy(greenhouseId=greenhouseId))
-                gateway.greenhouseBackup(greenhouseId)?.also{GreenhouseBackupStore(getApplication()).restore(it,CameraMode.ViewerClient)}
-            }.onSuccess{backup->
-                if(backup!=null){
-                    val syncedPreferences=preferences.load().copy(cameraMode=CameraMode.ViewerClient);preferences.save(syncedPreferences)
-                    val syncedSensors=currentSensors.load()
-                    _state.value=_state.value.copy(preferences=syncedPreferences,sensors=syncedSensors,history=withContext(Dispatchers.IO){history.recent(2_000)},goveeConnected=syncedSensors.any{it.isFresh()},refreshing=false,message=if(silent)_state.value.message else "Synchronized from greenhouse server")
-                    refreshWeather(true)
-                }else _state.value=_state.value.copy(refreshing=false,message=if(silent)_state.value.message else "Waiting for greenhouse server data")
-            }.onFailure{if(!silent)_state.value=_state.value.copy(refreshing=false,message=it.message?:"Server synchronization failed")}
-            cloudSyncing=false
+    suspend fun refreshClientWhileVisible() {
+        if (secure.cloudEnrollment()?.role != CloudDeviceRole.ViewerClient) return
+        pollClientReadings(
+            refresh = { fetchServerSnapshot(silent = true) },
+            intervalMinutes = { _state.value.preferences.activeRefreshMinutes }
+        )
+    }
+
+    fun syncFromServer(silent: Boolean = false) {
+        viewModelScope.launch { fetchServerSnapshot(silent) }
+    }
+
+    private suspend fun fetchServerSnapshot(silent: Boolean): Boolean {
+        val enrollment = secure.cloudEnrollment() ?: return true
+        if (enrollment.role != CloudDeviceRole.ViewerClient) return true
+        if (cloudSyncing) return false
+        val configuration = CloudRuntime.configurationOrNull() ?: return true
+        cloudSyncing = true
+        try {
+            if (!silent) _state.value = _state.value.copy(refreshing = true, message = null)
+            val gateway = gatewayForEnrollment(getApplication(), configuration, enrollment)
+            val greenhouseId = enrollment.greenhouseId.ifBlank {
+                gateway.devices().firstOrNull {
+                    it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled
+                }?.device?.greenhouseId.orEmpty()
+            }
+            val snapshot = if (greenhouseId.isBlank()) null else gateway.greenhouseBackup(greenhouseId)
+            if (secure.cloudEnrollment() != enrollment) return false
+            if (greenhouseId != enrollment.greenhouseId) {
+                secure.saveCloudEnrollment(enrollment.copy(greenhouseId = greenhouseId))
+            }
+            if (snapshot == null) {
+                if (!silent) _state.value = _state.value.copy(message = "Waiting for greenhouse server data")
+                return true
+            }
+            val readings = withContext(Dispatchers.IO) {
+                GreenhouseBackupStore(getApplication()).restore(snapshot, CameraMode.ViewerClient)
+                history.recent(2_000)
+            }
+            val syncedSensors = currentSensors.load()
+            _state.value = _state.value.copy(
+                preferences = preferences.load().copy(cameraMode = CameraMode.ViewerClient),
+                sensors = syncedSensors, history = readings,
+                goveeConnected = syncedSensors.any { it.isFresh() },
+                message = if (silent) _state.value.message else "Synchronized from greenhouse server"
+            )
+            refreshWeather(true)
+            return true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (!silent) _state.value = _state.value.copy(message = error.message ?: "Server synchronization failed")
+            return false
+        } finally {
+            cloudSyncing = false
+            if (!silent) _state.value = _state.value.copy(refreshing = false)
         }
     }
     private fun ensurePositions(sensors:List<GoveeSensor>){val p=_state.value.preferences;val g=p.activeGreenhouse;var positions=g.sensorPositions;sensors.filter{it.greenhouseId==g.id&&it.id !in positions}.forEachIndexed{i,s->val defaults=listOf(.2 to .18,.8 to .18,.4 to .62,.6 to .82);val n=defaults[i%defaults.size];positions=positions+(s.id to SensorPosition(n.first*g.planLengthFeet,n.second*g.planWidthFeet))};if(positions!=g.sensorPositions)savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=positions)else it}))}
@@ -70,4 +102,23 @@ class GreenhouseViewModel(app:Application):AndroidViewModel(app){
     fun saveZip(zip:String){if(!Regex("\\d{5}").matches(zip)){_state.value=_state.value.copy(message="Enter a valid five-digit ZIP code");return};savePreferences(_state.value.preferences.copy(zipCode=zip));refreshWeather()}
     fun refreshWeather(silent:Boolean=false){val zip=_state.value.preferences.zipCode;viewModelScope.launch{runCatching{weather.current(zip)}.onSuccess{_state.value=_state.value.copy(weather=it)}.onFailure{if(!silent)_state.value=_state.value.copy(message=it.message);_state.value=_state.value.copy(weather=_state.value.weather.copy(stale=true))}}}
     private fun loadHistory(){viewModelScope.launch{val rows=withContext(Dispatchers.IO){history.recent(2000)};_state.value=_state.value.copy(history=rows)}}
+}
+
+
+/** Called afresh for every foreground visit after the client device has been authorized. */
+internal suspend fun pollClientReadings(
+    refresh: suspend () -> Boolean,
+    intervalMinutes: () -> Int,
+    wait: suspend (Long) -> Unit = { delay(it) }
+) {
+    var retryDelay = 3_000L
+    while (true) {
+        if (refresh()) {
+            retryDelay = 3_000L
+            wait(intervalMinutes() * 60_000L)
+        } else {
+            wait(retryDelay)
+            retryDelay = (retryDelay * 2).coerceAtMost(30_000L)
+        }
+    }
 }

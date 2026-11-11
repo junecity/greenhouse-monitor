@@ -35,6 +35,15 @@ class LibWebRtcPeerInstrumentedTest {
     @Test
     fun masterCameraDeliversRemoteVideoToViewer() {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        repeat(2) { round ->
+            exerciseLocalSession(context, round)
+        }
+    }
+
+    private fun exerciseLocalSession(context: Context, round: Int) {
+        val previewFrames = CountDownLatch(3)
+        val localOutput = VideoFrameOutput()
+        localOutput.attach { frame -> if (frame.buffer.width > 0 && frame.buffer.height > 0) previewFrames.countDown() }
         val masterTransport = LoopbackSignaling()
         val viewerTransport = LoopbackSignaling()
         masterTransport.remote = viewerTransport
@@ -44,7 +53,7 @@ class LibWebRtcPeerInstrumentedTest {
         val viewerTrack = CountDownLatch(1)
         val viewerFrames = CountDownLatch(3)
 
-        val master = LibWebRtcPeer(context, WebRtcRole.Master, masterTransport, events(masterConnected))
+        val master = LibWebRtcPeer(context, WebRtcRole.Master, masterTransport, events(masterConnected), localPreview = localOutput)
         val viewer = LibWebRtcPeer(context, WebRtcRole.Viewer, viewerTransport, object : WebRtcPeerEvents {
             override fun onConnected() = viewerConnected.countDown()
             override fun onDisconnected(reason: String) = Unit
@@ -66,7 +75,10 @@ class LibWebRtcPeerInstrumentedTest {
         assertTrue("Master ICE did not connect", masterConnected.await(20, TimeUnit.SECONDS))
         assertTrue("Viewer ICE did not connect", viewerConnected.await(20, TimeUnit.SECONDS))
         assertTrue("Viewer did not receive the camera video track", viewerTrack.await(10, TimeUnit.SECONDS))
-        assertTrue("Viewer did not decode camera frames", viewerFrames.await(15, TimeUnit.SECONDS))
+        assertTrue("Viewer did not decode camera frames in session $round", viewerFrames.await(15, TimeUnit.SECONDS))
+        assertTrue("Server preview stopped receiving frames in session $round", previewFrames.await(5, TimeUnit.SECONDS))
+        closePeers()
+        peers.clear()
     }
 
     /** Opt-in real AWS signaling/media test. Short-lived URLs are supplied out of source control. */

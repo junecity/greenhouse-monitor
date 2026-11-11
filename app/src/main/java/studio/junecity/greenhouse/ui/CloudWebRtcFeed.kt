@@ -15,8 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,20 +32,21 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
-import org.webrtc.EglBase
-import org.webrtc.RendererCommon
-import org.webrtc.SurfaceViewRenderer
+import studio.junecity.greenhouse.streaming.VideoFrameOutput
+import org.webrtc.VideoSink
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.webrtc.VideoTrack
 import studio.junecity.greenhouse.cloud.CloudApiException
 import studio.junecity.greenhouse.cloud.CognitoAuthManager
@@ -68,39 +67,28 @@ fun CloudWebRtcFeed(
     onStatus: (Boolean, String?) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val callbackScope = rememberCoroutineScope()
     val authResult = remember(configuration) { runCatching { CognitoAuthManager(context, configuration).also(CognitoAuthManager::initialize) } }
     val gateway = remember(authResult, enrollment.deviceId) { authResult.getOrNull()?.gateway(enrollment.deviceId) }
-    var remoteTrack by remember { mutableStateOf<VideoTrack?>(null) }
+    val output = remember { VideoFrameOutput() }
+    val report by androidx.compose.runtime.rememberUpdatedState(onStatus)
     var connected by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf(if (authResult.isFailure) "Secure live view unavailable" else "Authorizing secure live view…") }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
 
-    val egl = remember { EglBase.create() }
-    val renderer = remember {
-        SurfaceViewRenderer(context).apply {
-            init(egl.eglBaseContext, null)
-            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
-            setEnableHardwareScaler(true)
+    LiveViewEffect(gateway) {
+        val api = gateway ?: run {
+            report(false, "Secure live view unavailable")
+            return@LiveViewEffect
         }
-    }
-    DisposableEffect(Unit) { onDispose { renderer.release(); egl.release() } }
-    DisposableEffect(remoteTrack) {
-        remoteTrack?.addSink(renderer)
-        onDispose { remoteTrack?.removeSink(renderer) }
-    }
-
-    LaunchedEffect(gateway, enrollment) {
-        val api = gateway ?: return@LaunchedEffect
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        // A fast stop/start must finish closing the previous backend session first.
+        viewerSessionLock.withLock {
             connected = false
-            remoteTrack = null
             message = "Authorizing secure live view…"
             val sessionResult = runCatching {
-                api.createRemoteStreamingSession(enrollment.greenhouseId, enrollment.deviceId)
+                withContext(NonCancellable) { api.createRemoteStreamingSession(enrollment.greenhouseId, enrollment.deviceId) }
             }
             val session = sessionResult.getOrElse { error ->
                 message = when (error) {
@@ -110,35 +98,34 @@ fun CloudWebRtcFeed(
                     }
                     else -> "Remote camera unavailable"
                 }
-                onStatus(false, message)
-                return@repeatOnLifecycle
+                report(false, message)
+                return@withLock
             }
             try {
+                currentCoroutineContext().ensureActive()
                 var attempt = 0
                 var activeSession = session
                 while (attempt < 5 && System.currentTimeMillis() < activeSession.expiresAtEpochMs) {
                     val disconnected = CompletableDeferred<String>()
                     val connectionReady = CompletableDeferred<Unit>()
-                    val leaseJob = launch {
-                        while (true) {
-                            delay(60_000L)
-                            if (runCatching { api.renewRemoteStreamingLease(activeSession.id) }.isFailure) {
-                                disconnected.complete("authorization_lease_failed")
-                                break
+                    val receiving = AtomicBoolean(true)
+                    val firstFrame = AtomicBoolean(true)
+                    val sink = VideoSink { frame ->
+                        if (receiving.get()) {
+                            output.onFrame(frame)
+                            if (firstFrame.compareAndSet(true, false)) callbackScope.launch {
+                                if (receiving.get()) {
+                                    connected = true
+                                    message = "Live"
+                                    report(true, null)
+                                }
                             }
                         }
                     }
                     val peer = LibWebRtcPeer(context, WebRtcRole.Viewer, KinesisWebSocketSignaling(), object : WebRtcPeerEvents {
-                        override fun onConnected() {
-                            connectionReady.complete(Unit)
-                            callbackScope.launch {
-                                connected = true
-                                message = "Secure junecity.studio live view"
-                                onStatus(true, null)
-                            }
-                        }
+                        override fun onConnected() { connectionReady.complete(Unit) }
                         override fun onDisconnected(reason: String) { disconnected.complete(reason) }
-                        override fun onRemoteVideo(track: VideoTrack) { callbackScope.launch { remoteTrack = track } }
+                        override fun onRemoteVideo(track: VideoTrack) { track.addSink(sink) }
                     })
                     try {
                         peer.connect(activeSession)
@@ -152,10 +139,9 @@ fun CloudWebRtcFeed(
                         if (!established) disconnected.complete("connection_timeout")
                         if (established && withTimeoutOrNull(remaining) { disconnected.await() } == null) break
                     } finally {
-                        leaseJob.cancel()
+                        receiving.set(false)
                         peer.close()
                         connected = false
-                        remoteTrack = null
                     }
                     attempt++
                     if (attempt < 5) {
@@ -166,12 +152,15 @@ fun CloudWebRtcFeed(
                 }
                 if (!connected) {
                     message = "Unable to connect to server camera"
-                    onStatus(false, message)
+                    report(false, message)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                report(false, "Unable to open server camera")
             } finally {
                 withContext(NonCancellable) { runCatching { api.endRemoteStreamingSession(session.id) } }
                 connected = false
-                remoteTrack = null
             }
         }
     }
@@ -194,14 +183,10 @@ fun CloudWebRtcFeed(
             .pointerInput(Unit) { detectTapGestures(onDoubleTap = { zoom = 1f; pan = Offset.Zero }) },
         contentAlignment = Alignment.Center
     ) {
-        if (remoteTrack != null) {
-            AndroidView(
-                factory = { renderer },
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y
-                }
-            )
-        } else {
+        PeerVideoSurface(output, Modifier.fillMaxSize().graphicsLayer {
+            scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y
+        })
+        if (!connected) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 DashboardIconView(DashboardIcon.Camera, DashboardTokens.Amber, Modifier.size(d(54f)))
                 Text(message, color = Color.White, fontSize = t(14f), fontWeight = FontWeight.Bold)
@@ -217,13 +202,9 @@ fun CloudWebRtcFeed(
             Spacer(Modifier.width(d(8f)))
             Text(message, color = Color.White, fontSize = t(11f), fontWeight = FontWeight.Bold)
         }
-        if (connected) Text(
-            if (zoom > 1f) "${"%.1f".format(zoom)}× · drag to pan · double-tap to reset" else "Pinch to zoom · drag to pan",
-            color = Color.White, fontSize = t(9f), fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(d(10f))
-                .background(Color(0xB0101113), RoundedCornerShape(d(16f))).padding(horizontal = d(12f), vertical = d(6f))
-        )
+
     }
 }
 
+private val viewerSessionLock = Mutex()
 private const val CONNECTION_TIMEOUT_MS = 30_000L

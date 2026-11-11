@@ -42,10 +42,11 @@ import android.util.Size
     var message by remember{mutableStateOf("Starting front camera…")}
     val previewAlpha by animateFloatAsState(if(active)1f else .25f,tween(accessibleMotionDuration(AppMotion.CameraConnectionFadeMs)),label="camera connection")
     DisposableEffect(lifecycleOwner,streamQuality,remoteActive){
-        if(remoteActive){active=false;message="Secure remote stream active";onStatus(true,null);onDispose{analysisExecutor.shutdown()}}
+        if(remoteActive){active=true;message="Live front camera";onStatus(true,null);onDispose{analysisExecutor.shutdown()}}
         else{
         val future=ProcessCameraProvider.getInstance(context)
         var provider:ProcessCameraProvider?=null
+        var boundCases = emptyArray<androidx.camera.core.UseCase>()
         var disposed=false
         val listener=Runnable{
             if(disposed || CloudCameraLease.remoteActive.value) return@Runnable
@@ -54,16 +55,18 @@ import android.util.Size
                 val selector=when{cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)->CameraSelector.DEFAULT_FRONT_CAMERA;cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)->CameraSelector.DEFAULT_BACK_CAMERA;else->error("No camera available")}
                 val preview=Preview.Builder().build().also{it.surfaceProvider=previewView.surfaceProvider}
                 val analysis=ImageAnalysis.Builder().setTargetResolution(Size(profile.width,profile.height)).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build().also{it.setAnalyzer(analysisExecutor,CameraFrameHub.analyzer(profile))}
+                boundCases = arrayOf(preview, analysis)
                 cameraProvider.unbindAll();cameraProvider.bindToLifecycle(lifecycleOwner,selector,preview,analysis)
                 active=true;message="Live front camera";onStatus(true,null)
             }.onFailure{active=false;message=it.message?:"Camera unavailable";onStatus(false,message)}
         }
         future.addListener(listener,ContextCompat.getMainExecutor(context))
-        onDispose{disposed=true;provider?.unbindAll();analysisExecutor.shutdown();onStatus(false,null)}
+        onDispose{disposed=true;provider?.unbind(*boundCases);analysisExecutor.shutdown();onStatus(false,null)}
         }
     }
     Box(modifier.clip(RoundedCornerShape(22.dp))){
-        AndroidView(factory={previewView},modifier=Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).alpha(previewAlpha))
+        if (remoteActive) PeerVideoSurface(CloudCameraLease.preview, Modifier.fillMaxSize(), mirror = true)
+        else AndroidView(factory={previewView},modifier=Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).alpha(previewAlpha))
         Row(Modifier.align(Alignment.TopEnd).padding(d(14f)).background(Color(0xD9101113),RoundedCornerShape(d(20f))).padding(horizontal=d(14f),vertical=d(7f)),verticalAlignment=Alignment.CenterVertically){
             Box(Modifier.size(d(9f)).background(if(active)DashboardTokens.Green else DashboardTokens.Amber,CircleShape));Spacer(Modifier.width(d(8f)));Text(message,color=Color.White,fontSize=t(11f),fontWeight=FontWeight.Bold)
         }

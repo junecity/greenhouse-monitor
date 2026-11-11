@@ -45,12 +45,19 @@ fun RemoteCameraFeed(
     onStatus: (Boolean, String?) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    val enrollment = remember { SecureSettingsStore(context).cloudEnrollment() }
     val configuration = remember { runCatching { CloudRuntime.configurationOrNull() }.getOrNull() }
-    if (enrollment?.role == CloudDeviceRole.ViewerClient && configuration != null) {
-        CloudWebRtcFeed(enrollment, configuration, d, t, modifier, onStatus)
-    } else {
-        LegacyRemoteCameraFeed(d, t, modifier, onStatus)
+    TimedLiveView(modifier, t, onStatus) { report ->
+        // Resolve the current greenhouse when the viewer requests video after a switch or re-pair.
+        val enrollment = remember { SecureSettingsStore(context).cloudEnrollment() }
+        if (configuration != null) {
+            if (enrollment?.role == CloudDeviceRole.ViewerClient && enrollment.greenhouseId.isNotBlank()) {
+                CloudWebRtcFeed(enrollment, configuration, d, t, Modifier.fillMaxSize(), report)
+            } else {
+                LaunchedEffect(Unit) { report(false, "Pair a greenhouse server to view its camera") }
+            }
+        } else {
+            LegacyRemoteCameraFeed(d, t, Modifier.fillMaxSize(), report)
+        }
     }
 }
 
@@ -72,8 +79,11 @@ private fun LegacyRemoteCameraFeed(
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val previewAlpha by androidx.compose.animation.core.animateFloatAsState(if(connected)1f else .25f,androidx.compose.animation.core.tween(accessibleMotionDuration(AppMotion.CameraConnectionFadeMs)),label="remote camera connection")
 
-    LaunchedEffect(pairing) {
-        if (pairing == null) return@LaunchedEffect
+    LiveViewEffect(pairing) {
+        if (pairing == null) {
+            onStatus(false, "Pair this viewer in Settings")
+            return@LiveViewEffect
+        }
         while (true) {
             val result = withContext(Dispatchers.IO) { fetchFrame(pairing, preferredHost) }
             result.onSuccess {

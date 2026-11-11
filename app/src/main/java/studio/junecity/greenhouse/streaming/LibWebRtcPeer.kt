@@ -91,10 +91,11 @@ class LibWebRtcPeer(
     private val signaling: KinesisSignalingTransport,
     private val events: WebRtcPeerEvents,
     private val captureProfile: CameraStreamProfile = CameraStreamProfile.from(CameraStreamQuality.Balanced),
-    private val iceTransportPolicy: PeerConnection.IceTransportsType = PeerConnection.IceTransportsType.ALL
+    private val iceTransportPolicy: PeerConnection.IceTransportsType = PeerConnection.IceTransportsType.ALL,
+    private val localPreview: org.webrtc.VideoSink? = null
 ) : WebRtcPeer, KinesisSignalingTransport.Listener {
     private val appContext = context.applicationContext
-    private val egl = EglBase.create()
+    private val egl = EglBase.create(VideoFrameOutput.renderContext)
     private val factory: PeerConnectionFactory
     private var peer: PeerConnection? = null
     private var capturer: CameraVideoCapturer? = null
@@ -194,7 +195,9 @@ class LibWebRtcPeer(
 
     private fun setAndSendLocalDescription(description: SessionDescription) {
         peer?.setLocalDescription(observer(onSuccess = {
-            signaling.sendDescription(SignalingDescription(description.type.canonicalForm(), description.description))
+            if (!closed.get()) runCatching {
+                signaling.sendDescription(SignalingDescription(description.type.canonicalForm(), description.description))
+            }.onFailure { if (!closed.get()) events.onDisconnected("sdp_send_failed") }
         }), description)
     }
 
@@ -210,6 +213,7 @@ class LibWebRtcPeer(
             capturer?.startCapture(captureProfile.width, captureProfile.height, captureProfile.framesPerSecond)
         }
         localTrack = factory.createVideoTrack("greenhouse-video", videoSource).also { track ->
+            localPreview?.let(track::addSink)
             peer?.addTrack(track, listOf("greenhouse-stream"))
         }
     }
@@ -228,7 +232,11 @@ class LibWebRtcPeer(
         override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
             Log.d(TAG, "${role.name} ICE gathering ${state.name}")
         }
-        override fun onIceCandidate(candidate: IceCandidate) = signaling.sendIceCandidate(SignalingIceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.sdp))
+        override fun onIceCandidate(candidate: IceCandidate) {
+            if (closed.get()) return
+            runCatching { signaling.sendIceCandidate(SignalingIceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.sdp)) }
+                .onFailure { if (!closed.get()) events.onDisconnected("ice_send_failed") }
+        }
         override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) = Unit
         override fun onAddStream(stream: MediaStream) = Unit
         override fun onRemoveStream(stream: MediaStream) = Unit

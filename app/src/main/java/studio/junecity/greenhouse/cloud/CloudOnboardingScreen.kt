@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -189,24 +190,43 @@ private fun CloudOnboarding(
         }
     }
 
-    LaunchedEffect(auth, gateway, existingEnrollment) {
+    var restoreAttempt by remember(existingEnrollment) { mutableIntStateOf(0) }
+    suspend fun retryRestore(error: Throwable) {
+        if (error is kotlinx.coroutines.CancellationException) throw error
+        val transient = generateSequence(error) { it.cause }.take(6).any {
+            it is java.io.IOException || (it is CloudApiException && (it.statusCode == 429 || it.statusCode >= 500))
+        }
+        if (existingEnrollment != null && transient) {
+            message = "Reconnecting to your greenhouse…"
+            delay((2_000L shl restoreAttempt.coerceAtMost(4)).coerceAtMost(30_000L))
+            restoreAttempt++
+        }
+    }
+    LaunchedEffect(auth, gateway, existingEnrollment, restoreAttempt, step) {
+        if (step != OnboardingStep.Auth) return@LaunchedEffect
         if (existingEnrollment?.role == CloudDeviceRole.GreenhouseServer && existingEnrollment.deviceSecret != null) {
             busy = true
             runCatching {
                 gatewayForEnrollment(context, configuration, existingEnrollment).currentDevice()
                 onAuthenticated()
             }.onFailure {
-                secure.clearCloudEnrollment()
-                message = "This server is no longer authorized. Scan a new pairing code."
+                if (it is CloudApiException && it.statusCode == 403 &&
+                    it.message in setOf("device_credential_invalid", "device_revoked", "device_disabled")) {
+                    secure.clearCloudEnrollment()
+                    message = "This server is no longer authorized. Scan a new pairing code."
+                } else {
+                    message = accountErrorMessage(it)
+                    retryRestore(it)
+                }
             }
             busy = false
         } else if (auth != null && gateway != null) {
             busy = true
             runCatching {
                 if (auth.isSignedIn()) {
-                    gateway.bootstrap()
+                    if (existingEnrollment == null) gateway.bootstrap()
                     val registered = if (existingEnrollment != null) gateway.currentDevice() else gateway.registerClientDevice()
-                    val greenhouse = registered.greenhouseId ?: gateway.devices().firstOrNull { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled }?.device?.greenhouseId.orEmpty()
+                    val greenhouse = registered.greenhouseId ?: existingEnrollment?.greenhouseId?.takeIf { it.isNotBlank() } ?: gateway.devices().firstOrNull { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled }?.device?.greenhouseId.orEmpty()
                     if (existingEnrollment != null) {
                         if (greenhouse.isNotBlank() && greenhouse != existingEnrollment.greenhouseId) {
                             secure.saveCloudEnrollment(existingEnrollment.copy(greenhouseId = greenhouse))
@@ -215,7 +235,7 @@ private fun CloudOnboarding(
                     }
                     else onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient))
                 }
-            }.onFailure { message = accountErrorMessage(it) }
+            }.onFailure { message = accountErrorMessage(it); retryRestore(it) }
             busy = false
         }
     }

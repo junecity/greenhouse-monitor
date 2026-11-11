@@ -2,6 +2,12 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-10 — Client reopen, shared server preview and timed Live View (2.8.3)
+- Client refreshes the authorized server snapshot immediately on foreground entry, retries transient errors, then returns to the greenhouse interval. Server validation retains credentials on recoverable failures.
+- Tap Live View on Dashboard or Cameras to start. Each request allows 15 seconds from the first decoded frame. Stop, leaving the feed or pausing the app closes the viewer. Continue requests another session. Camera service bounds connection setup and abandoned capture, and the local preview receives the same WebRTC capture while streaming.
+- Tested 86 Android JVM cases, lint, configured ARM build, signing and emulator installation. API 35 instrumented tests passed for consecutive local WebRTC streams with preview/decoded frames and for timed controls, background and reopen. The opt-in live AWS test was skipped with the CLI login expired. Physical Galaxy/Pixel reopen, real sensor latency and cellular viewing require verification.
+- Updated the existing plain APK on Drive and checked filename, MIME type and size against build-out. No database migration or backend deployment.
+
 ## 2026-11-10 — Live AWS signaling repair and deployed administration (2.8.2)
 - Reproduced empty Kinesis text frames triggering Android signaling disconnects. Ignore empty frames without weakening malformed-SDP validation; process service control messages without parsing nonexistent media payloads; redact parser exception payloads from logs.
 - Restart credential-bound camera, heartbeat, and alert workers after re-pairing changes enrollment, waiting for prior camera cleanup. Added a regression for credential rotation without duplicate workers.

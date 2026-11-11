@@ -20,6 +20,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import studio.junecity.greenhouse.data.AndroidDeviceStatusProvider
 import studio.junecity.greenhouse.model.AppScreen
@@ -121,6 +123,11 @@ class MainActivity : ComponentActivity() {
                     cloudEnrollmentRevision++
                 }
             ) {
+                LaunchedEffect(cloudEnrollmentRevision) {
+                    lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        viewModel.refreshClientWhileVisible()
+                    }
+                }
                 Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->
                     if (screen == AppScreen.Dashboard) {
                         DashboardScreen(state, status, now, viewModel::navigate, Modifier.fillMaxSize())
