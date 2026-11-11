@@ -88,6 +88,15 @@ class LibWebRtcPeerInstrumentedTest {
         val fixture = File(context.filesDir, "live-stream-test.json")
         val config = JSONObject(fixture.readText())
         fixture.delete()
+        var previousMaster: LibWebRtcPeer? = null
+        repeat(2) { round ->
+            previousMaster = exerciseAwsSession(context, config, round, previousMaster)
+        }
+    }
+
+    private fun exerciseAwsSession(
+        context: Context, config: JSONObject, round: Int, previousMaster: LibWebRtcPeer?
+    ): LibWebRtcPeer {
         val frames = CountDownLatch(3)
         val masterConnected = CountDownLatch(1)
         val viewerConnected = CountDownLatch(1)
@@ -108,13 +117,18 @@ class LibWebRtcPeerInstrumentedTest {
         }, iceTransportPolicy = policy)
         peers += master
         peers += viewer
-        viewer.connect(CloudJsonCodec.streamingSession(config.getJSONObject("viewer")))
+        val viewId = "diagnostic-view-$round"
+        viewer.connect(CloudJsonCodec.streamingSession(config.getJSONObject("viewer")).copy(id = viewId))
         Thread.sleep(5_500)
-        master.connect(CloudJsonCodec.streamingSession(config.getJSONObject("master")))
+        // The reopened viewer has already sent offers on the same device route.
+        previousMaster?.close()
+        master.connect(CloudJsonCodec.streamingSession(config.getJSONObject("master")).copy(id = viewId))
         assertTrue("Live AWS master ICE failed", masterConnected.await(45, TimeUnit.SECONDS))
         assertTrue("Live AWS viewer ICE failed", viewerConnected.await(15, TimeUnit.SECONDS))
         assertTrue("Live AWS viewer decoded no frames", frames.await(20, TimeUnit.SECONDS))
-        assertTrue("Unexpected streaming failures: $failures", failures.isEmpty())
+        assertTrue("Unexpected streaming failures in view $round: $failures", failures.isEmpty())
+        viewer.close()
+        return master
     }
 
     private fun events(connected: CountDownLatch) = object : WebRtcPeerEvents {

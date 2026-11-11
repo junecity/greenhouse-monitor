@@ -2,6 +2,12 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-10 — Reopen a paired camera client (2.8.4)
+- Preserve the selected greenhouse across account-device validation. Recover saved literal-null greenhouse IDs using the customer's eligible servers. Sensor sync and camera startup share the restored selection.
+- Tag signaling media with the viewing session. Ignore stale offers, answers and ICE from earlier views. Release the viewer lock before the old session DELETE and check for superseded server leases during viewing.
+- Confirmed Android's null conversion. An Android negative control without session filtering reproduced loss of the reopened stream. With the fix, both launches decoded frames using real WebRTC and simulated API/signaling, despite an outstanding DELETE and injected stale answer. Timer and preview regressions passed. Android JVM 89/89, lint, install, APK signature, backend 74/74 and portal 14/14 passed.
+- Refreshed the signed build-out and existing Drive APK. Physical Wi-Fi and cellular relaunch remain unverified. Live AWS verification needs renewed CLI authentication.
+
 ## 2026-11-10 — Client reopen, shared server preview and timed Live View (2.8.3)
 - Client refreshes the authorized server snapshot immediately on foreground entry, retries transient errors, then returns to the greenhouse interval. Server validation retains credentials on recoverable failures.
 - Tap Live View on Dashboard or Cameras to start. Each request allows 15 seconds from the first decoded frame. Stop, leaving the feed or pausing the app closes the viewer. Continue requests another session. Camera service bounds connection setup and abandoned capture, and the local preview receives the same WebRTC capture while streaming.

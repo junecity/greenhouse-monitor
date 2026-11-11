@@ -19,18 +19,19 @@ object KinesisSignalingCodec {
         val description: SignalingDescription? = null,
         val candidate: SignalingIceCandidate? = null,
         val statusSuccess: Boolean? = null,
-        val statusCode: String? = null
+        val statusCode: String? = null,
+        val sessionId: String? = null
     )
 
-    fun outgoingDescription(description: SignalingDescription, recipientClientId: String?): String = envelope(
+    fun outgoingDescription(description: SignalingDescription, recipientClientId: String?, sessionId: String? = null): String = envelope(
         when (description.type.lowercase()) { "offer" -> "SDP_OFFER"; "answer" -> "SDP_ANSWER"; else -> error("Unsupported SDP type") },
-        JSONObject().put("type", description.type.lowercase()).put("sdp", description.sdp).toString(),
+        JSONObject().put("sessionId", sessionId).put("type", description.type.lowercase()).put("sdp", description.sdp).toString(),
         recipientClientId
     )
 
-    fun outgoingCandidate(candidate: SignalingIceCandidate, recipientClientId: String?): String = envelope(
+    fun outgoingCandidate(candidate: SignalingIceCandidate, recipientClientId: String?, sessionId: String? = null): String = envelope(
         "ICE_CANDIDATE",
-        JSONObject().put("candidate", candidate.candidate).put("sdpMid", candidate.sdpMid).put("sdpMLineIndex", candidate.sdpMLineIndex).toString(),
+        JSONObject().put("sessionId", sessionId).put("candidate", candidate.candidate).put("sdpMid", candidate.sdpMid).put("sdpMLineIndex", candidate.sdpMLineIndex).toString(),
         recipientClientId
     )
 
@@ -52,9 +53,10 @@ object KinesisSignalingCodec {
         }
         if (type !in setOf("SDP_OFFER", "SDP_ANSWER", "ICE_CANDIDATE")) return@runCatching Incoming(type, sender)
         val payload = JSONObject(String(Base64.getDecoder().decode(envelope.getString("messagePayload"))))
+        val sessionId = if (payload.has("sessionId")) payload.getString("sessionId") else null
         when (type) {
-            "SDP_OFFER", "SDP_ANSWER" -> Incoming(type, sender, description = SignalingDescription(payload.getString("type"), payload.getString("sdp")))
-            "ICE_CANDIDATE" -> Incoming(type, sender, candidate = SignalingIceCandidate(payload.optString("sdpMid").takeIf { it.isNotBlank() && it != "null" }, payload.getInt("sdpMLineIndex"), payload.getString("candidate")))
+            "SDP_OFFER", "SDP_ANSWER" -> Incoming(type, sender, description = SignalingDescription(payload.getString("type"), payload.getString("sdp")), sessionId = sessionId)
+            "ICE_CANDIDATE" -> Incoming(type, sender, candidate = SignalingIceCandidate(payload.optString("sdpMid").takeIf { it.isNotBlank() && it != "null" }, payload.getInt("sdpMLineIndex"), payload.getString("candidate")), sessionId = sessionId)
             else -> Incoming(type, sender)
         }
     }.getOrElse { throw IllegalArgumentException("Invalid Kinesis signaling message", it) }
@@ -72,14 +74,14 @@ object KinesisSignalingCodec {
 
 /** Connects to a backend-issued, short-lived SigV4 Kinesis signaling URL. */
 class KinesisWebSocketSignaling(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: WebSocket.Factory = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
 ) : KinesisSignalingTransport {
-    private var listener: KinesisSignalingTransport.Listener? = null
-    private var socket: WebSocket? = null
+    @Volatile private var socket: WebSocket? = null
+    private lateinit var sessionId: String
     private var recipientClientId: String? = null
     private val closed = AtomicBoolean(false)
 
@@ -87,19 +89,28 @@ class KinesisWebSocketSignaling(
         val url = requireNotNull(session.signalingWebSocketUrl) { "Backend did not issue a signaling URL" }
         require(url.startsWith("wss://")) { "Kinesis signaling must use WSS" }
         check(socket == null) { "Signaling transport already connected" }
-        this.listener = listener
+        sessionId = session.id
         recipientClientId = session.peerClientId
         socket = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (closed.get()) return
                 Log.i(TAG, "Kinesis signaling socket opened as ${if (recipientClientId == null) "viewer" else "master"}")
                 listener.onConnected()
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (closed.get()) return
                 runCatching { KinesisSignalingCodec.incoming(text) }
                     .onSuccess { message ->
                         if (message.type == "EMPTY") return@onSuccess
                         Log.d(TAG, "Kinesis signaling received ${message.type}")
-                        if (recipientClientId == null && message.senderClientId != null) recipientClientId = message.senderClientId
+                        // Kinesis reuses the greenhouse channel and device routing ID across views.
+                        // A delayed offer/answer from a closed view must never configure its successor.
+                        if (message.description != null || message.candidate != null) {
+                            if (message.sessionId != null && message.sessionId != sessionId) return@onSuccess
+                            if (recipientClientId != null && message.senderClientId != recipientClientId) return@onSuccess
+                            if (message.type == "SDP_OFFER" && recipientClientId == null) return@onSuccess
+                            if (message.type == "SDP_ANSWER" && recipientClientId != null) return@onSuccess
+                        }
                         if (message.type == "STATUS_RESPONSE" && message.statusSuccess == false) {
                             Log.w(TAG, "Kinesis signaling rejected a message: ${message.statusCode ?: "unknown"}")
                             listener.onDisconnected("signaling_rejected_${message.statusCode ?: "unknown"}")
@@ -130,18 +141,17 @@ class KinesisWebSocketSignaling(
     }
 
     override fun sendDescription(description: SignalingDescription) {
-        check(socket?.send(KinesisSignalingCodec.outgoingDescription(description, recipientClientId)) == true) { "Signaling socket is unavailable" }
+        check(socket?.send(KinesisSignalingCodec.outgoingDescription(description, recipientClientId, sessionId)) == true) { "Signaling socket is unavailable" }
     }
 
     override fun sendIceCandidate(candidate: SignalingIceCandidate) {
-        check(socket?.send(KinesisSignalingCodec.outgoingCandidate(candidate, recipientClientId)) == true) { "Signaling socket is unavailable" }
+        check(socket?.send(KinesisSignalingCodec.outgoingCandidate(candidate, recipientClientId, sessionId)) == true) { "Signaling socket is unavailable" }
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         socket?.close(1000, "viewer_closed")
         socket = null
-        listener = null
     }
 
     private companion object { const val TAG = "GreenhouseWebRtc" }

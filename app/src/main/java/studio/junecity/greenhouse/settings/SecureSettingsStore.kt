@@ -35,7 +35,10 @@ data class CloudEnrollment(
     companion object {
         fun parse(value: String) = JSONObject(value).let {
             CloudEnrollment(
-                it.getString("deviceId"), it.getString("greenhouseId"), CloudDeviceRole.valueOf(it.getString("role")),
+                it.getString("deviceId"),
+                // Older clients persisted Android JSONObject.NULL as the literal "null".
+                it.optString("greenhouseId").takeUnless { id -> id == "null" }.orEmpty(),
+                CloudDeviceRole.valueOf(it.getString("role")),
                 if (it.has("deviceSecret") && !it.isNull("deviceSecret")) it.getString("deviceSecret").ifBlank { null } else null
             )
         }

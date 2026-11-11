@@ -34,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -48,6 +47,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.webrtc.VideoTrack
+import studio.junecity.greenhouse.cloud.AuthenticatedCloudGateway
+import studio.junecity.greenhouse.streaming.KinesisSignalingTransport
 import studio.junecity.greenhouse.cloud.CloudApiException
 import studio.junecity.greenhouse.cloud.CognitoAuthManager
 import studio.junecity.greenhouse.cloud.CognitoConfiguration
@@ -67,13 +68,27 @@ fun CloudWebRtcFeed(
     onStatus: (Boolean, String?) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    val callbackScope = rememberCoroutineScope()
     val authResult = remember(configuration) { runCatching { CognitoAuthManager(context, configuration).also(CognitoAuthManager::initialize) } }
     val gateway = remember(authResult, enrollment.deviceId) { authResult.getOrNull()?.gateway(enrollment.deviceId) }
+    CloudWebRtcViewer(enrollment, gateway, d, t, modifier, onStatus)
+}
+
+@Composable
+internal fun CloudWebRtcViewer(
+    enrollment: CloudEnrollment,
+    gateway: AuthenticatedCloudGateway?,
+    d: (Float) -> androidx.compose.ui.unit.Dp,
+    t: (Float) -> androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier,
+    onStatus: (Boolean, String?) -> Unit,
+    signaling: () -> KinesisSignalingTransport = { KinesisWebSocketSignaling() }
+) {
+    val context = LocalContext.current
+    val callbackScope = rememberCoroutineScope()
     val output = remember { VideoFrameOutput() }
     val report by androidx.compose.runtime.rememberUpdatedState(onStatus)
     var connected by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf(if (authResult.isFailure) "Secure live view unavailable" else "Authorizing secure live view…") }
+    var message by remember { mutableStateOf(if (gateway == null) "Secure live view unavailable" else "Authorizing secure live view…") }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
@@ -83,8 +98,9 @@ fun CloudWebRtcFeed(
             report(false, "Secure live view unavailable")
             return@LiveViewEffect
         }
-        // A fast stop/start must finish closing the previous backend session first.
-        viewerSessionLock.withLock {
+        var createdSessionId: String? = null
+        viewerSessionLock.lock()
+        try {
             connected = false
             message = "Authorizing secure live view…"
             val sessionResult = runCatching {
@@ -99,8 +115,9 @@ fun CloudWebRtcFeed(
                     else -> "Remote camera unavailable"
                 }
                 report(false, message)
-                return@withLock
+                return@LiveViewEffect
             }
+            createdSessionId = session.id
             try {
                 currentCoroutineContext().ensureActive()
                 var attempt = 0
@@ -122,7 +139,7 @@ fun CloudWebRtcFeed(
                             }
                         }
                     }
-                    val peer = LibWebRtcPeer(context, WebRtcRole.Viewer, KinesisWebSocketSignaling(), object : WebRtcPeerEvents {
+                    val peer = LibWebRtcPeer(context, WebRtcRole.Viewer, signaling(), object : WebRtcPeerEvents {
                         override fun onConnected() { connectionReady.complete(Unit) }
                         override fun onDisconnected(reason: String) { disconnected.complete(reason) }
                         override fun onRemoteVideo(track: VideoTrack) { track.addSink(sink) }
@@ -159,8 +176,16 @@ fun CloudWebRtcFeed(
             } catch (error: Exception) {
                 report(false, "Unable to open server camera")
             } finally {
-                withContext(NonCancellable) { runCatching { api.endRemoteStreamingSession(session.id) } }
                 connected = false
+            }
+        } finally {
+            viewerSessionLock.unlock()
+            // DELETE targets one session UUID. A slow cleanup from a stopped Activity
+            // must not block the next tap from opening a fresh authorized view.
+            createdSessionId?.let { id ->
+                withContext(NonCancellable) {
+                    withTimeoutOrNull(10_000L) { runCatching { api.endRemoteStreamingSession(id) } }
+                }
             }
         }
     }

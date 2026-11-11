@@ -24,6 +24,17 @@ data class RegisteredDevice(
     val clientRole: String? = null
 )
 
+/** An account-level client can select among several greenhouse servers. */
+internal suspend fun resolveClientGreenhouse(
+    selected: String?, registered: String?, devices: suspend () -> List<AccountDevice>
+): String {
+    selected?.takeIf { it.isNotBlank() && it != "null" }?.let { return it }
+    registered?.takeIf { it.isNotBlank() && it != "null" }?.let { return it }
+    return devices().asSequence().map { it.device }
+        .filter { it.role == CloudDeviceRole.GreenhouseServer && it.enabled && !it.communicationSuspended }
+        .mapNotNull { it.greenhouseId }.firstOrNull { it.isNotBlank() && it != "null" }.orEmpty()
+}
+
 data class AccountDevice(
     val device: RegisteredDevice,
     val createdAtEpochMs: Long

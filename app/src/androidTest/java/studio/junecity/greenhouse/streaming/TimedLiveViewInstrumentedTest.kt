@@ -8,6 +8,14 @@ import kotlinx.coroutines.awaitCancellation
 import studio.junecity.greenhouse.ui.LiveViewEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import studio.junecity.greenhouse.cloud.CloudJsonCodec
+import studio.junecity.greenhouse.cloud.resolveClientGreenhouse
+import androidx.test.rule.GrantPermissionRule
+import org.junit.Rule
+import studio.junecity.greenhouse.ui.CloudWebRtcViewer
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,6 +30,49 @@ import studio.junecity.greenhouse.ui.TimedLiveView
 
 @RunWith(AndroidJUnit4::class)
 class TimedLiveViewInstrumentedTest {
+    @get:Rule val cameraPermission = GrantPermissionRule.grant(android.Manifest.permission.CAMERA)
+
+    @Test fun reopenedClientDecodesVideoDespiteLateAnswerAndPendingOldDelete() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        ReopenCameraChannel(context).use { fixture ->
+            val liveViews = AtomicInteger()
+            val deviceReply = JSONObject("""{"id":"viewer-device","role":"VIEWER_CLIENT","enabled":true,"greenhouseId":null}""")
+            // The old Android decoder treated this response as a greenhouse named "null".
+            assertEquals("null", deviceReply.optString("greenhouseId"))
+            val registered = CloudJsonCodec.device(deviceReply)
+            assertEquals(null, registered.greenhouseId)
+            val restoredHouse = runBlocking {
+                resolveClientGreenhouse(fixture.enrollment.greenhouseId, registered.greenhouseId) {
+                    error("The paired greenhouse should survive reopening")
+                }
+            }
+            fun openClient(house: String) = ActivityScenario.launch(MainActivity::class.java).also { scenario ->
+                scenario.onActivity { activity ->
+                    activity.setContent {
+                        TimedLiveView(Modifier.fillMaxSize(), { it.sp }, { live, _ ->
+                            if (live) liveViews.incrementAndGet()
+                        }) { report ->
+                            CloudWebRtcViewer(fixture.enrollment.copy(greenhouseId = house), fixture.api, { it.dp }, { it.sp },
+                                Modifier.fillMaxSize(), report, fixture::signalingTransport)
+                        }
+                    }
+                }
+            }
+            openClient(fixture.enrollment.greenhouseId).use {
+                click("Live View · 15s")
+                waitFor(25_000, "First viewer received no decoded frame") { liveViews.get() == 1 }
+            }
+            assertTrue("First view did not release its session", fixture.firstDelete.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            openClient(restoredHouse).use {
+                click("Live View · 15s")
+                waitFor(25_000, "Reopened viewer received no decoded frame") { liveViews.get() == 2 }
+                assertEquals(2, fixture.creates.get())
+                assertEquals(1, fixture.lateAnswers.get())
+                fixture.releaseDelete.countDown()
+            }
+        }
+    }
+
     @Test fun timerStopContinueAndBackgroundReleaseTheFeed() {
         val starts = AtomicInteger()
         val stops = AtomicInteger()
@@ -81,10 +132,10 @@ class TimedLiveViewInstrumentedTest {
         return matching(root)
     }
 
-    private fun waitFor(timeoutMs: Long = 5_000, condition: () -> Boolean) {
+    private fun waitFor(timeoutMs: Long = 5_000, message: String = "Timed out waiting for Live View", condition: () -> Boolean) {
         val end = SystemClock.elapsedRealtime() + timeoutMs
         while (!condition() && SystemClock.elapsedRealtime() < end) SystemClock.sleep(100)
         // Do not execute a click predicate twice after it has succeeded.
-        assertTrue("Timed out waiting for Live View", SystemClock.elapsedRealtime() < end)
+        assertTrue(message, SystemClock.elapsedRealtime() < end)
     }
 }

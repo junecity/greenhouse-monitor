@@ -261,7 +261,7 @@ object CloudJsonCodec {
     fun device(json: JSONObject) = RegisteredDevice(
         json.getString("id"), json.optString("tenantId"),
         CloudDeviceRole.valueOf(if (json.getString("role") == "GREENHOUSE_SERVER") "GreenhouseServer" else "ViewerClient"),
-        json.optBoolean("enabled", true), json.optString("greenhouseId").ifBlank { null },
+        json.optBoolean("enabled", true), json.optNullableString("greenhouseId"),
         json.optBoolean("online", false), json.optLongOrNull("lastSeenAtEpochMs"),
         json.optBoolean("communicationSuspended", false), json.optNullableString("clientRole")
     )

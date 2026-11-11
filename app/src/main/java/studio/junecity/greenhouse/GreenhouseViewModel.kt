@@ -56,11 +56,7 @@ class GreenhouseViewModel(app:Application):AndroidViewModel(app){
         try {
             if (!silent) _state.value = _state.value.copy(refreshing = true, message = null)
             val gateway = gatewayForEnrollment(getApplication(), configuration, enrollment)
-            val greenhouseId = enrollment.greenhouseId.ifBlank {
-                gateway.devices().firstOrNull {
-                    it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled
-                }?.device?.greenhouseId.orEmpty()
-            }
+            val greenhouseId = resolveClientGreenhouse(enrollment.greenhouseId, null, gateway::devices)
             val snapshot = if (greenhouseId.isBlank()) null else gateway.greenhouseBackup(greenhouseId)
             if (secure.cloudEnrollment() != enrollment) return false
             if (greenhouseId != enrollment.greenhouseId) {

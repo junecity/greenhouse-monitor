@@ -226,7 +226,7 @@ private fun CloudOnboarding(
                 if (auth.isSignedIn()) {
                     if (existingEnrollment == null) gateway.bootstrap()
                     val registered = if (existingEnrollment != null) gateway.currentDevice() else gateway.registerClientDevice()
-                    val greenhouse = registered.greenhouseId ?: existingEnrollment?.greenhouseId?.takeIf { it.isNotBlank() } ?: gateway.devices().firstOrNull { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled }?.device?.greenhouseId.orEmpty()
+                    val greenhouse = resolveClientGreenhouse(existingEnrollment?.greenhouseId, registered.greenhouseId, gateway::devices)
                     if (existingEnrollment != null) {
                         if (greenhouse.isNotBlank() && greenhouse != existingEnrollment.greenhouseId) {
                             secure.saveCloudEnrollment(existingEnrollment.copy(greenhouseId = greenhouse))
@@ -302,7 +302,7 @@ private fun CloudOnboarding(
                             if (!result.isSignedIn) error("Additional account verification is required")
                             api.bootstrap()
                             val registered = api.registerClientDevice()
-                            val greenhouse = registered.greenhouseId ?: api.devices().firstOrNull { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled }?.device?.greenhouseId.orEmpty()
+                            val greenhouse = resolveClientGreenhouse(null, registered.greenhouseId, api::devices)
                             onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient))
                         }
                     }
