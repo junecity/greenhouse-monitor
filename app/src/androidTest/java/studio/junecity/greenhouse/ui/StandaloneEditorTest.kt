@@ -228,6 +228,7 @@ class StandaloneEditorTest {
     @Test fun dashboardClearsHolePunchInBothLandscapeRotations() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             val sides = mutableSetOf<String>()
+            val original = mutableMapOf<String, Rect>()
             for (orientation in listOf(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
                                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE)) {
                 scenario.onActivity { activity ->
@@ -244,15 +245,28 @@ class StandaloneEditorTest {
                 screenshot("dashboard-cutout-$orientation")
                 val reading = Rect().also { find("69°F").getBoundsInScreen(it) }
                 val dew = Rect().also { find("Dew Point").getBoundsInScreen(it) }
+                val labels = listOf("Outdoor", "VPD", "Avg RH", "Dashboard", "Main Greenhouse")
+                val landmarks = labels.associateWith { label -> Rect().also { find(label).getBoundsInScreen(it) } }
+                var nav = find("Dashboard")
+                while (!nav.isClickable && nav.parent != null) nav = nav.parent
+                val firstTab = Rect().also { nav.getBoundsInScreen(it) }
                 scenario.onActivity { activity ->
                     val view = activity.window.decorView
                     val cutout = view.rootWindowInsets.displayCutout
                     assumeTrue("Exercise with a landscape display cutout", cutout != null &&
                         (cutout.safeInsetLeft > 0 || cutout.safeInsetRight > 0))
                     val left = cutout!!.safeInsetLeft
-                    val right = view.width - cutout.safeInsetRight
+                    val holes = cutout.boundingRects
                     for (rect in listOf(temp,dew,reading)) {
-                        assertTrue("Reading $rect must stay inside $left..$right",rect.left >= left && rect.right <= right)
+                        assertFalse("A reading intersects the camera: $rect", holes.any { Rect.intersects(it,rect) })
+                    }
+                    assertTrue("Dashboard nav should begin at the original edge: $firstTab", firstTab.left < view.width / 30)
+                    // A centered lens touches only the Avg Temp card in normal landscape.
+                    // These original anchors must be pixel-identical with the lens on the opposite side.
+                    val centered = holes.any { it.centerY() in view.height/3..(2*view.height/3) }
+                    if (centered) landmarks.forEach { (label, bounds) ->
+                        original[label]?.let { assertEquals("The cutout moved $label", it, bounds) }
+                        original[label] = bounds
                     }
                     sides += if (left > 0) "left" else "right"
                 }

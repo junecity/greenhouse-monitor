@@ -1,6 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
-## Current checkpoint — 2026-11-12 · Android 2.10.0 (code 30)
+## Current checkpoint — 2026-11-12 · Android 2.10.1 (code 31)
+- DashboardScreen measures against the original full-width grid. DashboardCutout applies the amber recess and interior clearance only where real cutout bounds intersect an individual component; avoid applying a display-wide horizontal inset to the dashboard frame.
+- A compact measurement tile gives space to the label and reading before the icon. StandaloneEditorTest checks lens clearance, the original navigation edge and matching unaffected landmarks in both landscape rotations. Build-out contains the plain signed APK and emulator screenshots in 2.10.1-qa. Physical phone fit remains to be confirmed.
+
+## Release checkpoint — 2026-11-12 · Android 2.10.0 (code 30)
 - DashboardCutout.kt uses real display-cutout bounds to draw a curved amber recess. The intersecting left measurement tile extends around that recess while its contents keep the safe inset. Check both landscape rotations on a physical hole-punch phone. The adaptive and density-specific launcher resources use the owner-supplied greenhouse artwork.
 - ZoneInsights.kt and OvernightInsights.kt add two-sensor comparisons, a time slider on the saved floor plan, and an overnight low/coverage report. Night is 8 PM–8 AM in the phone’s time zone. Treat spans longer than ten minutes as gaps. Replay uses current sensor placement and only available history. Remote coverage is limited by the existing snapshot payload.
 - AlertNotifier, CloudAlertService and MainActivity route a notification to an authenticated incident view with recent readings. Local alerts can identify the sensor and location. Cloud alerts carry greenhouse identity only. Reject a destination for a different device registration or selected greenhouse. Explicit Live View uses the existing timed, authorized viewer.

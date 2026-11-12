@@ -2,6 +2,12 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-12 — Restore full-width dashboard card positions (2.10.1)
+- Restored the original Outdoor, VPD, gauge, camera, sensor and navigation grid positions. The cutout shapes only the intersecting component, with space for the complete temperature label and value. Other monitoring screens retain their existing inset handling.
+- Updated DashboardCutout.kt, DashboardScreen.kt, StandaloneEditorTest.kt and release metadata. JVM suite: 98 passed. Android lint: 0 errors, 40 warnings and one hint. The first build attempt caught an incidental dependency-version edit; the final APK uses the original dependency versions.
+- API 35 ARM emulator: centered-notch and corner-hole instrumentation both passed in landscape and reverse landscape. The centered-notch test verified identical coordinates for the unaffected landmarks and the original left edge of the navigation bar. Screenshots are in build-out/2.10.1-qa. Physical Galaxy/Pixel validation remains open.
+- The signed dual-ARM APK upgrade-installed as version 31. Existing Drive file replaced and verified by name, MIME and byte count (83,106,146). Local SHA-256: `e7baa357a14f3964763e15de86f0cf7e446351e2fb99383275db6abcddb89873`.
+
 ## 2026-11-12 — Camera cutout, launcher artwork and overnight zone tools (2.10.0)
 - The landscape dashboard follows the physical lens position with a charcoal curve edged in amber. The adjoining reading tile wraps around it. Insets protect readings and controls when rotated. Updated the adaptive and legacy launcher resources.
 - Zones offers current and overnight temperature/humidity comparisons and an overnight map slider. History summarizes the coldest measured sensor and estimated minutes below the configured threshold, with observed and missing minutes per sensor. Overnight uses device-local time and supports DST.
