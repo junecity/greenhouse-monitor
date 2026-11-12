@@ -2,6 +2,14 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-12 — Camera cutout, launcher artwork and overnight zone tools (2.10.0)
+- The landscape dashboard follows the physical lens position with a charcoal curve edged in amber. The adjoining reading tile wraps around it. Insets protect readings and controls when rotated. Updated the adaptive and legacy launcher resources.
+- Zones offers current and overnight temperature/humidity comparisons and an overnight map slider. History summarizes the coldest measured sensor and estimated minutes below the configured threshold, with observed and missing minutes per sensor. Overnight uses device-local time and supports DST.
+- Temperature notification taps open incident details after the existing authentication gate. Sensor-scoped alerts show the current mapped spot and incident-hour trend. Eligible viewers can start the existing 15-second live view. Cloud alerts without a sensor ID remain greenhouse-wide.
+- Local SQLite reads include the available night as well as the existing chart window. Remote playback still depends on available snapshot history and the currently saved sensor map.
+- Verified 98 JVM tests, Android lint (0 errors, 40 warnings and one hint), 74 backend tests and 14 portal tests. Twelve distinct Android instrumentation cases passed across the suite and the launcher-mask check. The opt-in live AWS camera case was skipped. Centered-notch and corner-hole overlays on API 35 both passed the reading-bounds check in landscape and reverse landscape. Emulated 69°F screenshots and the rendered launcher are under build-out/2.10.0-qa. No physical phone validation of this release.
+- Verified install-in-place with the existing signer, both ARM ABIs, and version 30. The plain 83,067,626-byte APK is under build-out and replaced the stable Google Drive file. Local SHA-256 is `57398d31f017b79a303cde16fea182fee6d5f965f3abc8b8a5a1283b3efc0043`. Drive name, MIME and size were read back.
+
 ## 2026-11-12 — Drag greenhouse corners and save the measured footprint (2.9.1)
 - Drag a corner or pull a midpoint to add one. Toggle grid snapping, watch the square footage and dimensions update, and save the footprint to Zones. The heat map clips its colors and grid along the saved walls.
 - Verified 94 JVM tests, lint, ARM upgrade installation, and a portrait Settings → save → reopen → landscape Zones touchscreen test on Android API 35. A 128 sq ft rectangle became a 96 sq ft snapped polygon and then an 83.15 sq ft free-positioned polygon. Both screenshots show the same final footprint. No physical-device validation.

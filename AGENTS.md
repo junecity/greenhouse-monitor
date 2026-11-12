@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-12 · Android 2.10.0 (code 30)
+- DashboardCutout.kt uses real display-cutout bounds to draw a curved amber recess. The intersecting left measurement tile extends around that recess while its contents keep the safe inset. Check both landscape rotations on a physical hole-punch phone. The adaptive and density-specific launcher resources use the owner-supplied greenhouse artwork.
+- ZoneInsights.kt and OvernightInsights.kt add two-sensor comparisons, a time slider on the saved floor plan, and an overnight low/coverage report. Night is 8 PM–8 AM in the phone’s time zone. Treat spans longer than ten minutes as gaps. Replay uses current sensor placement and only available history. Remote coverage is limited by the existing snapshot payload.
+- AlertNotifier, CloudAlertService and MainActivity route a notification to an authenticated incident view with recent readings. Local alerts can identify the sensor and location. Cloud alerts carry greenhouse identity only. Reject a destination for a different device registration or selected greenhouse. Explicit Live View uses the existing timed, authorized viewer.
+- No database or AWS migration. Release checks and download artifact details are in CHANGELOG.md.
+
 ## Release checkpoint — 2026-11-12 · Android 2.9.1 (code 29)
 - Settings → General → Floor plan opens an editor with draggable wall corners and midpoints. A midpoint drag inserts a vertex. Snap on aligns adjacent walls and whole feet; Snap off allows fractional coordinates. The live preview uses a fixed scale throughout the gesture. Save normalizes the same polygon and physical bounding box consumed by Zones and the existing backup codec. Corner edits preserve sensor locations in feet and project displaced sensors to a wall.
 - `FloorPlanEditor.kt`, `DrawnPlan.kt`, and `StageScreens.kt` implement the editor, live area, proportional footprint and polygon-clipped Zones grid. Legacy rectangular/T plans, freehand tracing, sensor placement and explicit dimensions remain available. There is no data migration.

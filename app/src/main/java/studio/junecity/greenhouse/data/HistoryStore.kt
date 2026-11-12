@@ -25,9 +25,18 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
         writableDatabase.insertWithOnConflict("readings",null,ContentValues().apply{put("sensor_id",sensor.id);put("sensor_name",sensor.name);put("temperature",temperature);put("humidity",humidity);put("recorded_at",sensor.updatedAtEpochMs)},SQLiteDatabase.CONFLICT_IGNORE)
         writableDatabase.delete("readings","recorded_at < ?",arrayOf((System.currentTimeMillis()-30L*24*60*60*1000).toString()))
     }
-    fun recent(limit:Int=200):List<HistoryReading>{
+    fun recent(limit:Int=200):List<HistoryReading> = readRows(null, null, limit.toString())
+
+    /** Preserve the old chart window and include the entire locally retained night for dense sensor fleets. */
+    fun dashboardReadings():List<HistoryReading> {
+        val since = NightWindow.at(System.currentTimeMillis()).start - READING_LIFETIME
+        val selection = "recorded_at >= min(CAST(? AS INTEGER), COALESCE((SELECT recorded_at FROM readings ORDER BY recorded_at DESC LIMIT 1 OFFSET 1999), 0))"
+        return readRows(selection, arrayOf(since.toString()), null)
+    }
+
+    private fun readRows(selection:String?, args:Array<String>?, limit:String?):List<HistoryReading>{
         val result=mutableListOf<HistoryReading>()
-        val cursor=readableDatabase.query("readings",arrayOf("sensor_id","sensor_name","temperature","humidity","recorded_at"),null,null,null,null,"recorded_at DESC",limit.toString())
+        val cursor=readableDatabase.query("readings",arrayOf("sensor_id","sensor_name","temperature","humidity","recorded_at"),selection,args,null,null,"recorded_at DESC",limit)
         try { while(cursor.moveToNext()) result+=HistoryReading(cursor.getString(0),cursor.getString(1),cursor.getDouble(2),cursor.getDouble(3),cursor.getLong(4)) } finally { cursor.close() }
         return result
     }

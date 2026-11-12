@@ -38,9 +38,18 @@ import studio.junecity.greenhouse.cloud.CloudHeartbeatService
 import studio.junecity.greenhouse.cloud.CloudOnboardingGate
 import studio.junecity.greenhouse.cloud.CloudRuntime
 import studio.junecity.greenhouse.settings.SecureSettingsStore
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.time.LocalDateTime
 
 class MainActivity : ComponentActivity() {
+    private var alert by mutableStateOf<studio.junecity.greenhouse.data.AlertDestination?>(null)
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        alert = studio.junecity.greenhouse.data.AlertDestination.from(intent)
+    }
+
     private val viewModel: GreenhouseViewModel by viewModels()
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -51,8 +60,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        alert = studio.junecity.greenhouse.data.AlertDestination.from(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= 29) {
@@ -133,6 +142,24 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(cloudEnrollmentRevision) {
                     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                         viewModel.refreshClientWhileVisible()
+                    }
+                }
+                alert?.let { target ->
+                    val active = state.preferences.activeGreenhouse
+                    val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
+                    val matches = target.device == enrollment?.deviceId &&
+                        target.greenhouse == (if (target.cloud) enrollment?.greenhouseId else active.id)
+                    val dismiss = { alert = null; intent.action = null }
+                    if (matches) {
+                        studio.junecity.greenhouse.ui.InsightsDialog(studio.junecity.greenhouse.ui.Insight.Alert, state,
+                            { (it * .5f).dp },
+                            { it.sp }, target.sensor,
+                            !state.standalone && enrollment?.role == CloudDeviceRole.ViewerClient,
+                            target.time, dismiss)
+                    } else {
+                        androidx.compose.material3.AlertDialog(onDismissRequest = dismiss,
+                            text = { androidx.compose.material3.Text("This alert belongs to another greenhouse or device registration.") },
+                            confirmButton = { androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close") } })
                     }
                 }
                 Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->

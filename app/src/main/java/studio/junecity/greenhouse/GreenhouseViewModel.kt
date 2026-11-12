@@ -59,6 +59,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     }
 
     init {
+        loadHistory()
         SensorSyncWorker.schedule(app)
         refreshWeather(true)
         if (secure.sensorKey(secure.cloudEnrollment()) != null) refreshSensors()
@@ -69,7 +70,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         } }
         viewModelScope.launch { while (true) { delay(15*60_000L); refreshWeather(true) } }
     }
-    fun navigate(s:AppScreen){_state.value=_state.value.copy(screen=s,message=null);if(s==AppScreen.History)loadHistory()}
+    fun navigate(s:AppScreen){_state.value=_state.value.copy(screen=s,message=null);if(s==AppScreen.History || s==AppScreen.Zones)loadHistory()}
     fun selectMetric(m:Metric){_state.value=_state.value.copy(metric=m)}
     fun completeCloudEnrollment(role:CloudDeviceRole){
         selectStores()
@@ -132,6 +133,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                         prefs.notifications.lowTemperatureF, prefs.notifications.highTemperatureF)
                 }
                 if (stores != storage) return@launch
+                loadHistory()
                 ensurePositions(sensors)
                 _state.value = _state.value.copy(sensors = sensors, goveeConnected = true, message = "Updated ${sensors.size} sensors")
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
@@ -176,7 +178,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             }
             val readings = withContext(Dispatchers.IO) {
                 GreenhouseBackupStore(getApplication()).restore(snapshot, CameraMode.ViewerClient)
-                paired.history.recent(2_000)
+                paired.history.dashboardReadings()
             }
             if (secure.cloudEnrollment() != enrollment.copy(greenhouseId=greenhouseId) || stores != paired) return false
             val syncedSensors = paired.sensors.load()
@@ -206,7 +208,14 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     private fun savePreferences(p:AppPreferences){preferences.save(p);_state.value=_state.value.copy(preferences=p)}
     fun saveZip(zip:String){if(!Regex("\\d{5}").matches(zip)){_state.value=_state.value.copy(message="Enter a valid five-digit ZIP code");return};savePreferences(_state.value.preferences.copy(zipCode=zip));refreshWeather()}
     fun refreshWeather(silent:Boolean=false){val zip=_state.value.preferences.zipCode;viewModelScope.launch{runCatching{weather.current(zip)}.onSuccess{_state.value=_state.value.copy(weather=it)}.onFailure{if(!silent)_state.value=_state.value.copy(message=it.message);_state.value=_state.value.copy(weather=_state.value.weather.copy(stale=true))}}}
-    private fun loadHistory(){viewModelScope.launch{val rows=withContext(Dispatchers.IO){history.recent(2000)};_state.value=_state.value.copy(history=rows)}}
+    private fun loadHistory() {
+        val storage = stores
+        val owner = secure.cloudEnrollment()
+        viewModelScope.launch {
+            val rows = withContext(Dispatchers.IO) { storage.history.dashboardReadings() }
+            if (storage == stores && owner == secure.cloudEnrollment()) _state.value = _state.value.copy(history = rows)
+        }
+    }
 }
 
 

@@ -81,9 +81,8 @@ class CloudAlertService : Service() {
 
     private fun showAlert(alert: MonitoringAlert) {
         val notificationId = alert.id.hashCode()
-        val openApp = PendingIntent.getActivity(
-            this, notificationId, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        val openApp = studio.junecity.greenhouse.data.AlertDestination.pending(
+            this, notificationId, alert.greenhouseId, null, true, alert.occurredAtEpochMs
         )
         val acknowledge = PendingIntent.getBroadcast(
             this,

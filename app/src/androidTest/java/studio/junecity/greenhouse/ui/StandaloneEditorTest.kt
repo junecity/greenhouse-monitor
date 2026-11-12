@@ -225,6 +225,136 @@ class StandaloneEditorTest {
         } finally { bitmap.recycle() }
     }
 
+    @Test fun dashboardClearsHolePunchInBothLandscapeRotations() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            val sides = mutableSetOf<String>()
+            for (orientation in listOf(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+                                       android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE)) {
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = orientation
+                    activity.setContent {
+                        val g = GreenhouseConfig(sensorPositions = mapOf("bench" to SensorPosition(8.0,4.0)))
+                        val sensor = GoveeSensor("bench", "H5179", "Bench",69.0,91.0,true,System.currentTimeMillis(),zone="Zone 1")
+                        DashboardScreen(GreenhouseUiState(standalone=true,sensors=listOf(sensor), preferences=AppPreferences(greenhouses=listOf(g))), DeviceStatus(80,true,true),
+                            java.time.LocalDateTime.now(), {}, Modifier.fillMaxSize())
+                    }
+                }
+                SystemClock.sleep(1200)
+                val temp = Rect().also { find("Avg Temp").getBoundsInScreen(it) }
+                screenshot("dashboard-cutout-$orientation")
+                val reading = Rect().also { find("69°F").getBoundsInScreen(it) }
+                val dew = Rect().also { find("Dew Point").getBoundsInScreen(it) }
+                scenario.onActivity { activity ->
+                    val view = activity.window.decorView
+                    val cutout = view.rootWindowInsets.displayCutout
+                    assumeTrue("Exercise with a landscape display cutout", cutout != null &&
+                        (cutout.safeInsetLeft > 0 || cutout.safeInsetRight > 0))
+                    val left = cutout!!.safeInsetLeft
+                    val right = view.width - cutout.safeInsetRight
+                    for (rect in listOf(temp,dew,reading)) {
+                        assertTrue("Reading $rect must stay inside $left..$right",rect.left >= left && rect.right <= right)
+                    }
+                    sides += if (left > 0) "left" else "right"
+                }
+            }
+            assertEquals(setOf("left","right"), sides)
+        }
+    }
+
+    @Test fun openComparisonReplayAndOvernightReport() {
+        val now = System.currentTimeMillis()
+        val night = studio.junecity.greenhouse.data.NightWindow.at(now)
+        val sensors = listOf(GoveeSensor("a","H5179","North",63.0,80.0,true,now,zone="Zone 1"),
+            GoveeSensor("b","H5179","South",67.0,70.0,true,now,zone="Zone 2"))
+        val history = sensors.flatMap { sensor -> listOf(night.start, night.end).map { at ->
+            HistoryReading(sensor.id,sensor.name,sensor.temperatureF!!,sensor.humidityPercent!!,at) } }
+        val g = GreenhouseConfig(sensorPositions=mapOf("a" to SensorPosition(3.0,2.0),"b" to SensorPosition(10.0,5.0)))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            fun show(screen:AppScreen) {
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    activity.setContent {
+                        StageScreen(GreenhouseUiState(screen=screen,standalone=true,sensors=sensors,history=history,
+                            preferences=AppPreferences(greenhouses=listOf(g))),DeviceStatus(80,true,true),
+                            java.time.LocalDateTime.now(),{},{},{},{},{_,_,_->},{_,_->},{},{},{_,_,_->},{},Modifier.fillMaxSize())
+                    }
+                }
+            }
+            show(AppScreen.Zones)
+            click("Compare")
+            find("Current difference · 4°F · 10 humidity points")
+            screenshot("compare")
+            click("Close")
+            click("Replay")
+            find("Markers show readings. Colors estimate conditions between sensors using the current layout.")
+            screenshot("replay")
+            click("Close")
+            show(AppScreen.History)
+            click("Overnight report")
+            find("Overnight report")
+            screenshot("overnight")
+        }
+    }
+
+    @Test fun alertIntentCarriesTheIncidentAndLocalNotifierTargetsTheZone() {
+        val context = instrumentation.targetContext
+        val manager = context.getSystemService(android.app.NotificationManager::class.java)
+        val id = "qa-alert-reading"
+        val suffix = "_qa_alert"
+        val state = context.getSharedPreferences("alert_state$suffix", android.content.Context.MODE_PRIVATE)
+        state.edit().clear().commit()
+        try {
+            val at = System.currentTimeMillis()
+            studio.junecity.greenhouse.data.AlertNotifier(context,suffix).evaluate(
+                GoveeSensor(id, "H5179", "Bench",25.0,70.0,true,at,zone="Zone 3"))
+            val notice = manager.activeNotifications.single { it.id == id.hashCode() }.notification
+            assertTrue(notice.extras.getString(android.app.Notification.EXTRA_TITLE)!!.contains("Zone 3"))
+            assertNotNull(notice.contentIntent)
+            val intent = android.content.Intent(studio.junecity.greenhouse.data.AlertDestination.ACTION)
+                .putExtra("greenhouse","main").putExtra("sensor",id).putExtra("time",at)
+            val route = studio.junecity.greenhouse.data.AlertDestination.from(intent)!!
+            assertEquals(at, route.time)
+            assertEquals(id, route.sensor)
+            assertEquals("main",route.greenhouse)
+        } finally {
+            manager.cancel(id.hashCode())
+            state.edit().clear().commit()
+        }
+    }
+
+    @Test fun launcherRendersTheSuppliedArtworkUnderTheDeviceMask() {
+        val context = instrumentation.targetContext
+        val icon = context.packageManager.getApplicationIcon(context.packageName)
+        assertTrue(icon is android.graphics.drawable.AdaptiveIconDrawable)
+        val bitmap = android.graphics.Bitmap.createBitmap(192,192,android.graphics.Bitmap.Config.ARGB_8888)
+        icon.setBounds(0,0,192,192)
+        icon.draw(android.graphics.Canvas(bitmap))
+        var amber = 0
+        var blue = 0
+        for(y in 0 until bitmap.height) for(x in 0 until bitmap.width) {
+            val pixel=bitmap.getPixel(x,y)
+            if(android.graphics.Color.alpha(pixel)==0) continue
+            val red=android.graphics.Color.red(pixel)
+            val green=android.graphics.Color.green(pixel)
+            val b=android.graphics.Color.blue(pixel)
+            if(y < 80 && red > 200 && green > 80 && b < 85) amber++
+            if(y > 80 && b > 200 && green > 165 && red < 160) blue++
+        }
+        assertTrue("Expected the amber Wi-Fi symbol",amber > 80)
+        assertTrue("Expected the blue humidity symbol",blue > 30)
+        java.io.File(context.cacheDir,"qa-launcher.png").outputStream().use {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)
+        }
+        bitmap.recycle()
+    }
+
+    private fun screenshot(name:String) {
+        val file = java.io.File(instrumentation.targetContext.cacheDir, "qa-$name.png")
+        val bitmap = ui.takeScreenshot() ?: error("Screenshot unavailable")
+        try { file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) } }
+        finally { bitmap.recycle() }
+    }
+
     private fun find(label:String):AccessibilityNodeInfo {
         fun match(n:AccessibilityNodeInfo):AccessibilityNodeInfo? {
             if(n.text?.toString()==label || n.contentDescription?.toString()==label) return n
