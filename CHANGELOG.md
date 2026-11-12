@@ -2,6 +2,11 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-12 — Drag greenhouse corners and save the measured footprint (2.9.1)
+- Drag a corner or pull a midpoint to add one. Toggle grid snapping, watch the square footage and dimensions update, and save the footprint to Zones. The heat map clips its colors and grid along the saved walls.
+- Verified 94 JVM tests, lint, ARM upgrade installation, and a portrait Settings → save → reopen → landscape Zones touchscreen test on Android API 35. A 128 sq ft rectangle became a 96 sq ft snapped polygon and then an 83.15 sq ft free-positioned polygon. Both screenshots show the same final footprint. No physical-device validation.
+- Updated the plain APK in build-out and the existing Drive download. Camera, backend, and account services required no release changes.
+
 ## 2026-11-11 — Admin portal publication and live camera verification
 - Published the 2.9.0 customer management redesign to the existing admin portal. The CloudFront invalidation completed, 30 live routes and assets matched the export, Chrome rendered sign-in, and the protected customer directory API required authentication.
 - Two live Android emulator media tests passed using normal ICE and forced TURN. Both tested successive viewing sessions on the same signaling channel. No physical phone or carrier-network validation in this pass.

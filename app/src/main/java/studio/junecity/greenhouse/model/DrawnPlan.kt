@@ -61,7 +61,7 @@ object DrawnPlan {
         return simplify(points.subList(0,corner+1),tolerance).dropLast(1) + simplify(points.subList(corner,points.size),tolerance)
     }
 
-    fun fromStroke(raw: List<NormalizedPosition>, original: GreenhouseConfig, tolerance: Double): GreenhouseConfig? {
+    fun fromStroke(raw: List<NormalizedPosition>, original: GreenhouseConfig, tolerance: Double, snap: Boolean = true): GreenhouseConfig? {
         if (raw.size < 2) return null
         val corners = simplify(raw,tolerance).toMutableList()
         if (distance(corners.first(),corners.last()) <= tolerance*2) corners.removeAt(corners.lastIndex)
@@ -71,6 +71,7 @@ object DrawnPlan {
             corners.add(1,NormalizedPosition(b.x,a.y))
             corners.add(NormalizedPosition(a.x,b.y))
         }
+        if (!snap) return fromCorners(corners, original)
         // Level nearly horizontal/vertical walls, including the closing edge. Diagonals remain diagonal.
         val snapped = corners.map { NormalizedPosition(round(it.x),round(it.y)) }.toMutableList()
         for (i in corners.indices) {
@@ -82,12 +83,32 @@ object DrawnPlan {
             if (dx > 0 && dy <= dx*.12) snapped[j] = b.copy(y=a.y)
             else if (dy > 0 && dx <= dy*.12) snapped[j] = b.copy(x=a.x)
         }
-        if (!valid(snapped)) return null
-        val left = snapped.minOf { it.x }
-        val top = snapped.minOf { it.y }
-        val width = snapped.maxOf { it.x } - left
-        val height = snapped.maxOf { it.y } - top
-        val points = snapped.map { NormalizedPosition((it.x-left)/width,(it.y-top)/height) }
-        return original.copy(shape=GreenhouseShape.Drawn, lengthFeet=width, widthFeet=height, vertices=points)
+        return fromCorners(snapped, original)
+    }
+
+    /** Store the bounding box and its normalized outline together. The editor works in physical feet. */
+    fun fromCorners(corners: List<NormalizedPosition>, original: GreenhouseConfig): GreenhouseConfig? {
+        if (!valid(corners)) return null
+        val left = corners.minOf { it.x }
+        val top = corners.minOf { it.y }
+        val width = corners.maxOf { it.x } - left
+        val height = corners.maxOf { it.y } - top
+        if (width !in 0.1..480.0 || height !in 0.1..480.0) return null
+        val points = corners.map { NormalizedPosition((it.x-left)/width, (it.y-top)/height) }
+        if (!valid(points)) return null
+        val plan = original.copy(shape=GreenhouseShape.Drawn, lengthFeet=width, widthFeet=height, vertices=points)
+        // Moving a wall must not stretch or translate sensors in the physical greenhouse.
+        return plan.copy(sensorPositions=original.sensorPositions.mapValues { (_, sensor) ->
+            plan.coercePoint(sensor.xFeet-left, sensor.yFeet-top).copy(heightFeet=sensor.heightFeet)
+        })
+    }
+
+    fun snapCorner(point: NormalizedPosition, previous: NormalizedPosition, next: NormalizedPosition,
+                   toleranceFeet: Double): NormalizedPosition {
+        fun align(value: Double, a: Double, b: Double): Double {
+            val nearest = if (abs(value-a) <= abs(value-b)) a else b
+            return if (abs(value-nearest) <= toleranceFeet.coerceAtMost(0.45)) nearest else round(value)
+        }
+        return NormalizedPosition(align(point.x, previous.x, next.x), align(point.y, previous.y, next.y))
     }
 }

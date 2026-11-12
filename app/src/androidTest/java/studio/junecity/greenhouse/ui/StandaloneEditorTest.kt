@@ -157,6 +157,74 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun dragCornersThenReopenSavedFootprintInZones() {
+        val store=AppPreferencesStore(instrumentation.targetContext,"_corner_fixture")
+        store.clear()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    activity.setContent {
+                        val prefs=androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(store.load()) }
+                        StageScreen(GreenhouseUiState(screen=AppScreen.Settings,standalone=true,preferences=prefs.value),
+                            DeviceStatus(80,true,true),java.time.LocalDateTime.now(),{},{},{},{},{_,_,_->},{_,_->},
+                            {},{},{_,_,_->},{ update ->
+                                prefs.value=update(prefs.value)
+                                store.save(prefs.value)
+                            },Modifier.fillMaxSize())
+                    }
+                }
+                find("Govee API key")
+                click("Devices")
+                find("Connectivity")
+                click("General")
+                click("Edit layout")
+                find("128 sq ft")
+                val bounds=Rect().also { find("Greenhouse floor plan").getBoundsInScreen(it) }
+                val scale=minOf(bounds.width()/(16f*1.35f),bounds.height()/(8f*1.35f))
+                fun at(x:Float,y:Float)=(.5f+(x-8)*scale/bounds.width()) to (.5f+(y-4)*scale/bounds.height())
+                gesture(bounds,listOf(at(16f,0f),at(12.1f,2f)))
+                find("96 sq ft")
+                click("Save layout")
+                val snapped=store.load().activeGreenhouse
+                assertEquals(96.0,snapped.areaSquareFeet,.001)
+                click("Edit layout")
+                click("Snap on")
+                gesture(bounds,listOf(at(6f,1f),at(6.35f,3.2f)))
+                recordScreen("layout-editor")
+                click("Save layout")
+                val free=store.load().activeGreenhouse
+                assertEquals(5,free.vertices.size)
+                assertTrue(free.areaSquareFeet in 80.0..88.0)
+                assertTrue(kotlin.math.abs(free.areaSquareFeet-kotlin.math.round(free.areaSquareFeet))>.01)
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val recovered=store.load().activeGreenhouse
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    activity.setContent {
+                        StageScreen(GreenhouseUiState(screen=AppScreen.Zones,preferences=store.load()),
+                            DeviceStatus(80,true,true),java.time.LocalDateTime.now(),{},{},{},{},{_,_,_->},{_,_->},
+                            {},{},{_,_,_->},{},Modifier.fillMaxSize())
+                    }
+                }
+                find("${recovered.name} · ${recovered.areaLabel()}")
+                find(recovered.dimensionsLabel())
+                recordScreen("layout-zones")
+            }
+        } finally { store.clear() }
+    }
+
+    private fun recordScreen(name:String) {
+        if (InstrumentationRegistry.getArguments().getString("captureLayout")!="true") return
+        val bitmap=requireNotNull(ui.takeScreenshot())
+        try {
+            instrumentation.targetContext.openFileOutput("$name.png",0).use { stream ->
+                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,stream))
+            }
+        } finally { bitmap.recycle() }
+    }
+
     private fun find(label:String):AccessibilityNodeInfo {
         fun match(n:AccessibilityNodeInfo):AccessibilityNodeInfo? {
             if(n.text?.toString()==label || n.contentDescription?.toString()==label) return n
@@ -164,7 +232,14 @@ class StandaloneEditorTest {
             return null
         }
         repeat(60){ ui.rootInActiveWindow?.let{match(it)?.let{return it}};SystemClock.sleep(80) }
-        error("Missing $label")
+        val visible=mutableListOf<String>()
+        fun collect(node:AccessibilityNodeInfo) {
+            node.text?.let { visible.add(it.toString()) }
+            for(i in 0 until node.childCount) node.getChild(i)?.let(::collect)
+        }
+        ui.rootInActiveWindow?.let(::collect)
+        error("Missing $label. Visible: ${visible.joinToString()}")
+
     }
     private fun click(label:String){
         var node:AccessibilityNodeInfo?=find(label)

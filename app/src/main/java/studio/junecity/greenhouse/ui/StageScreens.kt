@@ -2,6 +2,8 @@ package studio.junecity.greenhouse.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,6 +25,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -63,7 +66,7 @@ import kotlin.math.roundToInt
 
 @Composable private fun MetricControls(active:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){val labels=listOf(Triple(Metric.Temperature,"Temperature",DashboardIcon.Thermometer),Triple(Metric.Humidity,"Humidity",DashboardIcon.Droplet),Triple(Metric.Vpd,"VPD",DashboardIcon.Gauge),Triple(Metric.DewPoint,"Dew Point",DashboardIcon.Droplet));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){labels.forEach{(m,label,icon)->val selected=m==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onMetric(m)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else if(m==Metric.Humidity||m==Metric.DewPoint)DashboardTokens.Blue else Color.White,Modifier.size(d(26f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
-@Composable private fun ZonesContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit,onMove:(String,Double,Double)->Unit){val g=state.preferences.activeGreenhouse;val fresh=state.sensors.filter{it.greenhouseId==g.id&&it.isFresh()};val samples=SpatialInterpolator.samples(fresh,g,state.metric);val center=SpatialInterpolator.center(samples,g);val shapeLabel=if(g.shape==GreenhouseShape.Drawn)"Floor plan · ${g.areaSquareFeet.roundToInt()} sq ft" else if(g.shape==GreenhouseShape.TShape)"T plan · ${g.areaSquareFeet.roundToInt()} sq ft" else "${g.lengthFeet.roundToInt()} × ${g.widthFeet.roundToInt()} ft";Column(Modifier.fillMaxSize()){Row(Modifier.height(d(74f)),horizontalArrangement=Arrangement.spacedBy(d(18f))){NeonPanel(Modifier.weight(.30f).fillMaxHeight()){Row(Modifier.fillMaxSize().padding(horizontal=d(25f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(DashboardIcon.HeatMap,Color.White,Modifier.size(d(30f)));Spacer(Modifier.width(d(20f)));Text("${g.name} · $shapeLabel",color=Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}};Box(Modifier.weight(.70f)){MetricControls(state.metric,d,t,onMetric)}};Spacer(Modifier.height(d(14f)));Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(14f))){Column(Modifier.weight(.18f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(d(12f))){ZoneStat("Avg Temp",formatTemp(SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,g,Metric.Temperature),g)),DashboardIcon.Thermometer,Color.White,d,t,Modifier.weight(1f));ZoneStat("Avg Humidity",formatHumidity(SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,g,Metric.Humidity),g)),DashboardIcon.Droplet,DashboardTokens.Blue,d,t,Modifier.weight(1f));ZoneStat("Sensors","${fresh.size} Online",DashboardIcon.Wifi,DashboardTokens.Green,d,t,Modifier.weight(1f))};NeonPanel(Modifier.weight(.51f).fillMaxHeight()){Column(Modifier.fillMaxSize().padding(d(18f))){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Zone Heat Map",color=Color.White,fontSize=t(23f),fontWeight=FontWeight.Bold);Text("Center ${formatMetric(center,state.metric)}  ·  ${g.planLengthFeet.roundToInt()} × ${g.planWidthFeet.roundToInt()} ft footprint",color=Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold)};Spacer(Modifier.height(d(10f)));HeatMap(samples,state.metric,g,fresh,d,t,onMove,Modifier.weight(1f).fillMaxWidth())}};NeonPanel(Modifier.weight(.31f).fillMaxHeight()){if(fresh.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("No fresh sensor readings",color=DashboardTokens.Muted,fontSize=t(16f))}else LazyColumn(Modifier.fillMaxSize().padding(d(10f)),verticalArrangement=Arrangement.spacedBy(d(7f))){items(fresh,key={it.id}){s->ZoneSummary(s,d,t)}}}}}}
+@Composable private fun ZonesContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit,onMove:(String,Double,Double)->Unit){val g=state.preferences.activeGreenhouse;val fresh=state.sensors.filter{it.greenhouseId==g.id&&it.isFresh()};val samples=SpatialInterpolator.samples(fresh,g,state.metric);val center=SpatialInterpolator.center(samples,g);val shapeLabel=g.areaLabel();Column(Modifier.fillMaxSize()){Row(Modifier.height(d(74f)),horizontalArrangement=Arrangement.spacedBy(d(18f))){NeonPanel(Modifier.weight(.30f).fillMaxHeight()){Row(Modifier.fillMaxSize().padding(horizontal=d(25f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(DashboardIcon.HeatMap,Color.White,Modifier.size(d(30f)));Spacer(Modifier.width(d(20f)));Text("${g.name} · $shapeLabel",color=Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}};Box(Modifier.weight(.70f)){MetricControls(state.metric,d,t,onMetric)}};Spacer(Modifier.height(d(14f)));Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(14f))){Column(Modifier.weight(.18f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(d(12f))){ZoneStat("Avg Temp",formatTemp(SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,g,Metric.Temperature),g)),DashboardIcon.Thermometer,Color.White,d,t,Modifier.weight(1f));ZoneStat("Avg Humidity",formatHumidity(SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,g,Metric.Humidity),g)),DashboardIcon.Droplet,DashboardTokens.Blue,d,t,Modifier.weight(1f));ZoneStat("Sensors","${fresh.size} Online",DashboardIcon.Wifi,DashboardTokens.Green,d,t,Modifier.weight(1f))};NeonPanel(Modifier.weight(.51f).fillMaxHeight()){Column(Modifier.fillMaxSize().padding(d(18f))){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Zone Heat Map",color=Color.White,fontSize=t(23f),fontWeight=FontWeight.Bold);Text("Center ${formatMetric(center,state.metric)}  ·  ${g.dimensionsLabel()} footprint",color=Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold)};Spacer(Modifier.height(d(10f)));HeatMap(samples,state.metric,g,fresh,d,t,onMove,Modifier.weight(1f).fillMaxWidth())}};NeonPanel(Modifier.weight(.31f).fillMaxHeight()){if(fresh.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("No fresh sensor readings",color=DashboardTokens.Muted,fontSize=t(16f))}else LazyColumn(Modifier.fillMaxSize().padding(d(10f)),verticalArrangement=Arrangement.spacedBy(d(7f))){items(fresh,key={it.id}){s->ZoneSummary(s,d,t)}}}}}}
 
 @Composable private fun ZoneStat(label:String,value:String,icon:DashboardIcon,tint:Color,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier){NeonPanel(modifier){Row(Modifier.fillMaxSize().padding(d(18f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,tint,Modifier.size(d(46f)));Spacer(Modifier.width(d(18f)));Column{Text(label,color=Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold);Text(value,color=tint,fontSize=t(27f),fontWeight=FontWeight.Bold)}}}}
 @Composable private fun ZoneSummary(s:GoveeSensor,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit){val color=sensorColor(s);Row(Modifier.fillMaxWidth().height(d(74f)).background(Color(0x7A08282C),RoundedCornerShape(d(16f))).border(d(1f),Color(0xFF245A61),RoundedCornerShape(d(16f))).padding(d(10f)),verticalAlignment=Alignment.CenterVertically){Box(Modifier.width(d(10f)).fillMaxHeight().background(color,RoundedCornerShape(d(8f))));Spacer(Modifier.width(d(14f)));Column(Modifier.weight(1f)){Text(s.zone,color=Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold);Text(s.name,color=DashboardTokens.Muted,fontSize=t(11f),maxLines=1)};Text(formatTemp(s.temperatureF),color=color,fontSize=t(22f),fontWeight=FontWeight.Bold)}}
@@ -77,23 +80,13 @@ import kotlin.math.roundToInt
             val samplesPerFoot=2
             val cols=kotlin.math.ceil(g.planLengthFeet*samplesPerFoot).toInt().coerceIn(1,120)
             val rows=kotlin.math.ceil(g.planWidthFeet*samplesPerFoot).toInt().coerceIn(1,120)
-            val values=List(rows){y->List(cols){x->val px=(x+.5)*g.planLengthFeet/cols;val py=(y+.5)*g.planWidthFeet/rows;if(g.containsPoint(px,py))SpatialInterpolator.estimate(samples,px,py) else null}}
+            val values=List(rows){y->List(cols){x->val px=(x+.5)*g.planLengthFeet/cols;val py=(y+.5)*g.planWidthFeet/rows;SpatialInterpolator.estimate(samples,px,py)}}
             val finite=values.flatten().filterNotNull()
             val min=finite.minOrNull()?:60.0
             val max=finite.maxOrNull()?:80.0
             Canvas(Modifier.fillMaxSize()){
                 val cw=size.width/cols
                 val rh=size.height/rows
-                for(y in 0 until rows)for(x in 0 until cols){
-                    val px=(x+.5)*g.planLengthFeet/cols
-                    val py=(y+.5)*g.planWidthFeet/rows
-                    if(g.containsPoint(px,py)){val v=values[y][x];drawRect(if(v==null)Color(0xFF0B3134) else heatColor(v,min,max,metric),Offset(x*cw,y*rh),Size(cw+1,rh+1))}
-                }
-                val footWidth=size.width/g.planLengthFeet.toFloat()
-                val footHeight=size.height/g.planWidthFeet.toFloat()
-                for(y in 0 until kotlin.math.ceil(g.planWidthFeet).toInt())for(x in 0 until kotlin.math.ceil(g.planLengthFeet).toInt()){
-                    if(g.containsPoint(x+.5,y+.5))drawRect(Color.White.copy(alpha=.08f),Offset(x*footWidth,y*footHeight),Size(footWidth,footHeight),style=Stroke(d(.5f).toPx()))
-                }
                 val outline=Path()
                 g.outline().forEachIndexed { i,p ->
                     val x=(p.x*size.width).toFloat()
@@ -101,6 +94,23 @@ import kotlin.math.roundToInt
                     if(i==0) outline.moveTo(x,y) else outline.lineTo(x,y)
                 }
                 outline.close()
+                clipPath(outline) {
+                    for (y in 0 until rows) for (x in 0 until cols) {
+                        val value=values[y][x]
+                        val color=if(value==null) Color(0xFF0B3134) else heatColor(value,min,max,metric)
+                        drawRect(color,Offset(x*cw,y*rh),Size(cw+1,rh+1))
+                    }
+                    val gridColor=Color.White.copy(alpha=.12f)
+                    val gridStroke=d(.5f).toPx()
+                    for (foot in 1 until kotlin.math.ceil(g.planLengthFeet).toInt()) {
+                        val x=size.width*foot/g.planLengthFeet.toFloat()
+                        drawLine(gridColor,Offset(x,0f),Offset(x,size.height),gridStroke)
+                    }
+                    for (foot in 1 until kotlin.math.ceil(g.planWidthFeet).toInt()) {
+                        val y=size.height*foot/g.planWidthFeet.toFloat()
+                        drawLine(gridColor,Offset(0f,y),Offset(size.width,y),gridStroke)
+                    }
+                }
                 drawPath(outline,Color.White,style=Stroke(d(2f).toPx(),cap=StrokeCap.Round))
                 if(g.shape==GreenhouseShape.TShape){
                     val junctionY=(g.widthFeet/g.planWidthFeet*size.height).toFloat()
@@ -109,13 +119,13 @@ import kotlin.math.roundToInt
                     drawLine(Color.White,Offset(junctionLeft,junctionY),Offset(junctionRight,junctionY),d(2f).toPx(),StrokeCap.Round)
                 }
             }
-            Text("${g.lengthFeet.roundToInt()} × ${g.widthFeet.roundToInt()} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.TopCenter).offset(y=maxHeight*(g.widthFeet/g.planWidthFeet/2.0).toFloat()-d(10f)).background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
-            if(g.shape==GreenhouseShape.TShape)Text("${g.attachedLengthFeet.roundToInt()} × ${g.attachedWidthFeet.roundToInt()} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.Center).offset(y=maxHeight*((g.widthFeet+g.attachedLengthFeet/2.0)/g.planWidthFeet-.5).toFloat()).graphicsLayer{rotationZ=90f}.background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
+            Text("${planNumber(g.lengthFeet)} × ${planNumber(g.widthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.TopCenter).offset(y=maxHeight*(g.widthFeet/g.planWidthFeet/2.0).toFloat()-d(10f)).background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
+            if(g.shape==GreenhouseShape.TShape)Text("${planNumber(g.attachedLengthFeet)} × ${planNumber(g.attachedWidthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.Center).offset(y=maxHeight*((g.widthFeet+g.attachedLengthFeet/2.0)/g.planWidthFeet-.5).toFloat()).graphicsLayer{rotationZ=90f}.background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
             sensors.forEachIndexed{i,s->val stored=g.sensorPositions[s.id]?:g.coercePoint(g.planLengthFeet*(if(i%2==0).2 else .8),g.planWidthFeet*(if(i<2).2 else .7));DraggableSensor(s,stored.normalized(g),metric,d,t,maxWidth.value,maxHeight.value){nx,ny->onMove(s.id,nx,ny)}}
         }
     }
 }
-@Composable private fun DraggableSensor(sensor:GoveeSensor,initial:NormalizedPosition,metric:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,widthDp:Float,heightDp:Float,onMove:(Double,Double)->Unit){var x by remember(sensor.id,initial.x){mutableDoubleStateOf(initial.x)};var y by remember(sensor.id,initial.y){mutableDoubleStateOf(initial.y)};val density=androidx.compose.ui.platform.LocalDensity.current.density;val value=when(metric){Metric.Temperature->formatTemp(sensor.temperatureF);Metric.Humidity->formatHumidity(sensor.humidityPercent);Metric.Vpd->sensor.vpdKpa?.let{"%.1f".format(it)}?:"—";Metric.DewPoint->formatTemp(sensor.dewPointF)};Column(Modifier.offset{IntOffset((x*widthDp*density-d(42f).toPx()).roundToInt(),(y*heightDp*density-d(42f).toPx()).roundToInt())}.size(d(84f)).background(Color(0xCC082326),CircleShape).border(d(2f),Color.White,CircleShape).pointerInput(sensor.id){detectDragGestures(onDragEnd={onMove(x,y)}){change,drag->change.consume();x=(x+drag.x/(widthDp*density)).coerceIn(.04,.96);y=(y+drag.y/(heightDp*density)).coerceIn(.08,.92)}},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){Text(sensor.zone.removePrefix("Zone ").let{"S$it"},color=Color.White,fontSize=t(14f),fontWeight=FontWeight.Bold);Text(value,color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Box(Modifier.size(d(8f)).background(if(sensor.online)DashboardTokens.Green else Color.Gray,CircleShape))}}
+@Composable private fun DraggableSensor(sensor:GoveeSensor,initial:NormalizedPosition,metric:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,widthDp:Float,heightDp:Float,onMove:(Double,Double)->Unit){var x by remember(sensor.id,initial.x){mutableDoubleStateOf(initial.x)};var y by remember(sensor.id,initial.y){mutableDoubleStateOf(initial.y)};val density=androidx.compose.ui.platform.LocalDensity.current.density;val value=when(metric){Metric.Temperature->formatTemp(sensor.temperatureF);Metric.Humidity->formatHumidity(sensor.humidityPercent);Metric.Vpd->sensor.vpdKpa?.let{"%.1f".format(it)}?:"—";Metric.DewPoint->formatTemp(sensor.dewPointF)};Column(Modifier.offset{IntOffset((x*widthDp*density-d(42f).toPx()).roundToInt(),(y*heightDp*density-d(42f).toPx()).roundToInt())}.size(d(84f)).background(Color(0xCC082326),CircleShape).border(d(2f),Color.White,CircleShape).pointerInput(sensor.id,widthDp,heightDp){detectDragGestures(onDragEnd={onMove(x,y)}){change,drag->change.consume();x=(x+drag.x/(widthDp*density)).coerceIn(.04,.96);y=(y+drag.y/(heightDp*density)).coerceIn(.08,.92)}},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){Text(sensor.zone.removePrefix("Zone ").let{"S$it"},color=Color.White,fontSize=t(14f),fontWeight=FontWeight.Bold);Text(value,color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Box(Modifier.size(d(8f)).background(if(sensor.online)DashboardTokens.Green else Color.Gray,CircleShape))}}
 
 @Composable private fun HistoryContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){Column(Modifier.fillMaxSize()){Row(Modifier.height(d(72f)),horizontalArrangement=Arrangement.spacedBy(d(18f))){NeonPanel(Modifier.weight(.30f).fillMaxHeight()){Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(DashboardIcon.Calendar,Color.White,Modifier.size(d(28f)));Spacer(Modifier.width(d(14f)));Text("Last 7 Days",color=Color.White,fontSize=t(19f),fontWeight=FontWeight.Bold)}};Box(Modifier.weight(.70f)){MetricControls(state.metric,d,t,onMetric)}};Spacer(Modifier.height(d(16f)));Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(14f))){NeonPanel(Modifier.weight(.70f).fillMaxHeight()){Column(Modifier.fillMaxSize().padding(d(22f))){Text("${state.metric.name} History",color=Color.White,fontSize=t(24f),fontWeight=FontWeight.Bold);Spacer(Modifier.height(d(12f)));HistoryChart(state.history,state.metric,d,t,Modifier.weight(1f).fillMaxWidth())}};NeonPanel(Modifier.weight(.30f).fillMaxHeight()){val grouped=state.history.groupBy{it.sensorId};if(grouped.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("No recorded sensors",color=DashboardTokens.Muted,fontSize=t(15f))}else LazyColumn(Modifier.fillMaxSize().padding(d(10f)),verticalArrangement=Arrangement.spacedBy(d(7f))){items(grouped.entries.toList().take(6)){(_,rows)->val latest=rows.maxByOrNull{it.timestampEpochMs};val vals=rows.map{historyMetric(it,state.metric)};Row(Modifier.fillMaxWidth().height(d(76f)).background(Color(0x6607272B),RoundedCornerShape(d(14f))).padding(d(12f)),verticalAlignment=Alignment.CenterVertically){Box(Modifier.width(d(9f)).fillMaxHeight().background(sensorColor(latest?.sensorName?:""),RoundedCornerShape(d(6f))));Spacer(Modifier.width(d(12f)));Column(Modifier.weight(1f)){Text(latest?.sensorName?:"Sensor",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Text("Min ${formatMetric(vals.minOrNull(),state.metric)}   Max ${formatMetric(vals.maxOrNull(),state.metric)}",color=DashboardTokens.Muted,fontSize=t(11f))};Text(formatMetric(latest?.let{historyMetric(it,state.metric)},state.metric),color=DashboardTokens.Green,fontSize=t(21f),fontWeight=FontWeight.Bold)}}}}}}}
 @Composable private fun HistoryChart(history:List<HistoryReading>,metric:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier){Box(modifier){var entered by remember(metric){mutableStateOf(false)};LaunchedEffect(metric){entered=true};val reveal by androidx.compose.animation.core.animateFloatAsState(if(entered)1f else 0f,androidx.compose.animation.core.tween(accessibleMotionDuration(AppMotion.ChartRevealMs)),label="chart reveal");Canvas(Modifier.fillMaxSize().graphicsLayer{scaleX=reveal;transformOrigin=androidx.compose.ui.graphics.TransformOrigin(0f,.5f)}){val cutoff=System.currentTimeMillis()-7L*24*60*60*1000;val rows=history.filter{it.timestampEpochMs>=cutoff}.sortedBy{it.timestampEpochMs};if(rows.isEmpty()){drawLine(Color(0xFF35646B),Offset(0f,size.height/2),Offset(size.width,size.height/2),2f);return@Canvas};val values=rows.map{historyMetric(it,metric)};val padding=if(metric==Metric.Vpd).2 else 2.0;val min=(values.minOrNull()?:0.0)-padding;val max=(values.maxOrNull()?:1.0)+padding;val start=rows.first().timestampEpochMs;val end=rows.last().timestampEpochMs.coerceAtLeast(start+1);repeat(5){i->val y=size.height*i/4;drawLine(Color(0xFF35646B),Offset(0f,y),Offset(size.width,y),1f)};rows.groupBy{it.sensorId}.values.forEachIndexed{i,series->val p=Path();series.forEachIndexed{j,r->val x=((r.timestampEpochMs-start).toFloat()/(end-start))*size.width;val v=historyMetric(r,metric);val y=size.height-((v-min)/(max-min)*size.height).toFloat();if(j==0)p.moveTo(x,y)else p.lineTo(x,y)};drawPath(p,sensorColor(i),style=Stroke(5f,cap=StrokeCap.Round))}};if(history.isEmpty())Text("No history yet · readings appear after the first sensor sync",color=DashboardTokens.Muted,fontSize=t(15f),modifier=Modifier.align(Alignment.Center))}}
@@ -341,20 +351,31 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     var layoutExpanded by remember(g.id){mutableStateOf(false)}
     var greenhouseManagerExpanded by remember{mutableStateOf(false)}
     val editable=!viewer || state.standalone
+    if (layoutExpanded && editable) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(d(20f)),
+            verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween,
+                verticalAlignment=Alignment.CenterVertically) {
+                Text("Floor plan", color=Color.White, fontSize=t(25f), fontWeight=FontWeight.Bold)
+                TextButton(onClick={ layoutExpanded=false }) { Text("Cancel", color=DashboardTokens.Muted) }
+            }
+            FloorPlanEditor(g,state.sensors.filter{it.greenhouseId==g.id}){saved->
+                onPrefs { prefs -> prefs.copy(greenhouses=prefs.greenhouses.map { current ->
+                    if(current.id!=g.id) current else saved.copy(
+                        refreshMinutes=current.refreshMinutes,
+                        sensorPositions=current.sensorPositions.mapValues { (_,position)->saved.reproject(position,current) } + saved.sensorPositions
+                    )
+                }) }
+                layoutExpanded=false
+            }
+        }
+        return
+    }
     LazyColumn(Modifier.fillMaxSize().padding(d(20f)),verticalArrangement=Arrangement.spacedBy(d(12f))){
         item{Text(g.name,color=Color.White,fontSize=t(27f),fontWeight=FontWeight.ExtraBold)}
         if(editable && greenhouseManagerExpanded)item{SettingsRow("Greenhouses"){state.preferences.greenhouses.forEach{house->ActionButton(house.name,d,t){onPrefs{it.copy(activeGreenhouseId=house.id)};greenhouseManagerExpanded=false}};ActionButton("Add greenhouse",d,t){val id="greenhouse_${System.currentTimeMillis()}";onPrefs{it.copy(greenhouses=it.greenhouses+GreenhouseConfig(id=id,name="Greenhouse ${it.greenhouses.size+1}"),activeGreenhouseId=id)};greenhouseManagerExpanded=false;layoutExpanded=true}}}
-        if(editable)item{ResponsiveActionSetting("Floor plan","${g.planLengthFeet.roundToInt()} × ${g.planWidthFeet.roundToInt()} ft · ${g.areaSquareFeet.roundToInt()} sq ft",if(layoutExpanded)"Cancel" else "Edit layout",d,t){layoutExpanded=!layoutExpanded}}
-        if(editable && layoutExpanded)item{FloorPlanEditor(g,state.sensors.filter{it.greenhouseId==g.id}){saved->
-            onPrefs { prefs -> prefs.copy(greenhouses=prefs.greenhouses.map { current ->
-                if(current.id!=g.id) current else saved.copy(
-                    refreshMinutes=current.refreshMinutes,
-                    sensorPositions=current.sensorPositions.mapValues { (_,position)->saved.reproject(position,current) } + saved.sensorPositions
-                )
-            }) }
-            layoutExpanded=false
-        }}
-        if(!editable)item{SettingsRow("Floor plan"){Text("${g.planLengthFeet.roundToInt()} × ${g.planWidthFeet.roundToInt()} ft · Edit on the greenhouse phone",color=DashboardTokens.Muted)}}
+        if(editable)item{ResponsiveActionSetting("Floor plan","${g.dimensionsLabel()} · ${g.areaLabel()}","Edit layout",d,t){layoutExpanded=!layoutExpanded}}
+        if(!editable)item{SettingsRow("Floor plan"){Text("${g.dimensionsLabel()} · ${g.areaLabel()} · Edit on the greenhouse phone",color=DashboardTokens.Muted)}}
         if(editable)item{ActionButton(if(greenhouseManagerExpanded)"Close greenhouses" else "Manage greenhouses",d,t){greenhouseManagerExpanded=!greenhouseManagerExpanded}}
         item{RefreshIntervalSettingsRow(g.refreshMinutes,d,t){minutes->onPrefs{prefs->prefs.copy(greenhouses=prefs.greenhouses.map{if(it.id==g.id)it.copy(refreshMinutes=minutes)else it})}}}
         item{Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(d(10f))){OutdoorWeatherSetting(zip,{zip=it.filter(Char::isDigit).take(5)},d,t,{onSaveZip(zip)},onWeather)}}

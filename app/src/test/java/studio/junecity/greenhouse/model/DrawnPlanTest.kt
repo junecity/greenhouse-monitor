@@ -33,4 +33,23 @@ class DrawnPlanTest {
         assertNull(draw(point(2,2),point(2,8)))
         assertNull(draw(point(2,2)))
     }
+
+    @Test fun cornerEditsKeepPhysicalScaleAndSensorOffsets() {
+        val original = GreenhouseConfig(sensorPositions=mapOf("bench" to SensorPosition(4.0,3.0,2.0)))
+        val walls=listOf(NormalizedPosition(-2.5,0.0),point(16,0),point(16,8),point(0,8))
+        val saved=requireNotNull(DrawnPlan.fromCorners(walls,original))
+        assertEquals(18.5,saved.planLengthFeet,.0001)
+        assertEquals(138.0,saved.areaSquareFeet,.0001)
+        assertEquals(SensorPosition(6.5,3.0,2.0),saved.sensorPositions["bench"])
+        assertFalse(saved.containsPoint(.4,7.5))
+        assertEquals(5,DrawnPlan.fromCorners(walls.toMutableList().apply { add(2,point(14,4)) },original)!!.vertices.size)
+    }
+
+    @Test fun snappedAndFreeMeasurementsRemainDistinct() {
+        val near=NormalizedPosition(11.33,0.12)
+        assertEquals(point(11,0),DrawnPlan.snapCorner(near,point(0,0),point(16,8),.25))
+        val stroke=listOf(point(0,0),near,point(0,8))
+        assertEquals(45.32,DrawnPlan.fromStroke(stroke,GreenhouseConfig(),.1,snap=false)!!.areaSquareFeet,.0001)
+        assertEquals(44.0,DrawnPlan.fromStroke(stroke,GreenhouseConfig(),.1)!!.areaSquareFeet,.0001)
+    }
 }
