@@ -42,10 +42,12 @@ import androidx.compose.ui.unit.sp
 import java.time.LocalDateTime
 
 class MainActivity : ComponentActivity() {
+    private var forecastOpen by mutableStateOf(false)
     private var alert by mutableStateOf<studio.junecity.greenhouse.data.AlertDestination?>(null)
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        forecastOpen = intent.action == studio.junecity.greenhouse.data.ForecastAlerts.OPEN_FORECAST
         alert = studio.junecity.greenhouse.data.AlertDestination.from(intent)
     }
 
@@ -59,6 +61,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        forecastOpen = intent.action == studio.junecity.greenhouse.data.ForecastAlerts.OPEN_FORECAST
         alert = studio.junecity.greenhouse.data.AlertDestination.from(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
@@ -161,13 +164,15 @@ class MainActivity : ComponentActivity() {
                             confirmButton = { androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close") } })
                     }
                 }
+                if (forecastOpen) studio.junecity.greenhouse.ui.ForecastDialog(state.weather, state.preferences.zipCode,
+                    refresh = { viewModel.refreshWeather() }, dismiss = { forecastOpen = false; intent.action = null })
                 var openSensors by remember { mutableStateOf(false) }
                 val navigate: (AppScreen) -> Unit = { openSensors = false; viewModel.navigate(it) }
                 Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->
                     if (screen == AppScreen.Dashboard) {
                         DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
                             onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
-                            onRefresh = { viewModel.syncFromServer() })
+                            onRefresh = { viewModel.syncFromServer() }, onForecast = { forecastOpen = true; viewModel.refreshWeather(true) })
                     } else {
                         StageScreen(
                             state.copy(screen = screen), status, now, navigate, viewModel::selectMetric,

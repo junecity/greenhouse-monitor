@@ -78,7 +78,19 @@ data class GoveeSensor(val id:String,val sku:String,val name:String,val temperat
     val vpdKpa:Double? get(){val t=temperatureF?:return null;val rh=humidityPercent?:return null;val c=(t-32)*5/9;return .6108*kotlin.math.exp(17.27*c/(c+237.3))*(1-rh/100)}
 }
 data class GreenhouseReading(val temperatureF:Double?,val humidityPercent:Double?,val validSensorCount:Int,val stale:Boolean=false)
-data class WeatherReading(val zipCode:String,val location:String,val temperatureF:Double?,val condition:String,val updatedAtEpochMs:Long=0,val stale:Boolean=false)
+data class ForecastDay(
+    val date: java.time.LocalDate,
+    val condition: String,
+    val lowF: Double?,
+    val highF: Double?,
+    val rainChance: Int?
+)
+
+data class WeatherReading(
+    val zipCode: String, val location: String, val temperatureF: Double?, val condition: String,
+    val updatedAtEpochMs: Long = 0, val stale: Boolean = false,
+    val days: List<ForecastDay> = emptyList(), val zone: java.time.ZoneId = java.time.ZoneId.systemDefault()
+)
 data class DeviceStatus(val batteryPercent:Int,val charging:Boolean,val wifiConnected:Boolean)
 data class HistoryReading(val sensorId:String,val sensorName:String,val temperatureF:Double,val humidityPercent:Double,val timestampEpochMs:Long)
 data class NotificationPreferences(val masterEnabled:Boolean=true,val popupsEnabled:Boolean=false,val soundEnabled:Boolean=false,val vibrationEnabled:Boolean=false,val repeatedAlerts:Boolean=false,val repeatMinutes:Int=30,val snoozedUntilEpochMs:Long=0,val temperatureAlerts:Boolean=true,val humidityAlerts:Boolean=true,val offlineAlerts:Boolean=true,val connectionAlerts:Boolean=false,val lowTemperatureF:Double=45.0,val highTemperatureF:Double=95.0,val lowHumidity:Double=30.0,val highHumidity:Double=85.0,val recoveryMargin:Double=2.0)

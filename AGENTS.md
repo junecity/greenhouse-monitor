@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-12 · Android 2.11.0 (code 37)
+- Tap Dashboard → Outdoor for seven local forecast days from the existing Open-Meteo ZIP lookup. LiveWeatherProvider fetches current and daily values together. GreenhouseViewModel coalesces concurrent refreshes and guards against old-ZIP results.
+- ForecastDialog and ForecastAlerts keep optional low/high forecast thresholds and an approximate daily reminder per enrolled phone. Evaluate only current forecasts for today/tomorrow in the forecast zone. The clock reminder uses phone time; its receiver restores scheduling after reboot/time changes. Threshold work runs hourly when Android allows network access. Indoor sensor alarms are separate.
+- Verified live forecast, scrolling, alert controls and two camera/Zones round trips on the enrolled Moto. 109 JVM tests passed, lint had zero errors, forecast notification instrumentation passed. Separate API 35 camera fixture timed out starting preview; actual scheduled wake after reboot and overnight delivery remain unverified. No database migration or AWS deployment. See CHANGELOG for delivery details.
+
 ## Current checkpoint — 2026-11-12 · Android 2.10.6 (code 36)
 - Physical Moto G7 (river, API 29) freeze reports from 2.10.5 show HWUI waiting for the Adreno driver during camera TextureView detach. FrontCameraFeed selects a CameraX performance preview on that model/OS. A preview-only fix still crashed on the second Zones visit in the Adreno indexed mesh draw. StageScreens now caches heat-map cells in a nearest-neighbor bitmap and clips a single draw to the existing footprint.
 - Signed in-place upgrade on the enrolled Moto passed eight Dashboard → Zones → Dashboard round trips, verifying heat map and camera return with the same process. API 35 legacy geometry/navigation and preset tests passed; 106 JVM tests and lint passed. See CHANGELOG for artifact details. Remote video, subscription flows and other physical models were outside this repair.

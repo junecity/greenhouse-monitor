@@ -32,6 +32,46 @@ class StandaloneEditorTest {
     private val instrumentation=InstrumentationRegistry.getInstrumentation()
     private val ui get()=instrumentation.uiAutomation
 
+    @Test fun forecastThresholdNotificationAndDailyReminder() {
+        val context = instrumentation.targetContext
+        assumeTrue("Use isolated emulator", android.os.Build.MODEL.contains("sdk", ignoreCase = true) &&
+            SecureSettingsStore(context).cloudEnrollment() == null)
+        val alerts = studio.junecity.greenhouse.data.ForecastAlerts(context)
+        val rules = alerts.load()
+        val manager = context.getSystemService(android.app.NotificationManager::class.java)
+        val store = context.getSharedPreferences("forecast_alerts_local", 0)
+        val today = java.time.LocalDate.now()
+        val day = ForecastDay(today, "Clear sky", 30.0, 62.0, 10)
+        val weather = WeatherReading(alerts.currentZip(), "Fixture", 40.0, "Clear sky",
+            System.currentTimeMillis(), days = listOf(day, day.copy(date = today.plusDays(2))))
+        val tag = "$today|${alerts.currentZip()}|"
+        try {
+            store.edit().remove("delivered").commit()
+            alerts.save(rules.copy(cold = true, heat = false, lowF = 32, reminder = true))
+            alerts.evaluate(weather.copy(stale = true))
+            assertFalse(manager.activeNotifications.any { it.tag == tag })
+            alerts.evaluate(weather)
+            fun awaitDelivery(key: String) = (1..60).firstOrNull {
+                SystemClock.sleep(100)
+                manager.activeNotifications.any { it.tag == key }
+            } != null
+            assertTrue("Android posted the forecast alert", awaitDelivery(tag))
+            manager.cancel(tag, 7311)
+            SystemClock.sleep(300)
+            alerts.evaluate(weather)
+            assertFalse(manager.activeNotifications.any { it.tag == tag })
+            alerts.remind("local")
+            assertTrue("Android posted the daily reminder", awaitDelivery("daily"))
+            val daily = manager.activeNotifications.single { it.tag == "daily" }
+            assertTrue(daily.notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("30°F"))
+        } finally {
+            manager.cancel(tag, 7311)
+            manager.cancel("daily", 7311)
+            store.edit().remove("delivered").apply()
+            alerts.save(rules)
+        }
+    }
+
     @Test fun deleteGreenhouseFromSettingsRequiresConfirmationAndPersists() {
         val context = instrumentation.targetContext
         val secure = SecureSettingsStore(context)

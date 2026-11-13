@@ -49,7 +49,7 @@ private val ProGreen=DashboardTokens.Green
 private val ProPanel=DashboardTokens.Panel
 private val ProEdge=DashboardTokens.PanelEdge
 
-@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,onManageSensors:()->Unit={onNavigate(AppScreen.Settings)},onRefresh:()->Unit={}){
+@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,onManageSensors:()->Unit={onNavigate(AppScreen.Settings)},onRefresh:()->Unit={},onForecast:()->Unit={}){
     val context=LocalContext.current
     val cardEntranceDuration=accessibleMotionDuration(AppMotion.CardEntranceMs)
     var entered by remember{mutableStateOf(false)}
@@ -69,7 +69,7 @@ private val ProEdge=DashboardTokens.PanelEdge
         Row(Modifier.fillMaxSize().alpha(contentAlpha).graphicsLayer{translationY=(1f-contentAlpha)*d(8f).toPx()},horizontalArrangement=Arrangement.spacedBy(d(14f))){
             Row(Modifier.weight(.59f).fillMaxHeight(),horizontalArrangement=Arrangement.spacedBy(d(14f))){
                 Column(Modifier.weight(.46f),verticalArrangement=Arrangement.spacedBy(d(12f))){
-                    WeatherCard(state,d,t,Modifier.weight(.38f))
+                    WeatherCard(state,d,t,Modifier.weight(.38f).clickable(onClickLabel="Open seven-day forecast", onClick=onForecast))
                     Row(Modifier.weight(.31f),horizontalArrangement=Arrangement.spacedBy(d(12f))){MiniMetric("Avg Temp",formatTemp(temperature),DashboardIcon.Thermometer,ProAmber,d,t,Modifier.weight(1f));MiniMetric("Avg RH",formatHumidity(humidity),DashboardIcon.Droplet,ProBlue,d,t,Modifier.weight(1f))}
                     Row(Modifier.weight(.31f),horizontalArrangement=Arrangement.spacedBy(d(12f))){MiniMetric("VPD",vpd?.let{"%.1f kPa".format(it)}?:"—",DashboardIcon.Gauge,Color(0xFF8EEB75),d,t,Modifier.weight(1f));MiniMetric("Dew Point",formatTemp(dewPoint),DashboardIcon.Droplet,ProBlue,d,t,Modifier.weight(1f))}
                 }

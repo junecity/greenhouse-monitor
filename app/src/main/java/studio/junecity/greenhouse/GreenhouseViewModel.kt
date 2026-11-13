@@ -35,6 +35,8 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     private val legacyZones get() = stores.zones
     private val currentSensors get() = stores.sensors
     private val history get() = stores.history
+    private var weatherJob: kotlinx.coroutines.Job? = null
+    private var requestedZip: String? = null
     private val weather = LiveWeatherProvider()
     private val _state = MutableStateFlow(restoredState())
     val state = _state.asStateFlow()
@@ -63,6 +65,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     init {
         loadHistory()
         SensorSyncWorker.schedule(app)
+        ForecastAlerts(app).schedule()
         refreshWeather(true)
 
         viewModelScope.launch {
@@ -233,7 +236,31 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         }
     }
     fun saveZip(zip:String){if(!Regex("\\d{5}").matches(zip)){_state.value=_state.value.copy(message="Enter a valid five-digit ZIP code");return};savePreferences(_state.value.preferences.copy(zipCode=zip));refreshWeather()}
-    fun refreshWeather(silent:Boolean=false){val zip=_state.value.preferences.zipCode;viewModelScope.launch{runCatching{weather.current(zip)}.onSuccess{_state.value=_state.value.copy(weather=it)}.onFailure{if(!silent)_state.value=_state.value.copy(message=it.message);_state.value=_state.value.copy(weather=_state.value.weather.copy(stale=true))}}}
+    fun refreshWeather(silent: Boolean = false) {
+        val zip = _state.value.preferences.zipCode
+        val last = _state.value.weather
+        if (zip == requestedZip && weatherJob?.isActive == true) return
+        if (silent && last.zipCode == zip && !last.stale && last.days.isNotEmpty() &&
+            System.currentTimeMillis() - last.updatedAtEpochMs in 0 until 15 * 60_000L) return
+        weatherJob?.cancel()
+        requestedZip = zip
+        if (last.zipCode != zip) _state.value = _state.value.copy(weather = WeatherReading(zip, "Outside ($zip)", null, "Unavailable"))
+        weatherJob = viewModelScope.launch {
+            try {
+                val reading = weather.current(zip)
+                if (_state.value.preferences.zipCode != zip) return@launch
+                _state.value = _state.value.copy(weather = reading)
+                ForecastAlerts(getApplication()).evaluate(reading)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (_state.value.preferences.zipCode == zip) {
+                    _state.value = _state.value.copy(weather = _state.value.weather.copy(stale = true),
+                        message = if (silent) _state.value.message else "Outdoor weather is unavailable. Try again.")
+                }
+            }
+        }
+    }
     private fun loadHistory() {
         val storage = stores
         val owner = secure.cloudEnrollment()
