@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-13 · Android 2.17.0 (code 48)
+- Dashboard → Outdoor → Heating costs opens the seven-night forecast. NightHeating integrates positive hourly target deficits between local sunset and sunrise. LiveWeatherProvider uses epoch timestamps and requests eight forecast days to include the last sunrise. Energy price and target are scoped to the enrolled phone and greenhouse. The prior daily forecast and alert rules still use seven days.
+- NightHeatingWorker reuses the collector's saved readings; twelve-hour network-constrained work refreshes a thirty-day local profile. Paired viewers derive a profile from available server history. Temperature patterns refine the similar-night indoor outlook. Absolute cost uses perimeter, area, height and explicit heat-loss and delivery assumptions. Keep unavailable solar or weather intervals distinct from zero demand.
+- 120 JVM tests and two API 35 instrumented tests passed. Verified direct dashboard entry, live weather, historical behavior and price controls on the Moto. Initial background profile write observed; multi-night scheduling, physical viewer coverage and accuracy versus utility bills remain unverified. See CHANGELOG for assumptions, tests and APK.
+
 ## Current checkpoint — 2026-11-13 · Android 2.16.0 (code 47)
 - Launcher and onboarding use Greenhouse Studio. General Settings keeps junecity.studio beside the muted version. Existing package, signing identity and enrollment are preserved.
 - RemoteCameraFeed holds the Play checkout dialog across a Google Play Activity handoff. CloudWebRtcFeed opens it on a subscription-related denial. VideoSubscriptionDialog queries the base price, restores owned purchases and sends completed tokens through AuthenticatedCloudGateway. Explicit Live View still needs a server-authorized session.

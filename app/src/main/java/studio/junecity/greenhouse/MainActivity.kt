@@ -168,8 +168,31 @@ class MainActivity : ComponentActivity() {
                             confirmButton = { androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close") } })
                     }
                 }
-                if (forecastOpen) studio.junecity.greenhouse.ui.ForecastDialog(state.weather, state.preferences.zipCode,
-                    refresh = { viewModel.refreshWeather() }, dismiss = { forecastOpen = false; intent.action = null })
+                var heatingOpen by remember { mutableStateOf(false) }
+                val heatingStore = remember(cloudEnrollmentRevision, state.preferences.activeGreenhouseId) {
+                    studio.junecity.greenhouse.data.HeatingStore(applicationContext,
+                        SecureSettingsStore(applicationContext).cloudEnrollment(), state.preferences.activeGreenhouseId)
+                }
+                val heatingSummary = remember(heatingStore, state.weather, state.preferences.activeGreenhouse, heatingOpen, now.toLocalDate(), now.hour) {
+                    val settings = heatingStore.settings()
+                    if (state.weather.zipCode != state.preferences.zipCode || state.weather.stale || settings.price == null) null else {
+                        val forecast = studio.junecity.greenhouse.data.NightHeating.forecast(state.weather, settings.targetF, System.currentTimeMillis())
+                        forecast.first().degreeHours?.let {
+                            val coefficient = studio.junecity.greenhouse.data.heatingCoefficient(state.preferences.activeGreenhouse, settings.unit)
+                            studio.junecity.greenhouse.ui.money(it * coefficient.nominal * settings.price)
+                        }
+                    }
+                }
+                if (forecastOpen && heatingOpen) {
+                    DisposableEffect(Unit) {
+                        viewModel.setHeatingOpen(true)
+                        onDispose { viewModel.setHeatingOpen(false) }
+                    }
+                    studio.junecity.greenhouse.ui.NightHeatingDialog(state, heatingStore, refresh = { viewModel.refreshWeather() },
+                        dismiss = { heatingOpen = false })
+                }
+                if (forecastOpen && !heatingOpen) studio.junecity.greenhouse.ui.ForecastDialog(state.weather, state.preferences.zipCode,
+                    refresh = { viewModel.refreshWeather() }, heating = { heatingOpen = true }, dismiss = { forecastOpen = false; intent.action = null })
                 var openSensors by remember { mutableStateOf(false) }
                 val navigate: (AppScreen) -> Unit = { openSensors = false; viewModel.navigate(it) }
                 if (showingVolume) {
@@ -179,6 +202,7 @@ class MainActivity : ComponentActivity() {
                     if (screen == AppScreen.Dashboard) {
                         DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
                             onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
+                            heatingSummary = heatingSummary, onHeating = { forecastOpen = true; heatingOpen = true; viewModel.refreshWeather(true) },
                             onRefresh = { viewModel.syncFromServer() }, onForecast = { forecastOpen = true; viewModel.refreshWeather(true) })
                     } else {
                         StageScreen(

@@ -34,7 +34,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 @Composable
-internal fun ForecastDialog(weather: WeatherReading, zip: String, refresh: () -> Unit, dismiss: () -> Unit) {
+internal fun ForecastDialog(weather: WeatherReading, zip: String, refresh: () -> Unit, heating: () -> Unit, dismiss: () -> Unit) {
     val context = LocalContext.current
     val alerts = remember(context) { ForecastAlerts(context.applicationContext) }
     var editing by remember { mutableStateOf(false) }
@@ -102,6 +102,7 @@ internal fun ForecastDialog(weather: WeatherReading, zip: String, refresh: () ->
                             Spacer(Modifier.width(6.dp))
                             Text("Refresh", color = DashboardTokens.White)
                         }
+                        TextButton(onClick = heating) { Text("Heating costs", color = DashboardTokens.Amber) }
                         Button(onClick = { editing = true }, colors = ButtonDefaults.buttonColors(
                             containerColor = DashboardTokens.Amber, contentColor = DashboardTokens.Background)) {
                             DashboardIconView(DashboardIcon.Bell, DashboardTokens.Background, Modifier.size(16.dp), null)

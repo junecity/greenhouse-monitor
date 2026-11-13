@@ -78,6 +78,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     init {
         loadHistory()
         SensorSyncWorker.schedule(app)
+        NightHeatingWorker.schedule(app)
         ForecastAlerts(app).schedule()
         refreshWeather(true)
 
@@ -277,7 +278,12 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             }
         }
     }
-    private fun needsWeekHistory() = _state.value.screen == AppScreen.History || (volumeOpen.value && _state.value.screen == AppScreen.Zones)
+    private var heatingOpen = false
+    fun setHeatingOpen(open: Boolean) {
+        heatingOpen = open
+        loadHistory()
+    }
+    private fun needsWeekHistory() = heatingOpen || _state.value.screen == AppScreen.History || (volumeOpen.value && _state.value.screen == AppScreen.Zones)
     fun setVolumeOpen(open: Boolean) {
         if (volumeOpen.value == open) return
         volumeOpen.value = open

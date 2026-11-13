@@ -1,0 +1,126 @@
+package studio.junecity.greenhouse.data
+
+import studio.junecity.greenhouse.model.GreenhouseConfig
+import studio.junecity.greenhouse.model.GreenhouseShape
+import studio.junecity.greenhouse.model.HistoryReading
+import studio.junecity.greenhouse.model.WeatherReading
+import java.time.Instant
+import java.time.LocalDate
+import kotlin.math.abs
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
+
+internal const val HEATING_HOUR = 3_600_000L
+internal enum class EnergyUnit(val label: String, val btu: Double, val delivery: Double) {
+    Kwh("kWh", 3412.1416, 1.0), Therm("therm", 100000.0, .8)
+}
+internal data class HeatingSettings(val targetF: Double = 60.0, val unit: EnergyUnit = EnergyUnit.Kwh, val price: Double? = null)
+internal data class HeatCoefficient(val nominal: Double, val low: Double, val high: Double)
+
+internal fun heatingCoefficient(house: GreenhouseConfig, unit: EnergyUnit): HeatCoefficient {
+    val outline = house.outline()
+    val perimeter = if (house.shape == GreenhouseShape.Circle) Math.PI * house.lengthFeet else
+        outline.indices.sumOf { i ->
+            val a = outline[i]
+            val b = outline[(i + 1) % outline.size]
+            hypot((a.x - b.x) * house.planLengthFeet, (a.y - b.y) * house.planWidthFeet)
+        }
+    val height = house.heightFeet ?: 8.0
+    val cover = perimeter * height * .8 + house.areaSquareFeet * 1.1
+    val volume = height * .9 * house.areaSquareFeet
+    // Cover transmission plus sensible infiltration, in Btu per hour per Fahrenheit degree.
+    fun units(u: Double, changes: Double, efficiency: Double) =
+        (cover * u + .018 * volume * changes) / (unit.btu * efficiency)
+    return HeatCoefficient(units(.95, 1.0, unit.delivery),
+        units(.7, .5, if (unit == EnergyUnit.Therm) .95 else 1.0),
+        units(1.2, 2.0, if (unit == EnergyUnit.Therm) .7 else 1.0))
+}
+
+internal data class NightHour(val start: Long, val end: Long, val outdoor: Double?, val target: Double) {
+    val hours get() = (end - start).toDouble() / HEATING_HOUR
+    val delta get() = outdoor?.let { target - it }
+    val degreeHours get() = delta?.let { max(0.0, it) * hours }
+}
+internal data class HeatingNight(val date: LocalDate, val hours: List<NightHour>) {
+    val degreeHours get() = hours.takeIf { it.isNotEmpty() && it.all { h -> h.degreeHours != null } }
+        ?.sumOf { it.degreeHours!! }
+    val eightDegreeHours: Double? get() {
+        val start = hours.firstOrNull()?.start ?: return null
+        val end = start + 8 * HEATING_HOUR
+        if (hours.last().end < end) return null
+        val window = hours.takeWhile { it.start < end }.map { it.copy(end = min(it.end, end)) }
+        return HeatingNight(date, window).degreeHours
+    }
+    val outdoorMean get() = degreeHours?.let { hours.sumOf { it.outdoor!! * it.hours } / hours.sumOf { it.hours } }
+}
+
+internal object NightHeating {
+    private fun bounds(date: LocalDate, weather: WeatherReading): LongRange? {
+        val sunset = weather.solarDays[date]?.sunsetMs ?: return null
+        val sunrise = weather.solarDays[date.plusDays(1)]?.sunriseMs ?: return null
+        return (sunset until sunrise).takeIf { sunrise - sunset in 1..24 * HEATING_HOUR }
+    }
+    fun forecast(weather: WeatherReading, target: Double, now: Long): List<HeatingNight> {
+        val today = Instant.ofEpochMilli(now).atZone(weather.zone).toLocalDate()
+        val previous = today.minusDays(1)
+        val start = if (bounds(previous, weather)?.contains(now) == true) previous else today
+        return (0L..6L).map { offset ->
+            val date = start.plusDays(offset)
+            val window = bounds(date, weather)
+            val hours = buildList {
+                if (window != null) {
+                    var t = window.first
+                    while (t <= window.last) {
+                        val hour = Math.floorDiv(t, HEATING_HOUR) * HEATING_HOUR
+                        val end = min(hour + HEATING_HOUR, window.last + 1)
+                        add(NightHour(t, end, weather.hourlyOutdoorF[hour], target))
+                        t = end
+                    }
+                }
+            }
+            HeatingNight(date, hours)
+        }
+    }
+
+    // One vote per sensor per quarter-hour. Compare rates only across consecutive bins with the same sensors.
+    fun observations(weather: WeatherReading, readings: List<HistoryReading>, sensorIds: Set<String>, now: Long): List<ThermalPoint> {
+        val windows = weather.solarDays.keys.mapNotNull { date -> bounds(date, weather)?.let { date to it } }.sortedBy { it.second.first }
+        val bins = mutableMapOf<Pair<LocalDate, Long>, MutableMap<String, MutableList<Double>>>()
+        for (r in readings) {
+            if (r.sensorId !in sensorIds || !r.temperatureF.isFinite() || r.timestampEpochMs > now) continue
+            val day = windows.firstOrNull { r.timestampEpochMs in it.second }?.first ?: continue
+            val bucket = Math.floorDiv(r.timestampEpochMs, HEATING_HOUR / 4) * (HEATING_HOUR / 4)
+            bins.getOrPut(day to bucket) { mutableMapOf() }.getOrPut(r.sensorId) { mutableListOf() }.add(r.temperatureF)
+        }
+        return bins.mapNotNull { (key, sensors) ->
+            val hour = Math.floorDiv(key.second, HEATING_HOUR) * HEATING_HOUR
+            val outdoor = weather.hourlyOutdoorF[hour] ?: return@mapNotNull null
+            ThermalPoint(key.first, key.second, sensors.values.map { it.average() }.average(), outdoor, sensors.keys.sorted())
+        }.sortedBy { it.time }
+    }
+}
+
+internal data class ThermalPoint(val date: LocalDate, val time: Long, val indoor: Double, val outdoor: Double, val sensors: List<String>)
+internal data class NightBehavior(val nights: Int, val hours: Double, val nearTarget: Double, val cooling: Double?,
+    val recovery: Double?, val swing: Double, val indoorDelta: Double)
+internal fun nightBehavior(points: List<ThermalPoint>, target: Double, comparableOutdoor: Double? = null): NightBehavior? {
+    val nights = points.groupBy { it.date }.values.mapNotNull { night ->
+        val intervals = night.sortedBy { it.time }.zipWithNext().filter { (a, b) ->
+            b.time - a.time == HEATING_HOUR / 4 && a.sensors == b.sensors
+        }
+        // Require at least one observed hour per night before using it for comparisons.
+        intervals.takeIf { it.size >= 4 && (comparableOutdoor == null ||
+            abs(it.map { (a,b) -> (a.outdoor+b.outdoor)/2 }.average() - comparableOutdoor) <= 5) }
+    }
+    if (nights.isEmpty()) return null
+    val pairs = nights.flatten()
+    val rates = pairs.map { (a,b) -> (b.indoor - a.indoor) * 4 }
+    fun List<Double>.meanOrNull() = takeIf { it.isNotEmpty() }?.average()
+    return NightBehavior(nights.size, pairs.size * .25,
+        pairs.count { (a,b) -> abs(a.indoor-target) <= 2 && abs(b.indoor-target) <= 2 }.toDouble()/pairs.size,
+        rates.filter { it < 0 }.map { -it }.meanOrNull(), rates.filter { it > 0 }.meanOrNull(),
+        nights.map { night -> val values = night.flatMap { listOf(it.first.indoor, it.second.indoor) }
+            values.max() - values.min() }.average(),
+        pairs.map { (a,b) -> (a.indoor-a.outdoor+b.indoor-b.outdoor)/2 }.average())
+}

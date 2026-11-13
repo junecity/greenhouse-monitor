@@ -49,7 +49,7 @@ private val ProGreen=DashboardTokens.Green
 private val ProPanel=DashboardTokens.Panel
 private val ProEdge=DashboardTokens.PanelEdge
 
-@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,onManageSensors:()->Unit={onNavigate(AppScreen.Settings)},onRefresh:()->Unit={},onForecast:()->Unit={}){
+@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,onManageSensors:()->Unit={onNavigate(AppScreen.Settings)},onRefresh:()->Unit={},onForecast:()->Unit={},heatingSummary:String?=null,onHeating:(()->Unit)?=null){
     val context=LocalContext.current
     val cardEntranceDuration=accessibleMotionDuration(AppMotion.CardEntranceMs)
     var entered by remember{mutableStateOf(false)}
@@ -69,7 +69,7 @@ private val ProEdge=DashboardTokens.PanelEdge
         Row(Modifier.fillMaxSize().alpha(contentAlpha).graphicsLayer{translationY=(1f-contentAlpha)*d(8f).toPx()},horizontalArrangement=Arrangement.spacedBy(d(14f))){
             Row(Modifier.weight(.59f).fillMaxHeight(),horizontalArrangement=Arrangement.spacedBy(d(14f))){
                 Column(Modifier.weight(.46f),verticalArrangement=Arrangement.spacedBy(d(12f))){
-                    WeatherCard(state,d,t,Modifier.weight(.38f).clickable(role=androidx.compose.ui.semantics.Role.Button, onClickLabel="Open seven-day forecast", onClick=onForecast))
+                    WeatherCard(state,d,t,heatingSummary,onHeating,Modifier.weight(.38f).clickable(role=androidx.compose.ui.semantics.Role.Button, onClickLabel="Open seven-day forecast", onClick=onForecast))
                     Row(Modifier.weight(.31f),horizontalArrangement=Arrangement.spacedBy(d(12f))){MiniMetric("Avg Temp",formatTemp(temperature),DashboardIcon.Thermometer,ProAmber,d,t,Modifier.weight(1f));MiniMetric("Avg RH",formatHumidity(humidity),DashboardIcon.Droplet,ProBlue,d,t,Modifier.weight(1f))}
                     Row(Modifier.weight(.31f),horizontalArrangement=Arrangement.spacedBy(d(12f))){MiniMetric("VPD",vpd?.let{"%.1f kPa".format(it)}?:"—",DashboardIcon.Gauge,Color(0xFF8EEB75),d,t,Modifier.weight(1f));MiniMetric("Dew Point",formatTemp(dewPoint),DashboardIcon.Droplet,ProBlue,d,t,Modifier.weight(1f))}
                 }
@@ -98,7 +98,7 @@ private val ProEdge=DashboardTokens.PanelEdge
     }
 }
 
-@Composable private fun WeatherCard(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier) {
+@Composable private fun WeatherCard(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,heatingSummary:String?,onHeating:(()->Unit)?,modifier:Modifier) {
     val weather=state.weather
     val icon = forecastIcon(weather.condition)
     ProPanel(modifier) {
@@ -112,6 +112,10 @@ private val ProEdge=DashboardTokens.PanelEdge
                 Column(Modifier.weight(.83f)) {
                     Text("Outdoor",color=Color.White,fontSize=t(if(compact) 14f else 17f),fontWeight=FontWeight.Bold)
                     Text(formatTemp(weather.temperatureF),color=Color.White,fontSize=t(if(compact) 25f else 34f),fontWeight=FontWeight.Black,maxLines=1)
+                    if (onHeating != null) Text(heatingSummary?.let { "Est. $it" } ?: "Heating costs",
+                        modifier = Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button,
+                            onClickLabel = "Open nighttime heating forecast", onClick = onHeating).padding(vertical = d(3f)),
+                        color = ProAmber, fontSize = t(if (compact) 11f else 12f), fontWeight = FontWeight.Bold)
                 }
                 Box(Modifier.width(d(1f)).fillMaxHeight(.62f).background(ProEdge))
                 Spacer(Modifier.width(d(12f)))
