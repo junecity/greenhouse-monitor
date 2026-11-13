@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-13 · Android 2.15.2 (code 45)
+- ZoneHeatScale owns the shared bitmap, palette and legend for the Zones and Replay floor maps and the 3D scene. Use fixed temperature/dew point 40–90°F, humidity 35–100%, and 2D VPD 0–3 kPa. The floor texture fades with distance using the existing 3D behavior. The 2D map uses all mapped readings; the 3D floor layer uses unknown-height readings and mounted sensors retain air volumes.
+- 114 JVM tests and four API 35 instrumentation tests passed, lint had zero errors. Verified live 2D temperature/humidity and the matching 3D humidity legend on the Moto. Physical viewer was not tested. See CHANGELOG for artifact details.
+
 ## Current checkpoint — 2026-11-13 · Android 2.15.1 (code 44)
 - ZoneVolumeScreen projects fresh mapped sensors with unset heights onto a colored floor layer. SpatialInterpolator estimates temperature or humidity in plan coordinates. Color fades with distance, clips to the saved outline and follows rotation, zoom and pan. Measured mounts still use ZoneClimate's volumetric field. A missing height stays null in storage.
 - The enrolled Moto G7 displayed the floor layer for both metrics with real readings of unknown height. API 35 viewer screenshot assertions verified visible colored regions for each metric, and the mounted-sensor interaction regression passed. 114 JVM tests passed. Live physical client pairing/sync was not exercised. See CHANGELOG for delivery.

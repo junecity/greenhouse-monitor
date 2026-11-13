@@ -1,6 +1,5 @@
 package studio.junecity.greenhouse.ui
 
-import android.graphics.Bitmap
 import studio.junecity.greenhouse.BuildConfig
 import android.Manifest
 import android.content.pm.PackageManager
@@ -29,7 +28,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -79,73 +77,63 @@ import kotlin.math.roundToInt
 @Composable private fun ZoneStat(label:String,value:String,icon:DashboardIcon,tint:Color,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier){NeonPanel(modifier){Row(Modifier.fillMaxSize().padding(d(18f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,tint,Modifier.size(d(46f)));Spacer(Modifier.width(d(18f)));Column{Text(label,color=Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold);Text(value,color=tint,fontSize=t(27f),fontWeight=FontWeight.Bold)}}}}
 @Composable private fun ZoneSummary(s:GoveeSensor,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit){val color=sensorColor(s);Row(Modifier.fillMaxWidth().height(d(74f)).background(Color(0x7A08282C),RoundedCornerShape(d(16f))).border(d(1f),Color(0xFF245A61),RoundedCornerShape(d(16f))).padding(d(10f)),verticalAlignment=Alignment.CenterVertically){Box(Modifier.width(d(10f)).fillMaxHeight().background(color,RoundedCornerShape(d(8f))));Spacer(Modifier.width(d(14f)));Column(Modifier.weight(1f)){Text(s.zone,color=Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold);Text(s.name,color=DashboardTokens.Muted,fontSize=t(11f),maxLines=1)};Text(formatTemp(s.temperatureF),color=color,fontSize=t(22f),fontWeight=FontWeight.Bold)}}
 
-@Composable internal fun HeatMap(samples:List<studio.junecity.greenhouse.data.SpatialSample>,metric:Metric,g:GreenhouseConfig,sensors:List<GoveeSensor>,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMove:(String,Double,Double)->Unit,modifier:Modifier,editable:Boolean=true,scale:ClosedFloatingPointRange<Double>?=null){
-    BoxWithConstraints(modifier.background(Color(0xFF061D20),RoundedCornerShape(d(18f))).border(d(2f),Color.White,RoundedCornerShape(d(18f))).padding(d(8f)),contentAlignment=Alignment.Center){
-        val footprintAspect=(g.planLengthFeet/g.planWidthFeet).toFloat()
-        val availableAspect=maxWidth.value/maxHeight.value
-        val plotModifier=if(footprintAspect>=availableAspect)Modifier.fillMaxWidth().aspectRatio(footprintAspect) else Modifier.fillMaxHeight().aspectRatio(footprintAspect)
-        BoxWithConstraints(plotModifier){
-            val samplesPerFoot=2
-            val cols=kotlin.math.ceil(g.planLengthFeet*samplesPerFoot).toInt().coerceIn(1,120)
-            val rows=kotlin.math.ceil(g.planWidthFeet*samplesPerFoot).toInt().coerceIn(1,120)
-            // One texel per cell avoids submitting a large clipped mesh to the phone's GPU.
-            val field = remember(samples, g.planLengthFeet, g.planWidthFeet, metric, scale) {
-                val values = Array(rows * cols) { index ->
-                    val x = (index % cols + 0.5) * g.planLengthFeet / cols
-                    val y = (index / cols + 0.5) * g.planWidthFeet / rows
-                    SpatialInterpolator.estimate(samples, x, y)
-                }
-                val available = values.filterNotNull()
-                val min = scale?.start ?: available.minOrNull() ?: 60.0
-                val max = scale?.endInclusive ?: available.maxOrNull() ?: 80.0
-                val pixels = IntArray(values.size) { index ->
-                    (values[index]?.let { heatColor(it, min, max, metric) } ?: Color(0xFF0B3134)).toArgb()
-                }
-                Bitmap.createBitmap(pixels, cols, rows, Bitmap.Config.ARGB_8888).asImageBitmap()
-            }
-            Canvas(Modifier.fillMaxSize()){
-                val outline=Path()
-                g.outline().forEachIndexed { i,p ->
-                    val x=(p.x*size.width).toFloat()
-                    val y=(p.y*size.height).toFloat()
-                    if(i==0) outline.moveTo(x,y) else outline.lineTo(x,y)
-                }
-                outline.close()
-                clipPath(outline) {
-                    drawImage(field, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
-                        filterQuality = FilterQuality.None)
-                    val gridColor=Color.White.copy(alpha=.12f)
-                    val gridStroke=d(.5f).toPx()
-                    for (foot in 1 until kotlin.math.ceil(g.planLengthFeet).toInt()) {
-                        val x=size.width*foot/g.planLengthFeet.toFloat()
-                        drawLine(gridColor,Offset(x,0f),Offset(x,size.height),gridStroke)
+@Composable internal fun HeatMap(samples:List<studio.junecity.greenhouse.data.SpatialSample>,metric:Metric,g:GreenhouseConfig,sensors:List<GoveeSensor>,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMove:(String,Double,Double)->Unit,modifier:Modifier,editable:Boolean=true){
+    val scale = ZoneHeatScale.forMetric(metric)
+    val field = remember(samples, g.planLengthFeet, g.planWidthFeet, scale) {
+        planHeatLayer(g, samples, scale)?.asImageBitmap()
+    }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF061D20),RoundedCornerShape(d(18f))).border(d(2f),Color.White,RoundedCornerShape(d(18f))).padding(d(8f)),contentAlignment=Alignment.Center){
+            val footprintAspect=(g.planLengthFeet/g.planWidthFeet).toFloat()
+            val availableAspect=maxWidth.value/maxHeight.value
+            val plotModifier=if(footprintAspect>=availableAspect)Modifier.fillMaxWidth().aspectRatio(footprintAspect) else Modifier.fillMaxHeight().aspectRatio(footprintAspect)
+            BoxWithConstraints(plotModifier){
+                Canvas(Modifier.fillMaxSize()){
+                    val outline=Path()
+                    g.outline().forEachIndexed { i,p ->
+                        val x=(p.x*size.width).toFloat()
+                        val y=(p.y*size.height).toFloat()
+                        if(i==0) outline.moveTo(x,y) else outline.lineTo(x,y)
                     }
-                    for (foot in 1 until kotlin.math.ceil(g.planWidthFeet).toInt()) {
-                        val y=size.height*foot/g.planWidthFeet.toFloat()
-                        drawLine(gridColor,Offset(0f,y),Offset(size.width,y),gridStroke)
+                    outline.close()
+                    clipPath(outline) {
+                        drawRect(zoneFloorColor)
+                        if (field != null) drawImage(field, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                            filterQuality = FilterQuality.Low)
+                        val gridColor=Color.White.copy(alpha=.12f)
+                        val gridStroke=d(.5f).toPx()
+                        for (foot in 1 until kotlin.math.ceil(g.planLengthFeet).toInt()) {
+                            val x=size.width*foot/g.planLengthFeet.toFloat()
+                            drawLine(gridColor,Offset(x,0f),Offset(x,size.height),gridStroke)
+                        }
+                        for (foot in 1 until kotlin.math.ceil(g.planWidthFeet).toInt()) {
+                            val y=size.height*foot/g.planWidthFeet.toFloat()
+                            drawLine(gridColor,Offset(0f,y),Offset(size.width,y),gridStroke)
+                        }
+                    }
+                    drawPath(outline,Color.White,style=Stroke(d(2f).toPx(),cap=StrokeCap.Round))
+                    if(g.hasStem){
+                        val junctionY=(g.widthFeet/g.planWidthFeet*size.height).toFloat()
+                        val junctionLeft=(g.stemLeftFeet/g.planLengthFeet*size.width).toFloat()
+                        val junctionRight=((g.stemLeftFeet+g.attachedWidthFeet)/g.planLengthFeet*size.width).toFloat()
+                        drawLine(Color.White,Offset(junctionLeft,junctionY),Offset(junctionRight,junctionY),d(2f).toPx(),StrokeCap.Round)
                     }
                 }
-                drawPath(outline,Color.White,style=Stroke(d(2f).toPx(),cap=StrokeCap.Round))
-                if(g.hasStem){
-                    val junctionY=(g.widthFeet/g.planWidthFeet*size.height).toFloat()
-                    val junctionLeft=(g.stemLeftFeet/g.planLengthFeet*size.width).toFloat()
-                    val junctionRight=((g.stemLeftFeet+g.attachedWidthFeet)/g.planLengthFeet*size.width).toFloat()
-                    drawLine(Color.White,Offset(junctionLeft,junctionY),Offset(junctionRight,junctionY),d(2f).toPx(),StrokeCap.Round)
-                }
-            }
-            Text(if(g.shape==GreenhouseShape.Circle) "Ø ${planNumber(g.lengthFeet)} ft" else "${planNumber(g.lengthFeet)} × ${planNumber(g.widthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.TopCenter).offset(y=maxHeight*(g.widthFeet/g.planWidthFeet/2.0).toFloat()-d(10f)).background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
-            if(g.hasStem)Text("${planNumber(g.attachedLengthFeet)} × ${planNumber(g.attachedWidthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.Center).offset(y=maxHeight*((g.widthFeet+g.attachedLengthFeet/2.0)/g.planWidthFeet-.5).toFloat()).graphicsLayer{rotationZ=90f}.background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
-            sensors.forEachIndexed { index, sensor ->
-                key(g.id, sensor.id) {
-                    val stored = g.sensorPositions[sensor.id] ?: g.coercePoint(
-                        g.planLengthFeet * (if (index % 2 == 0) .2 else .8),
-                        g.planWidthFeet * (if (index < 2) .2 else .7))
-                    DraggableSensor(sensor, stored.normalized(g), metric, d, t, maxWidth.value, maxHeight.value, editable) { x, y ->
-                        onMove(sensor.id, x, y)
+                Text(if(g.shape==GreenhouseShape.Circle) "Ø ${planNumber(g.lengthFeet)} ft" else "${planNumber(g.lengthFeet)} × ${planNumber(g.widthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.TopCenter).offset(y=maxHeight*(g.widthFeet/g.planWidthFeet/2.0).toFloat()-d(10f)).background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
+                if(g.hasStem)Text("${planNumber(g.attachedLengthFeet)} × ${planNumber(g.attachedWidthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.Center).offset(y=maxHeight*((g.widthFeet+g.attachedLengthFeet/2.0)/g.planWidthFeet-.5).toFloat()).graphicsLayer{rotationZ=90f}.background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
+                sensors.forEachIndexed { index, sensor ->
+                    key(g.id, sensor.id) {
+                        val stored = g.sensorPositions[sensor.id] ?: g.coercePoint(
+                            g.planLengthFeet * (if (index % 2 == 0) .2 else .8),
+                            g.planWidthFeet * (if (index < 2) .2 else .7))
+                        DraggableSensor(sensor, stored.normalized(g), metric, d, t, maxWidth.value, maxHeight.value, editable) { x, y ->
+                            onMove(sensor.id, x, y)
+                        }
                     }
                 }
             }
         }
+        ZoneHeatLegend(scale)
     }
 }
 @Composable private fun DraggableSensor(sensor:GoveeSensor, initial:NormalizedPosition, metric:Metric,
@@ -688,4 +676,3 @@ internal fun historyMetric(r:HistoryReading,m:Metric):Double=when(m){Metric.Temp
 private fun sensorColor(sensor:GoveeSensor)=sensorColor(sensor.id.hashCode())
 private fun sensorColor(value:Any)=sensorColor(value.hashCode())
 private fun sensorColor(index:Int)=listOf(Color(0xFFFFBF20),Color(0xFF19EF8A),Color(0xFF10BFF3),Color(0xFFAE55ED))[kotlin.math.abs(index)%4]
-private fun heatColor(v:Double,min:Double,max:Double,metric:Metric):Color{val p=((v-min)/(max-min).coerceAtLeast(.01)).coerceIn(0.0,1.0).toFloat();return when{p<.25f->Color(0xFF1168EF);p<.5f->Color(0xFF00CAA5);p<.75f->Color(0xFFFFC400);else->Color(0xFFFF3858)}}

@@ -163,13 +163,6 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
             timelines[sensor.id]?.let { TrendSensor(sensor.id, sensor.name, it, trendPalette[i % trendPalette.size]) }
         }
     }
-    val scale = remember(timelines, g, night.start, night.end / 60_000L, metric) {
-        val values = timelines.filterKeys { it in g.sensorPositions }.values.flatMap { series ->
-            series.rows.filter { it.timestampEpochMs in (night.start - READING_LIFETIME)..night.end }
-                .map { historyMetric(it, metric) }.filter { it.isFinite() }
-        }
-        values.minOrNull()?.let { it..values.max() }
-    }
     var time by remember(g.id, night.start) { mutableStateOf<Long?>(null) }
     var playing by remember(g.id, night.start) { mutableStateOf(false) }
     val at = (time ?: night.end).coerceIn(night.start, night.end)
@@ -207,7 +200,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
         Box(Modifier.weight(.34f).fillMaxHeight(),contentAlignment=Alignment.Center) {
             if (readings.isEmpty()) Text("No mapped readings", fontSize=14.sp, color=DashboardTokens.Muted)
             else HeatMap(SpatialInterpolator.samples(readings,g,metric,at),metric,g,readings,d,t,
-                { _,_,_ -> }, Modifier.fillMaxSize(),editable=false,scale=scale)
+                { _,_,_ -> }, Modifier.fillMaxSize(),editable=false)
         }
         Column(Modifier.weight(.66f).fillMaxHeight()) {
             Text(metric.displayName(), fontSize=16.sp,fontWeight=FontWeight.Bold)

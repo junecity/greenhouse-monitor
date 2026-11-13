@@ -672,6 +672,35 @@ class StandaloneEditorTest {
         } finally { context.deleteDatabase("greenhouse_history$suffix.db") }
     }
 
+    @Test fun flatMapUsesFixedColorsAndLegendForEachMetric() {
+        val plan = GreenhouseConfig()
+        val samples = listOf(studio.junecity.greenhouse.data.SpatialSample(8.0, 4.0, 65.0))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            val metric = androidx.compose.runtime.mutableStateOf(Metric.Temperature)
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                activity.setContent {
+                    HeatMap(samples, metric.value, plan, emptyList(), { it.dp }, { it.sp },
+                        { _, _, _ -> }, Modifier.fillMaxSize())
+                }
+            }
+            for ((mode, low, high) in listOf(
+                Triple(Metric.Temperature, "40°F", "90°F"), Triple(Metric.Humidity, "35%", "100%"),
+                Triple(Metric.DewPoint, "40°F", "90°F"), Triple(Metric.Vpd, "0 kPa", "3 kPa")
+            )) {
+                scenario.onActivity { metric.value = mode }
+                find(low)
+                find(high)
+                find("· Estimated nearby")
+            }
+        }
+        val heat = ZoneHeatScale.Temperature
+        assertEquals(androidx.compose.ui.graphics.Color(0xffadd989), heat.color(65.0))
+        assertEquals(heat.color(40.0), heat.color(30.0))
+        assertEquals(heat.color(90.0), heat.color(100.0))
+        assertNotEquals(heat.color(65.0), ZoneHeatScale.Humidity.color(65.0))
+    }
+
     @Test fun viewerWithoutMountingHeightsRendersBothHeatMaps() {
         val plan = GreenhouseConfig(shape = GreenhouseShape.TShape, sensorPositions = mapOf(
             "north" to SensorPosition(2.0, 3.0), "east" to SensorPosition(13.0, 2.0),
