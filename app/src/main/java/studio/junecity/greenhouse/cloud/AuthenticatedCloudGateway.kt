@@ -137,7 +137,8 @@ class AuthenticatedCloudGateway(
     }
 
     suspend fun uploadGreenhouseBackup(greenhouseId: String, backup: JSONObject) {
-        requestOrNull("POST", "/v1/greenhouses/${segment(greenhouseId)}/backup", JSONObject().put("backup", backup))
+        val path = "/v1/greenhouses/${segment(greenhouseId)}/backup"
+        uploadSensorSnapshot(backup) { payload -> requestOrNull("POST", path, JSONObject().put("backup", payload)) }
     }
 
     suspend fun greenhouseBackup(greenhouseId: String): JSONObject? =
@@ -298,4 +299,23 @@ object CloudJsonCodec {
     private fun String.titleCase() = lowercase().replaceFirstChar(Char::uppercase)
     private fun JSONObject.optLongOrNull(name: String) = if (has(name) && !isNull(name)) getLong(name) else null
     private fun JSONObject.optNullableString(name: String) = if (has(name) && !isNull(name)) getString(name).ifBlank { null } else null
+}
+
+/** Keep current readings and settings deliverable if verbose history exceeds the API size limit. */
+internal suspend fun uploadSensorSnapshot(backup: JSONObject, send: suspend (JSONObject) -> Unit) {
+    var payload = backup
+    while (true) {
+        try {
+            send(payload)
+            return
+        } catch (error: CloudApiException) {
+            val history = payload.optJSONArray("history")
+            if (error.statusCode != 413 || history == null || history.length() == 0) throw error
+            val recent = org.json.JSONArray()
+            for (index in (history.length() + 1) / 2 until history.length()) recent.put(history.get(index))
+            payload = JSONObject().apply {
+                payload.keys().forEach { key -> put(key, if (key == "history") recent else payload.get(key)) }
+            }
+        }
+    }
 }

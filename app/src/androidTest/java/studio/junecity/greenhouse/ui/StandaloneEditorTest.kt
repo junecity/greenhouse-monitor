@@ -3,6 +3,8 @@ package studio.junecity.greenhouse.ui
 import android.app.Application
 import android.graphics.Rect
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.cancel
 import org.junit.Assume.assumeTrue
 import studio.junecity.greenhouse.GreenhouseViewModel
@@ -53,6 +55,122 @@ class StandaloneEditorTest {
             assertEquals(64.0,store.load().activeGreenhouse.areaSquareFeet,.001)
             store.clear()
         } finally { secure.saveSensorKey(single,old.orEmpty()) }
+    }
+
+    @Test fun serverDashboardShowsCollectedReadingsAfterResumeAcrossFullDisplay() {
+        val context=instrumentation.targetContext
+        val store=CurrentSensorStore(context)
+        val secure=SecureSettingsStore(context)
+        assumeTrue("Requires an isolated test installation",secure.cloudEnrollment()==null && secure.goveeApiKey()==null && store.load().isEmpty())
+        val house=GreenhouseConfig(id="second",name="Greenhouse 2")
+        val device=SensorDevice("govee","qa-server-bench","H5179","North bench")
+        val provider=object:SensorProvider{
+            override val providerId="govee"
+            override suspend fun discover(credential:SensorProviderCredential)=listOf(device)
+            override suspend fun read(credential:SensorProviderCredential,device:SensorDevice)=
+                SensorMeasurement(device,68.0,82.0,connected=true,recordedAtEpochMs=System.currentTimeMillis())
+        }
+        val prefs=AppPreferencesStore(context)
+        val saved=prefs.load()
+        var vm:GreenhouseViewModel?=null
+        try {
+            prefs.save(AppPreferences(greenhouses=listOf(house),activeGreenhouseId=house.id))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val model=GreenhouseViewModel(activity.application,provider)
+                    vm=model
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    secure.saveGoveeApiKey("fixture")
+                    model.viewModelScope.launch { model.refreshWhileVisible() }
+                    activity.setContent {
+                        DashboardScreen(model.state.collectAsState().value,DeviceStatus(80,true,true),
+                            java.time.LocalDateTime.now(),{},Modifier.fillMaxSize())
+                    }
+                }
+                find("North bench")
+                find("68°F")
+                find("82%")
+                find("Greenhouse 2")
+                scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+                scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+                find("North bench")
+                scenario.onActivity { activity ->
+                    val view=activity.findViewById<android.view.View>(android.R.id.content)
+                    val real=android.graphics.Point()
+                    @Suppress("DEPRECATION")
+                    activity.windowManager.defaultDisplay.getRealSize(real)
+                    assertEquals(real.x,view.width)
+                    assertEquals(real.y,view.height)
+                    assertNavigationHidden(view)
+                }
+                screenshot("server-dashboard")
+            }
+        } finally {
+            instrumentation.runOnMainSync { vm?.viewModelScope?.cancel() }
+            secure.clearGoveeApiKey()
+            prefs.save(saved)
+            store.clear()
+            studio.junecity.greenhouse.data.HistoryStore(context).use {
+                it.writableDatabase.delete("readings","sensor_id=?",arrayOf(device.deviceId))
+            }
+        }
+    }
+
+    @Test fun oversizedBackupRetriesWithRecentHistoryAndKeepsCurrentSensorsAndLocalHistory() = kotlinx.coroutines.runBlocking {
+        val original = org.json.JSONObject().put("sensors", org.json.JSONArray().put("bench"))
+            .put("history", org.json.JSONArray(listOf(1,2,3,4,5)))
+        var attempts=0
+        studio.junecity.greenhouse.cloud.uploadSensorSnapshot(original) {
+            attempts++
+            if (it.getJSONArray("history").length()>2) throw studio.junecity.greenhouse.cloud.CloudApiException(413,"backup_too_large")
+            assertEquals("[4,5]", it.getJSONArray("history").toString())
+            assertEquals("bench", it.getJSONArray("sensors").getString(0))
+        }
+        assertEquals(2,attempts)
+        assertEquals(5,original.getJSONArray("history").length())
+    }
+
+    @Test fun assignedReadingsSurviveServerBackupAndRenderOnViewerWithSystemNavigationHidden() {
+        val context = instrumentation.targetContext
+        val backup = studio.junecity.greenhouse.cloud.GreenhouseBackupStore(context)
+        val saved = backup.snapshot()
+        val prefs = AppPreferencesStore(context)
+        val store = CurrentSensorStore(context)
+        val second = GreenhouseConfig(id="second",name="Greenhouse 2")
+        val at = System.currentTimeMillis()
+        val live = GoveeSensor("bench","H5179","Bench",72.0,61.0,true,at,second.id,"Zone 1")
+        val old = live.copy(id="door",name="Door",online=false,updatedAtEpochMs=at-900_000)
+        val other = live.copy(id="outside",name="Other house",temperatureF=99.0,greenhouseId="main")
+        try {
+            prefs.save(AppPreferences(greenhouses=listOf(GreenhouseConfig(),second),activeGreenhouseId=second.id))
+            store.save(listOf(live,old,other))
+            val payload = backup.snapshot()
+            store.clear()
+            prefs.clear()
+            backup.restore(payload,CameraMode.ViewerClient)
+            assertEquals(listOf(live,old,other),store.load())
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    activity.setContent {
+                        DashboardScreen(GreenhouseUiState(sensors=store.load(), preferences=prefs.load()),DeviceStatus(80,true,true),
+                            java.time.LocalDateTime.now(),{},Modifier.fillMaxSize())
+                    }
+                }
+                find("Greenhouse 2")
+                find("Sensors (2)")
+                find("1 live")
+                find("72°F")
+                find("Door · Last read 15m ago")
+                assertTrue(ui.rootInActiveWindow.findAccessibilityNodeInfosByText("99°F").isEmpty())
+                scenario.onActivity { activity ->
+                    val view=activity.window.decorView
+                    assertNavigationHidden(view)
+                    assertEquals(view.width, activity.findViewById<android.view.View>(android.R.id.content).width)
+                }
+                screenshot("server-snapshot-dashboard")
+            }
+        } finally { backup.restore(saved) }
     }
 
     @Test fun standaloneSetupDiscoversReadingsAndRestoresThemOnReopen() {
@@ -321,6 +439,10 @@ class StandaloneEditorTest {
             val at = System.currentTimeMillis()
             studio.junecity.greenhouse.data.AlertNotifier(context,suffix).evaluate(
                 GoveeSensor(id, "H5179", "Bench",25.0,70.0,true,at,zone="Zone 3"))
+            val deadline = SystemClock.elapsedRealtime() + 3000
+            while (manager.activeNotifications.none { it.id == id.hashCode() } && SystemClock.elapsedRealtime() < deadline) {
+                SystemClock.sleep(50)
+            }
             val notice = manager.activeNotifications.single { it.id == id.hashCode() }.notification
             assertTrue(notice.extras.getString(android.app.Notification.EXTRA_TITLE)!!.contains("Zone 3"))
             assertNotNull(notice.contentIntent)
@@ -360,6 +482,19 @@ class StandaloneEditorTest {
             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)
         }
         bitmap.recycle()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun assertNavigationHidden(view: android.view.View) {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val insets = requireNotNull(androidx.core.view.ViewCompat.getRootWindowInsets(view))
+            assertFalse(insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.navigationBars()))
+        } else {
+            // Android 10 estimates visibility from insets even when LAYOUT_STABLE keeps them reserved.
+            val actual = view.windowSystemUiVisibility
+            val required = android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            assertEquals("Window has the immersive and hidden navigation flags", required, actual and required)
+        }
     }
 
     private fun screenshot(name:String) {

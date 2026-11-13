@@ -7,7 +7,8 @@ import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.settings.ZoneAssignmentStore
 import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.CurrentSensorStore
-import studio.junecity.greenhouse.cloud.CloudDeviceRole
+import studio.junecity.greenhouse.sensors.withCurrentAssignments
+import studio.junecity.greenhouse.sensors.collectReadings
 import studio.junecity.greenhouse.sensors.GoveeSensorProvider
 import studio.junecity.greenhouse.sensors.SensorProviderCredential
 import java.util.concurrent.TimeUnit
@@ -19,10 +20,12 @@ class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(
         val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
         val key=secure.sensorKey(owner) ?: return Result.success()
         return runCatching{
-            val provider=GoveeSensorProvider();val credential=SensorProviderCredential.ApiKey(key);val history=HistoryStore(applicationContext,suffix);val notifier=AlertNotifier(applicationContext,suffix);val zones=ZoneAssignmentStore(applicationContext,suffix);val preferences=AppPreferencesStore(applicationContext,suffix).load()
-            val sensors=provider.discover(credential).map{device->provider.read(credential,device).toLegacySensor(greenhouseId=preferences.sensorGreenhouseIds[device.deviceId]?:preferences.activeGreenhouse.id,zone=zones.zone(device.deviceId))}
+            val provider=GoveeSensorProvider();val credential=SensorProviderCredential.ApiKey(key);val history=HistoryStore(applicationContext,suffix);val notifier=AlertNotifier(applicationContext,suffix);val zones=ZoneAssignmentStore(applicationContext,suffix);val prefs=AppPreferencesStore(applicationContext,suffix)
+            val store = CurrentSensorStore(applicationContext,suffix)
+            val collected = provider.collectReadings(credential, prefs.load(), store.load(), zones::zone)
             if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return Result.success()
-            CurrentSensorStore(applicationContext,suffix).save(sensors)
+            val sensors = collected.withCurrentAssignments(prefs.load(), zones::zone)
+            store.save(sensors)
             sensors.filter{it.online}.forEach{history.insert(it);notifier.evaluate(it)}
             Result.success()
         }.getOrElse{Result.retry()}

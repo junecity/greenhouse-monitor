@@ -12,6 +12,8 @@ import kotlinx.coroutines.withContext
 import studio.junecity.greenhouse.data.*
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.*
+import studio.junecity.greenhouse.sensors.withCurrentAssignments
+import studio.junecity.greenhouse.sensors.collectReadings
 import studio.junecity.greenhouse.sensors.GoveeSensorProvider
 import studio.junecity.greenhouse.sensors.SensorProviderCredential
 import studio.junecity.greenhouse.cloud.*
@@ -62,12 +64,13 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         loadHistory()
         SensorSyncWorker.schedule(app)
         refreshWeather(true)
-        if (secure.sensorKey(secure.cloudEnrollment()) != null) refreshSensors()
-        viewModelScope.launch { while (true) {
-            delay(60_000L)
-            selectStores()
-            if (secure.sensorKey(secure.cloudEnrollment()) != null) refreshSensors(true)
-        } }
+
+        viewModelScope.launch {
+            while (true) {
+                delay(60_000L)
+                if (secure.sensorKey(secure.cloudEnrollment()) != null) refreshSensors(true)
+            }
+        }
         viewModelScope.launch { while (true) { delay(15*60_000L); refreshWeather(true) } }
     }
     fun navigate(s:AppScreen){_state.value=_state.value.copy(screen=s,message=null);if(s==AppScreen.History || s==AppScreen.Zones)loadHistory()}
@@ -119,30 +122,31 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             try {
                 val credential = SensorProviderCredential.ApiKey(key)
                 val prefs = _state.value.preferences
-                val sensors = govee.discover(credential).map { device ->
-                    val old = _state.value.sensors.find { it.id == device.deviceId }
-                    govee.read(credential, device).toLegacySensor(
-                        greenhouseId = prefs.sensorGreenhouseIds[device.deviceId] ?: old?.greenhouseId ?: prefs.activeGreenhouse.id,
-                        zone = storage.zones.zone(device.deviceId).takeUnless { it == "Unassigned" } ?: old?.zone ?: "Unassigned")
-                }
+                val collected = govee.collectReadings(credential, prefs, storage.sensors.load(), storage.zones::zone)
                 if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return@launch
+                val latest = _state.value.preferences
+                val sensors = collected.withCurrentAssignments(latest, storage.zones::zone)
+                storage.sensors.save(sensors)
+                ensurePositions(sensors)
+                _state.value = _state.value.copy(sensors = sensors, goveeConnected = true, message = "Updated ${sensors.size} sensors")
                 withContext(Dispatchers.IO) {
-                    storage.sensors.save(sensors)
                     sensors.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
                     if (!owner.isStandaloneClient()) HeartbeatHealthStore(getApplication()).save(sensors,
                         prefs.notifications.lowTemperatureF, prefs.notifications.highTemperatureF)
                 }
                 if (stores != storage) return@launch
                 loadHistory()
-                ensurePositions(sensors)
-                _state.value = _state.value.copy(sensors = sensors, goveeConnected = true, message = "Updated ${sensors.size} sensors")
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (error: Exception) { _state.value = _state.value.copy(message = error.message ?: "Sensor refresh failed") }
             finally { if (stores == storage) _state.value = _state.value.copy(refreshing = false) }
         }
     }
-    suspend fun refreshClientWhileVisible() {
-        if (secure.cloudEnrollment()?.role != CloudDeviceRole.ViewerClient) return
+    suspend fun refreshWhileVisible() {
+        val owner = secure.cloudEnrollment()
+        if (owner?.role != CloudDeviceRole.ViewerClient || owner.localSensors) {
+            refreshSensors(true)
+            return
+        }
         selectStores()
         pollClientReadings(
             refresh = { fetchServerSnapshot(silent = true) },
@@ -174,7 +178,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             }
             if (snapshot == null) {
                 if (!silent) _state.value = _state.value.copy(message = "Waiting for greenhouse server data")
-                return true
+                return greenhouseId.isBlank()
             }
             val readings = withContext(Dispatchers.IO) {
                 GreenhouseBackupStore(getApplication()).restore(snapshot, CameraMode.ViewerClient)
@@ -202,7 +206,18 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     }
     private fun ensurePositions(sensors:List<GoveeSensor>){val p=_state.value.preferences;val g=p.activeGreenhouse;var positions=g.sensorPositions;sensors.filter{it.greenhouseId==g.id&&it.id !in positions}.forEachIndexed{i,s->val defaults=listOf(.2 to .18,.8 to .18,.4 to .62,.6 to .82);val n=defaults[i%defaults.size];positions=positions+(s.id to g.coercePoint(n.first*g.planLengthFeet,n.second*g.planWidthFeet))};if(positions!=g.sensorPositions)savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=positions)else it}))}
     fun moveSensor(id:String,nx:Double,ny:Double){val p=_state.value.preferences;val g=p.activeGreenhouse;val projected=g.coercePoint(nx.coerceIn(.03,.97)*g.planLengthFeet,ny.coerceIn(.05,.95)*g.planWidthFeet);val pos=projected.copy(heightFeet=g.sensorPositions[id]?.heightFeet?:0.0);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
-    fun assignZone(sensorId:String,zone:String){legacyZones.assign(sensorId,zone);val p=_state.value.preferences;val active=p.activeGreenhouse;savePreferences(p.copy(sensorGreenhouseIds=p.sensorGreenhouseIds+(sensorId to active.id)));_state.value=_state.value.copy(sensors=_state.value.sensors.map{if(it.id==sensorId)it.copy(zone=zone,greenhouseId=active.id)else it});ensurePositions(_state.value.sensors)}
+    fun assignZone(sensorId: String, zone: String) {
+        val owner = secure.cloudEnrollment()
+        if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
+        val prefs = _state.value.preferences
+        val house = prefs.activeGreenhouse
+        legacyZones.assign(sensorId, zone)
+        savePreferences(prefs.copy(sensorGreenhouseIds = prefs.sensorGreenhouseIds + (sensorId to house.id)))
+        val updated = _state.value.sensors.map { if (it.id == sensorId) it.copy(zone = zone, greenhouseId = house.id) else it }
+        currentSensors.save(updated)
+        _state.value = _state.value.copy(sensors = updated)
+        ensurePositions(updated)
+    }
     fun updateGreenhouse(name:String,length:Double,width:Double){if(length<=0||width<=0)return;val p=_state.value.preferences;val old=p.activeGreenhouse;val geometry=old.copy(name=name.ifBlank{old.name},lengthFeet=length,widthFeet=width);val updated=geometry.copy(sensorPositions=old.sensorPositions.mapValues{(_,v)->geometry.reproject(v,old)});savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==old.id)updated else it}))}
     fun updatePreferences(transform:(AppPreferences)->AppPreferences)=savePreferences(transform(_state.value.preferences))
     private fun savePreferences(p:AppPreferences){preferences.save(p);_state.value=_state.value.copy(preferences=p)}

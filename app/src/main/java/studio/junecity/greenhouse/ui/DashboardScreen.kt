@@ -49,7 +49,7 @@ private val ProGreen=DashboardTokens.Green
 private val ProPanel=DashboardTokens.Panel
 private val ProEdge=DashboardTokens.PanelEdge
 
-@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier){
+@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,onManageSensors:()->Unit={onNavigate(AppScreen.Settings)},onRefresh:()->Unit={}){
     val context=LocalContext.current
     val cardEntranceDuration=accessibleMotionDuration(AppMotion.CardEntranceMs)
     var entered by remember{mutableStateOf(false)}
@@ -60,11 +60,12 @@ private val ProEdge=DashboardTokens.PanelEdge
     LaunchedEffect(state.preferences.cameraMode,state.standalone){if(!state.standalone&&state.preferences.cameraMode==CameraMode.CameraServer&&!cameraPermission)cameraPermissionLauncher.launch(Manifest.permission.CAMERA)}
     ApprovedFrame(AppScreen.Dashboard,status,now,onNavigate,modifier,showTitle=false,standalone=state.standalone){d,t->
         val greenhouse=state.preferences.activeGreenhouse
-        val fresh=state.sensors.filter{it.greenhouseId==greenhouse.id&&it.isFresh()}
-        val temperature=SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,greenhouse,Metric.Temperature),greenhouse)
-        val humidity=SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,greenhouse,Metric.Humidity),greenhouse)
-        val vpd=SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,greenhouse,Metric.Vpd),greenhouse)
-        val dewPoint=SpatialInterpolator.areaAverage(SpatialInterpolator.samples(fresh,greenhouse,Metric.DewPoint),greenhouse)
+        val assigned = state.sensors.filter { it.greenhouseId == greenhouse.id }
+        val fresh = assigned.filter { it.isFresh() }
+        val temperature=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.Temperature)
+        val humidity=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.Humidity)
+        val vpd=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.Vpd)
+        val dewPoint=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.DewPoint)
         Row(Modifier.fillMaxSize().alpha(contentAlpha).graphicsLayer{translationY=(1f-contentAlpha)*d(8f).toPx()},horizontalArrangement=Arrangement.spacedBy(d(14f))){
             Row(Modifier.weight(.59f).fillMaxHeight(),horizontalArrangement=Arrangement.spacedBy(d(14f))){
                 Column(Modifier.weight(.46f),verticalArrangement=Arrangement.spacedBy(d(12f))){
@@ -81,13 +82,53 @@ private val ProEdge=DashboardTokens.PanelEdge
                     else if(cameraPermission)FrontCameraFeed(d,t,Modifier.fillMaxSize(),state.preferences.cameraStreamQuality)
                     else Box(Modifier.fillMaxSize().clickable{cameraPermissionLauncher.launch(Manifest.permission.CAMERA)},contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){DashboardIconView(DashboardIcon.Camera,ProAmber,Modifier.size(d(54f)));Text("Enable front camera",color=Color.White,fontSize=t(16f));Text("Tap to allow camera access",color=DashboardTokens.Muted,fontSize=t(11f))}}
                 }}
-                SensorCard(fresh,d,t,Modifier.weight(.44f).fillMaxWidth())
+                val viewer = !state.standalone && state.preferences.cameraMode == CameraMode.ViewerClient
+                val otherHouses = state.preferences.greenhouses.filter { house -> state.sensors.any { it.greenhouseId == house.id } }
+                val emptyText = when {
+                    viewer -> "Waiting for readings from the server"
+                    otherHouses.isNotEmpty() -> "Sensors assigned to " + otherHouses.joinToString { it.name }
+                    state.goveeConnected -> "No H5179 sensors discovered"
+                    else -> "Connect your Govee H5179 sensors"
+                }
+                SensorCard(assigned, emptyText, if (viewer) "Sync from server" else "Manage sensors",
+                    if (viewer) onRefresh else onManageSensors, d, t, Modifier.weight(.44f).fillMaxWidth())
             }
         }
     }
 }
 
-@Composable private fun WeatherCard(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier){val icon=when{state.weather.condition.contains("storm",true)||state.weather.condition.contains("thunder",true)->DashboardIcon.Storm;state.weather.condition.contains("snow",true)->DashboardIcon.Snow;state.weather.condition.contains("rain",true)||state.weather.condition.contains("drizzle",true)->DashboardIcon.Rain;state.weather.condition.contains("clear",true)->DashboardIcon.Sun;state.weather.condition.contains("cloud",true)->DashboardIcon.CloudSun;else->DashboardIcon.Cloud};ProPanel(modifier){Row(Modifier.fillMaxSize().dashboardLensClearance(curved=true).padding(horizontal=d(18f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,ProAmber,Modifier.size(d(65f)));Spacer(Modifier.width(d(14f)));Column(Modifier.weight(.9f)){Text("Outdoor",color=Color.White,fontSize=t(17f),fontWeight=FontWeight.Bold,maxLines=1);Text(formatTemp(state.weather.temperatureF),color=Color.White,fontSize=t(34f),fontWeight=FontWeight.Black,maxLines=1)};Box(Modifier.width(d(1f)).fillMaxHeight(.62f).background(ProEdge));Spacer(Modifier.width(d(16f)));Column(Modifier.weight(1.1f)){Text(state.weather.location,color=DashboardTokens.Muted,fontSize=t(13f),maxLines=1);Text(state.weather.condition,color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold,maxLines=1)}}}}
+@Composable private fun WeatherCard(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier) {
+    val weather=state.weather
+    val icon=when {
+        weather.condition.contains("storm",true)||weather.condition.contains("thunder",true)->DashboardIcon.Storm
+        weather.condition.contains("snow",true)->DashboardIcon.Snow
+        weather.condition.contains("rain",true)||weather.condition.contains("drizzle",true)->DashboardIcon.Rain
+        weather.condition.contains("clear",true)->DashboardIcon.Sun
+        weather.condition.contains("cloud",true)->DashboardIcon.CloudSun
+        else->DashboardIcon.Cloud
+    }
+    ProPanel(modifier) {
+        BoxWithConstraints(Modifier.fillMaxSize().dashboardLensClearance(curved=true).padding(horizontal=d(14f))) {
+            val compact=maxWidth < 190.dp
+            Row(Modifier.fillMaxSize(),verticalAlignment=Alignment.CenterVertically) {
+                if(!compact) {
+                    DashboardIconView(icon,ProAmber,Modifier.size(d(52f)))
+                    Spacer(Modifier.width(d(10f)))
+                }
+                Column(Modifier.weight(.83f)) {
+                    Text("Outdoor",color=Color.White,fontSize=t(if(compact) 14f else 17f),fontWeight=FontWeight.Bold)
+                    Text(formatTemp(weather.temperatureF),color=Color.White,fontSize=t(if(compact) 25f else 34f),fontWeight=FontWeight.Black,maxLines=1)
+                }
+                Box(Modifier.width(d(1f)).fillMaxHeight(.62f).background(ProEdge))
+                Spacer(Modifier.width(d(12f)))
+                Column(Modifier.weight(1.17f)) {
+                    Text(weather.location,color=DashboardTokens.Muted,fontSize=t(if(compact) 12f else 13f),maxLines=2)
+                    Text(weather.condition,color=Color.White,fontSize=t(if(compact) 13f else 16f),fontWeight=FontWeight.Bold,maxLines=2)
+                }
+            }
+        }
+    }
+}
 
 @Composable private fun MiniMetric(label:String,value:String,icon:DashboardIcon,color:Color,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier) {
     ProPanel(modifier) {
@@ -118,7 +159,61 @@ private val ProEdge=DashboardTokens.PanelEdge
 
 @Composable private fun ClimateMode(icon:DashboardIcon,label:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit){Column(horizontalAlignment=Alignment.CenterHorizontally){Box(Modifier.size(d(48f)).background(Color(0xFF202327),CircleShape).border(d(1f),ProEdge,CircleShape),contentAlignment=Alignment.Center){DashboardIconView(icon,DashboardTokens.MutedDark,Modifier.size(d(24f)))};Text(label,color=DashboardTokens.MutedDark,fontSize=t(11f),fontWeight=FontWeight.Bold)}}
 
-@Composable private fun SensorCard(sensors:List<GoveeSensor>,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier){var selected by remember{mutableStateOf<String?>(sensors.firstOrNull()?.id)};val selectionDuration=accessibleMotionDuration(AppMotion.SensorSelectionMs);ProPanel(modifier){Column(Modifier.fillMaxSize().dashboardLensClearance(curved=true).padding(d(16f))){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Sensors (${sensors.size})",color=Color.White,fontSize=t(18f),fontWeight=FontWeight.ExtraBold);Text("Live readings",color=DashboardTokens.Muted,fontSize=t(10f))};Spacer(Modifier.height(d(8f)));if(sensors.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Connect H5179 sensors in Settings",color=DashboardTokens.Muted,fontSize=t(13f))}else LazyColumn(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(d(7f))){items(sensors,key={it.id}){sensor->val emphasis by animateFloatAsState(if(sensor.id==selected)1f else 0f,tween(selectionDuration),label="sensor selection");Row(Modifier.height(d(54f)).fillMaxWidth().clip(RoundedCornerShape(d(18f))).background(Color(0xFF1E2023).copy(alpha=.82f+emphasis*.18f)).border(d(1f),if(emphasis>.5f)ProAmber.copy(alpha=.55f) else ProEdge,RoundedCornerShape(d(18f))).clickable{selected=sensor.id}.padding(horizontal=d(14f)),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(d(10f)).background(if(sensor.online)ProGreen else DashboardTokens.MutedDark,CircleShape));Spacer(Modifier.width(d(12f)));Column(Modifier.weight(1f)){Text(sensor.zone,color=Color.White,fontSize=t(13f),fontWeight=FontWeight.ExtraBold,maxLines=1);Text(sensor.name,color=DashboardTokens.Muted,fontSize=t(9f),maxLines=1)};Text(formatTemp(sensor.temperatureF),color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Black);Spacer(Modifier.width(d(22f)));Text(formatHumidity(sensor.humidityPercent),color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Black)}}}}}}
+@Composable private fun SensorCard(
+    sensors: List<GoveeSensor>, emptyText: String, action: String, onAction: () -> Unit,
+    d: (Float) -> androidx.compose.ui.unit.Dp, t: (Float) -> androidx.compose.ui.unit.TextUnit,
+    modifier: Modifier
+) {
+    var selected by remember { mutableStateOf(sensors.firstOrNull()?.id) }
+    val duration = accessibleMotionDuration(AppMotion.SensorSelectionMs)
+    val live = sensors.count { it.isFresh() }
+    ProPanel(modifier) {
+        Column(Modifier.fillMaxSize().dashboardLensClearance(curved=true).padding(d(16f))) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Sensors (${sensors.size})", color=Color.White, fontSize=t(18f), fontWeight=FontWeight.ExtraBold)
+                val status = when {
+                    sensors.isEmpty() -> ""
+                    live == sensors.size -> "Live readings"
+                    else -> "$live live"
+                }
+                Text(status, color=DashboardTokens.Muted, fontSize=t(10f))
+            }
+            Spacer(Modifier.height(d(8f)))
+            if (sensors.isEmpty()) {
+                Column(Modifier.fillMaxSize(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
+                    Text(emptyText, color=DashboardTokens.Muted, fontSize=t(13f), textAlign=TextAlign.Center)
+                    androidx.compose.material3.TextButton(onClick=onAction) { Text(action, color=ProAmber, fontSize=t(14f)) }
+                }
+            } else LazyColumn(Modifier.fillMaxSize(), verticalArrangement=Arrangement.spacedBy(d(7f))) {
+                items(sensors, key={it.id}) { sensor ->
+                    val fresh = sensor.isFresh()
+                    val emphasis by animateFloatAsState(if(sensor.id==selected) 1f else 0f, tween(duration), label="sensor selection")
+                    val shape = RoundedCornerShape(d(18f))
+                    Row(Modifier.heightIn(min=d(54f)).fillMaxWidth().clip(shape)
+                        .background(Color(0xFF1E2023).copy(alpha=.82f+emphasis*.18f))
+                        .border(d(1f), if(emphasis>.5f) ProAmber.copy(alpha=.55f) else ProEdge, shape)
+                        .clickable { selected=sensor.id }.padding(horizontal=d(14f)), verticalAlignment=Alignment.CenterVertically) {
+                        Box(Modifier.size(d(10f)).background(if(fresh) ProGreen else DashboardTokens.MutedDark, CircleShape))
+                        Spacer(Modifier.width(d(12f)))
+                        Column(Modifier.weight(1f)) {
+                            Text(sensor.zone, color=Color.White, fontSize=t(13f), fontWeight=FontWeight.ExtraBold, maxLines=1)
+                            val label = when {
+                                fresh -> sensor.name
+                                sensor.updatedAtEpochMs <= 0 -> "${sensor.name} · No reading yet"
+                                else -> "${sensor.name} · Last read ${((System.currentTimeMillis()-sensor.updatedAtEpochMs)/60_000).coerceAtLeast(0)}m ago"
+                            }
+                            Text(label, color=DashboardTokens.Muted, fontSize=t(10f))
+                        }
+                        val color = if(fresh) Color.White else DashboardTokens.Muted
+                        Text(formatTemp(sensor.temperatureF), color=color, fontSize=t(16f), fontWeight=FontWeight.Black)
+                        Spacer(Modifier.width(d(22f)))
+                        Text(formatHumidity(sensor.humidityPercent), color=color, fontSize=t(16f), fontWeight=FontWeight.Black)
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable fun ApprovedFrame(current:AppScreen,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,showTitle:Boolean=true,standalone:Boolean=false,content:@Composable ((Float)->androidx.compose.ui.unit.Dp,(Float)->androidx.compose.ui.unit.TextUnit)->Unit){val systemFontScale=LocalDensity.current.fontScale.coerceAtLeast(1f);BoxWithConstraints(modifier.background(Brush.radialGradient(listOf(Color(0xFF1C1D1F),Color(0xFF08090A)),radius=1500f)).then(if(current==AppScreen.Dashboard) Modifier else Modifier.displayCutoutPadding())){val portrait=maxHeight>maxWidth;val geometryScale=if(portrait)(maxWidth.value/430f).coerceIn(.82f,1.05f) else .43f*minOf(maxWidth.value/800f,maxHeight.value/360f).coerceIn(.85f,1.30f);val textScale=if(portrait)(maxWidth.value/390f).coerceIn(.92f,1.12f) else (geometryScale*2.05f).coerceIn(.88f,1.22f);val d:(Float)->androidx.compose.ui.unit.Dp={(it*geometryScale).dp};val t:(Float)->androidx.compose.ui.unit.TextUnit={(it*textScale/systemFontScale).sp};ProvideTextStyle(LocalTextStyle.current.copy(fontWeight=FontWeight.Bold)){Column(Modifier.fillMaxSize().padding(horizontal=if(portrait)d(14f) else d(4f),vertical=d(6f))){Box(Modifier.fillMaxWidth().height(if(portrait)d(68f) else d(76f))){if(showTitle)Text(current.name,color=Color.White,fontSize=t(if(portrait)26f else 22f),fontWeight=FontWeight.ExtraBold,modifier=Modifier.align(Alignment.CenterStart).padding(start=if(portrait)0.dp else d(28f)));Row(Modifier.align(Alignment.CenterEnd).then(if(current==AppScreen.Dashboard) Modifier.dashboardLensClearance() else Modifier).padding(end=if(portrait)0.dp else d(20f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(DashboardIcon.Wifi,if(status.wifiConnected)ProGreen else ProAmber,Modifier.size(d(if(portrait)24f else 34f)));Text(if(status.wifiConnected)" Online" else " Offline",color=if(status.wifiConnected)ProGreen else ProAmber,fontSize=t(if(portrait)14f else 18f));if(!portrait){Box(Modifier.padding(horizontal=d(22f)).width(d(1f)).height(d(42f)).background(ProEdge));Text(now.format(DateTimeFormatter.ofPattern("MMM d, h:mm a")),color=Color.White,fontSize=t(18f))}}};Box(Modifier.weight(1f).fillMaxWidth()){content(d,t)};Spacer(Modifier.height(d(6f)));AppBottomNavigation(current,d,t,onNavigate,portrait,Modifier.height(d(if(portrait)82f else 112f)).fillMaxWidth(),standalone)}}}}
 

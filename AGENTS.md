@@ -1,6 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
-## Current checkpoint — 2026-11-12 · Android 2.10.1 (code 31)
+## Current checkpoint — 2026-11-12 · Android 2.10.2 (code 32)
+- GreenhouseViewModel and SensorSyncWorker share CollectReadings. Isolate per-device failures, preserve last observation time and greenhouse membership, persist manual reassignment immediately, and keep paired clients on the server snapshot path. Dashboard shows the assigned inventory, stale labels, and a direct Devices action. Use fresh in-house arithmetic averages if there are no mapped readings.
+- CloudHeartbeatService publishes changes to the active house or reporting sensor inventory on its next successful heartbeat. A missing enrolled server backup is retried by the client. AuthenticatedCloudGateway retries HTTP 413 with progressively less transmitted history. Current readings, settings and local SQLite history are retained.
+- MainActivity restores full-screen flags on focus and rotation. DashboardScreen adapts compact weather content within its existing card. API 29 at 2270 × 1080 and API 35 emulator cases cover server foreground collection, full display after reopen, and viewer snapshot rendering. See CHANGELOG for checks. Confirm real H5179 readings, paired cloud delivery and Moto OEM navigation after updating both phones in place.
+
+## Release checkpoint — 2026-11-12 · Android 2.10.1 (code 31)
 - DashboardScreen measures against the original full-width grid. DashboardCutout applies the amber recess and interior clearance only where real cutout bounds intersect an individual component; avoid applying a display-wide horizontal inset to the dashboard frame.
 - A compact measurement tile gives space to the label and reading before the icon. StandaloneEditorTest checks lens clearance, the original navigation edge and matching unaffected landmarks in both landscape rotations. Build-out contains the plain signed APK and emulator screenshots in 2.10.1-qa. Physical phone fit remains to be confirmed.
 

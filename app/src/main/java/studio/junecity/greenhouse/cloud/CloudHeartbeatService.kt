@@ -77,6 +77,8 @@ class CloudHeartbeatService : Service() {
         var failures = 0
         var lastBackupAt = 0L
         var lastDataUploadAt = 0L
+        var publishedSensorIds: Set<String>? = null
+        var publishedHouse: String? = null
         while (scope.isActive) {
             val health = HeartbeatHealthStore(this).load()
             val sensors = CurrentSensorStore(this).load()
@@ -93,10 +95,15 @@ class CloudHeartbeatService : Service() {
                 ))
             }
             val now = System.currentTimeMillis()
-            val backupIntervalMs = AppPreferencesStore(this).load().activeRefreshMinutes * 60_000L
-            if (result.isSuccess && now - lastBackupAt >= backupIntervalMs) runCatching {
+            val preferences = AppPreferencesStore(this).load()
+            val backupIntervalMs = preferences.activeRefreshMinutes * 60_000L
+            val activeHouse = preferences.activeGreenhouseId
+            val available = sensors.filter { it.greenhouseId == activeHouse && it.updatedAtEpochMs > 0 }.map { it.id }.toSet()
+            if (result.isSuccess && (activeHouse != publishedHouse || available != publishedSensorIds || now - lastBackupAt >= backupIntervalMs)) runCatching {
                 gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(this@CloudHeartbeatService).snapshot())
             }.onSuccess {
+                publishedHouse = activeHouse
+                publishedSensorIds = available
                 lastBackupAt = now
                 lastDataUploadAt = now
             }

@@ -15,7 +15,7 @@ class GoveeApiClient {
         val response = request("$baseUrl/user/devices", apiKey)
         val root = JSONObject(response)
         if (root.optInt("code") != 200) error(root.optString("message", "Govee rejected the request"))
-        val data = root.optJSONArray("data") ?: return@withContext emptyList()
+        val data = root.optJSONArray("data") ?: error("Govee did not return a device list")
         buildList {
             for (i in 0 until data.length()) {
                 val item = data.getJSONObject(i)
@@ -29,17 +29,21 @@ class GoveeApiClient {
         val root = JSONObject(request("$baseUrl/device/state", apiKey, body))
         if (root.optInt("code") != 200) error(root.optString("msg", "Unable to read ${sensor.name}"))
         val capabilities = root.optJSONObject("payload")?.optJSONArray("capabilities")
-        var temperature: Double? = null; var humidity: Double? = null; var online = false
+        var temperature: Double? = null; var humidity: Double? = null; var online: Boolean? = null
         if (capabilities != null) for (i in 0 until capabilities.length()) {
             val capability = capabilities.getJSONObject(i)
             val value = capability.optJSONObject("state")?.opt("value")
             when (capability.optString("instance")) {
-                "online" -> online = value == true
-                "sensorTemperature" -> temperature = (value as? Number)?.toDouble()
-                "sensorHumidity" -> humidity = (value as? Number)?.toDouble()
+                "online" -> online = when (value?.toString()?.lowercase()) {
+                    "true", "1" -> true
+                    "false", "0" -> false
+                    else -> null
+                }
+                "sensorTemperature" -> temperature = value?.toString()?.toDoubleOrNull()?.takeIf { it.isFinite() }
+                "sensorHumidity" -> humidity = value?.toString()?.toDoubleOrNull()?.takeIf { it.isFinite() }
             }
         }
-        sensor.copy(temperatureF = temperature, humidityPercent = humidity, online = online, updatedAtEpochMs = System.currentTimeMillis())
+        sensor.copy(temperatureF = temperature, humidityPercent = humidity, online = online == true, updatedAtEpochMs = System.currentTimeMillis())
     }
 
     private fun request(url: String, apiKey: String, body: String? = null): String {

@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -141,7 +140,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 LaunchedEffect(cloudEnrollmentRevision) {
                     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                        viewModel.refreshClientWhileVisible()
+                        viewModel.refreshWhileVisible()
                     }
                 }
                 alert?.let { target ->
@@ -162,15 +161,19 @@ class MainActivity : ComponentActivity() {
                             confirmButton = { androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close") } })
                     }
                 }
+                var openSensors by remember { mutableStateOf(false) }
+                val navigate: (AppScreen) -> Unit = { openSensors = false; viewModel.navigate(it) }
                 Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->
                     if (screen == AppScreen.Dashboard) {
-                        DashboardScreen(state, status, now, viewModel::navigate, Modifier.fillMaxSize())
+                        DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
+                            onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
+                            onRefresh = { viewModel.syncFromServer() })
                     } else {
                         StageScreen(
-                            state.copy(screen = screen), status, now, viewModel::navigate, viewModel::selectMetric,
+                            state.copy(screen = screen), status, now, navigate, viewModel::selectMetric,
                             viewModel::refreshSensors, viewModel::saveApiKey, viewModel::moveSensor, viewModel::assignZone,
                             viewModel::saveZip, viewModel::refreshWeather, viewModel::updateGreenhouse,
-                            viewModel::updatePreferences, Modifier.fillMaxSize()
+                            viewModel::updatePreferences, Modifier.fillMaxSize(), openSensors
                         )
                     }
                 }
@@ -188,13 +191,21 @@ class MainActivity : ComponentActivity() {
         enterImmersiveMode()
     }
 
-    @Suppress("DEPRECATION")
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enterImmersiveMode()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        window.decorView.post { if (hasWindowFocus()) enterImmersiveMode() }
+    }
+
     private fun enterImmersiveMode() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
         }
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
     }
 }
