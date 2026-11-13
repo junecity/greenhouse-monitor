@@ -29,12 +29,24 @@ import studio.junecity.greenhouse.camera.CameraStreamProfile
 import studio.junecity.greenhouse.model.CameraStreamQuality
 import studio.junecity.greenhouse.streaming.CloudCameraLease
 import java.util.concurrent.Executors
+import android.os.Build
 import android.util.Size
 
 @Composable fun FrontCameraFeed(d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier=Modifier,streamQuality:CameraStreamQuality=CameraStreamQuality.Balanced,onStatus:(Boolean,String?)->Unit={_,_->}){
     val context=LocalContext.current
     val lifecycleOwner=LocalLifecycleOwner.current
-    val previewView=remember{PreviewView(context).apply{scaleType=PreviewView.ScaleType.FILL_CENTER;implementationMode=PreviewView.ImplementationMode.COMPATIBLE;clipToOutline=true}}
+    val previewView = remember(context) {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            // On the Android 10 Moto G7, detaching a TextureView can block HWUI in the Adreno driver.
+            implementationMode = if (Build.VERSION.SDK_INT == 29 && Build.DEVICE == "river") {
+                PreviewView.ImplementationMode.PERFORMANCE
+            } else {
+                PreviewView.ImplementationMode.COMPATIBLE
+            }
+            clipToOutline = true
+        }
+    }
     val profile=remember(streamQuality){CameraStreamProfile.from(streamQuality)}
     val remoteActive by CloudCameraLease.remoteActive.collectAsState()
     val analysisExecutor=remember(streamQuality,remoteActive){Executors.newSingleThreadExecutor()}

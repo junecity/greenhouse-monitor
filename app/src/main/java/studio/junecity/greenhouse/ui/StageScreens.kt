@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.ui
 
+import android.graphics.Bitmap
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -35,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,13 +87,22 @@ import kotlin.math.roundToInt
             val samplesPerFoot=2
             val cols=kotlin.math.ceil(g.planLengthFeet*samplesPerFoot).toInt().coerceIn(1,120)
             val rows=kotlin.math.ceil(g.planWidthFeet*samplesPerFoot).toInt().coerceIn(1,120)
-            val values=List(rows){y->List(cols){x->val px=(x+.5)*g.planLengthFeet/cols;val py=(y+.5)*g.planWidthFeet/rows;SpatialInterpolator.estimate(samples,px,py)}}
-            val finite=values.flatten().filterNotNull()
-            val min=scale?.start?:finite.minOrNull()?:60.0
-            val max=scale?.endInclusive?:finite.maxOrNull()?:80.0
+            // One texel per cell avoids submitting a large clipped mesh to the phone's GPU.
+            val field = remember(samples, g.planLengthFeet, g.planWidthFeet, metric, scale) {
+                val values = Array(rows * cols) { index ->
+                    val x = (index % cols + 0.5) * g.planLengthFeet / cols
+                    val y = (index / cols + 0.5) * g.planWidthFeet / rows
+                    SpatialInterpolator.estimate(samples, x, y)
+                }
+                val available = values.filterNotNull()
+                val min = scale?.start ?: available.minOrNull() ?: 60.0
+                val max = scale?.endInclusive ?: available.maxOrNull() ?: 80.0
+                val pixels = IntArray(values.size) { index ->
+                    (values[index]?.let { heatColor(it, min, max, metric) } ?: Color(0xFF0B3134)).toArgb()
+                }
+                Bitmap.createBitmap(pixels, cols, rows, Bitmap.Config.ARGB_8888).asImageBitmap()
+            }
             Canvas(Modifier.fillMaxSize()){
-                val cw=size.width/cols
-                val rh=size.height/rows
                 val outline=Path()
                 g.outline().forEachIndexed { i,p ->
                     val x=(p.x*size.width).toFloat()
@@ -97,11 +111,8 @@ import kotlin.math.roundToInt
                 }
                 outline.close()
                 clipPath(outline) {
-                    for (y in 0 until rows) for (x in 0 until cols) {
-                        val value=values[y][x]
-                        val color=if(value==null) Color(0xFF0B3134) else heatColor(value,min,max,metric)
-                        drawRect(color,Offset(x*cw,y*rh),Size(cw+1,rh+1))
-                    }
+                    drawImage(field, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                        filterQuality = FilterQuality.None)
                     val gridColor=Color.White.copy(alpha=.12f)
                     val gridStroke=d(.5f).toPx()
                     for (foot in 1 until kotlin.math.ceil(g.planLengthFeet).toInt()) {

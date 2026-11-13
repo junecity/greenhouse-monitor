@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-12 · Android 2.10.6 (code 36)
+- Physical Moto G7 (river, API 29) freeze reports from 2.10.5 show HWUI waiting for the Adreno driver during camera TextureView detach. FrontCameraFeed selects a CameraX performance preview on that model/OS. A preview-only fix still crashed on the second Zones visit in the Adreno indexed mesh draw. StageScreens now caches heat-map cells in a nearest-neighbor bitmap and clips a single draw to the existing footprint.
+- Signed in-place upgrade on the enrolled Moto passed eight Dashboard → Zones → Dashboard round trips, verifying heat map and camera return with the same process. API 35 legacy geometry/navigation and preset tests passed; 106 JVM tests and lint passed. See CHANGELOG for artifact details. Remote video, subscription flows and other physical models were outside this repair.
+
 ## Current checkpoint — 2026-11-12 · Android 2.10.5 (code 35)
 - Zones on 2.10.4 reproducibly crashed during Dashboard → Zones with a zero-length persisted footprint (Compose aspectRatio). AppPreferencesStore now validates individual dimensions against the corner editor's physical range and skips invalid sensor coordinates; GreenhouseViewModel rejects invalid dimension edits. No database, camera, or AWS migration.
 - StandaloneEditorTest covers backup round-trip and two server Dashboard → Zones visits with CameraX, a current sensor and damaged legacy geometry. Three API 35 instrumented tests, 106 JVM tests, lint and signed upgrade-install passed. Physical server log was unavailable; do not assume this was the owner's exact exception. Obtain its Android crash buffer if it recurs.
