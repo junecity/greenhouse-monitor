@@ -919,6 +919,20 @@ def pending_alerts(principal: Principal):
     if not device.get("enabled") or device.get("accountId") != principal.account_id:
         raise AccessDenied("device_disabled")
     alerts = []
+    server_states = {}
+    def current_offline_incident(item):
+        server_id = item.get("deviceId")
+        if not server_id or not item.get("greenhouseId"):
+            return False
+        if server_id not in server_states:
+            server = table.get_item(Key={"pk": f"DEVICE#{server_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item", {})
+            server_states[server_id] = server
+        server = server_states[server_id]
+        return (server.get("tenantId") == principal.tenant_id and server.get("accountId") == principal.account_id
+                and server.get("greenhouseId") == item["greenhouseId"] and server.get("role") == "GREENHOUSE_SERVER"
+                and server.get("enabled") and not server.get("communicationSuspended")
+                and server.get("offlineAlertedAt") == item["createdAt"])
+
     exclusive_start_key = None
     for _ in range(MAX_ALERT_QUERY_PAGES):
         query = {
@@ -931,6 +945,8 @@ def pending_alerts(principal: Principal):
         result = table.query(**query)
         for item in result.get("Items", []):
             if item.get("tenantId") == principal.tenant_id and "acknowledgedAt" not in item:
+                if item["type"] == "SERVER_OFFLINE" and not current_offline_incident(item):
+                    continue
                 alerts.append({
                     "id": item["id"], "greenhouseId": item.get("greenhouseId"),
                     "deviceId": item.get("deviceId"), "type": item["type"],
@@ -939,11 +955,11 @@ def pending_alerts(principal: Principal):
                     "requiresAcknowledgement": bool(item.get("requiresAcknowledgement")),
                 })
                 if len(alerts) >= 50:
-                    return response(200, {"alerts": alerts})
+                    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "complete": False})
         exclusive_start_key = result.get("LastEvaluatedKey")
         if not exclusive_start_key:
             break
-    return response(200, {"alerts": alerts})
+    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "complete": not exclusive_start_key})
 
 
 def acknowledge_alert(principal: Principal, alert_id: str):

@@ -114,15 +114,15 @@ import kotlin.math.roundToInt
                     }
                 }
                 drawPath(outline,Color.White,style=Stroke(d(2f).toPx(),cap=StrokeCap.Round))
-                if(g.shape==GreenhouseShape.TShape){
+                if(g.hasStem){
                     val junctionY=(g.widthFeet/g.planWidthFeet*size.height).toFloat()
                     val junctionLeft=(g.stemLeftFeet/g.planLengthFeet*size.width).toFloat()
                     val junctionRight=((g.stemLeftFeet+g.attachedWidthFeet)/g.planLengthFeet*size.width).toFloat()
                     drawLine(Color.White,Offset(junctionLeft,junctionY),Offset(junctionRight,junctionY),d(2f).toPx(),StrokeCap.Round)
                 }
             }
-            Text("${planNumber(g.lengthFeet)} × ${planNumber(g.widthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.TopCenter).offset(y=maxHeight*(g.widthFeet/g.planWidthFeet/2.0).toFloat()-d(10f)).background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
-            if(g.shape==GreenhouseShape.TShape)Text("${planNumber(g.attachedLengthFeet)} × ${planNumber(g.attachedWidthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.Center).offset(y=maxHeight*((g.widthFeet+g.attachedLengthFeet/2.0)/g.planWidthFeet-.5).toFloat()).graphicsLayer{rotationZ=90f}.background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
+            Text(if(g.shape==GreenhouseShape.Circle) "Ø ${planNumber(g.lengthFeet)} ft" else "${planNumber(g.lengthFeet)} × ${planNumber(g.widthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.TopCenter).offset(y=maxHeight*(g.widthFeet/g.planWidthFeet/2.0).toFloat()-d(10f)).background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
+            if(g.hasStem)Text("${planNumber(g.attachedLengthFeet)} × ${planNumber(g.attachedWidthFeet)} ft",color=Color.White.copy(alpha=.72f),fontSize=t(12f),fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.Center).offset(y=maxHeight*((g.widthFeet+g.attachedLengthFeet/2.0)/g.planWidthFeet-.5).toFloat()).graphicsLayer{rotationZ=90f}.background(Color.Black.copy(alpha=.35f),RoundedCornerShape(d(8f))).padding(horizontal=d(8f),vertical=d(3f)))
             sensors.forEachIndexed{i,s->val stored=g.sensorPositions[s.id]?:g.coercePoint(g.planLengthFeet*(if(i%2==0).2 else .8),g.planWidthFeet*(if(i<2).2 else .7));DraggableSensor(s,stored.normalized(g),metric,d,t,maxWidth.value,maxHeight.value,editable){nx,ny->onMove(s.id,nx,ny)}}
         }
     }

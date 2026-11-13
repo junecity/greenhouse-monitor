@@ -171,8 +171,11 @@ class BootstrapApiTests(unittest.TestCase):
                 "tenantId": "tenant-existing", "role": "VIEWER_CLIENT", "enabled": True,
             },
         })
+        server = {"accountId": "account-existing", "tenantId": "tenant-existing", "greenhouseId": "house",
+                  "enabled": True, "role": "GREENHOUSE_SERVER", "offlineAlertedAt": 1700000000}
+        fake.items[("DEVICE#source", "METADATA")] = server
         fake.query_items = [
-            {"id": "1700000000-aaaaaaaa", "tenantId": "tenant-existing", "type": "SERVER_OFFLINE", "priority": "HIGH", "message": "offline", "createdAt": 1700000000, "requiresAcknowledgement": True},
+            {"id": "1700000000-aaaaaaaa", "deviceId": "source", "greenhouseId": "house", "tenantId": "tenant-existing", "type": "SERVER_OFFLINE", "priority": "HIGH", "message": "offline", "createdAt": 1700000000, "requiresAcknowledgement": True},
             {"id": "1700000001-bbbbbbbb", "tenantId": "tenant-existing", "type": "CRITICAL_TEMPERATURE", "priority": "CRITICAL", "message": "hot", "createdAt": 1700000001, "requiresAcknowledgement": True, "acknowledgedAt": 1700000010},
             {"id": "1700000002-cccccccc", "tenantId": "tenant-other", "type": "SERVER_OFFLINE", "priority": "HIGH", "message": "other", "createdAt": 1700000002, "requiresAcknowledgement": True},
         ]
@@ -182,6 +185,17 @@ class BootstrapApiTests(unittest.TestCase):
 
         self.assertEqual(200, result["statusCode"])
         self.assertEqual(["1700000000-aaaaaaaa"], [item["id"] for item in body["alerts"]])
+
+        old = fake.query_items[0]
+        fake.query_items.append(dict(old, createdAt=1699999990, id="prior-outage"))
+        fresh = app.handler(event("/v1/alerts", method="GET", device_id="viewer-12345678"), None)
+        self.assertEqual([old["id"]], [a["id"] for a in json.loads(fresh["body"])["alerts"]])
+        for change in [{"offlineAlertedAt": None}, {"enabled": False}, {"communicationSuspended": True},
+                       {"greenhouseId": "reassigned"}, {"tenantId": "different"}]:
+            with self.subTest(change=change):
+                fake.items[("DEVICE#source", "METADATA")] = dict(server, **change)
+                result = app.handler(event("/v1/alerts", method="GET", device_id="viewer-12345678"), None)
+                self.assertEqual([], json.loads(result["body"])["alerts"])
 
     def test_acknowledgement_is_conditioned_on_account_and_tenant(self):
         fake = FakeTable({

@@ -11,6 +11,10 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Job
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -44,6 +48,19 @@ object HeartbeatRetryPolicy {
     }
 }
 
+/** A successful backend heartbeat from this process is also evidence of recovery on older backends. */
+internal object ServerHeartbeatReceipt {
+    private data class Receipt(val deviceId: String, val elapsedMs: Long)
+    @Volatile private var latest: Receipt? = null
+
+    fun record(deviceId: String) { latest = Receipt(deviceId, android.os.SystemClock.elapsedRealtime()) }
+
+    fun recent(deviceId: String): Boolean {
+        val receipt = latest ?: return false
+        return receipt.deviceId == deviceId && android.os.SystemClock.elapsedRealtime() - receipt.elapsedMs < 120_000L
+    }
+}
+
 class CloudHeartbeatService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val reporting = EnrollmentBoundWorker(scope)
@@ -62,28 +79,29 @@ class CloudHeartbeatService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        reporting.start(SecureSettingsStore(this).cloudEnrollment()) { reportLoop() }
+        reporting.start(SecureSettingsStore(this@CloudHeartbeatService).cloudEnrollment()) { reportLoop() }
         return START_STICKY
     }
 
-    private suspend fun reportLoop() {
-        val secure = SecureSettingsStore(this)
+    private suspend fun reportLoop() = coroutineScope {
+        val secure = SecureSettingsStore(this@CloudHeartbeatService)
         val enrollment = secure.cloudEnrollment()
         val configuration = runCatching { CloudRuntime.configurationOrNull() }.getOrNull()
         if (enrollment == null || enrollment.role != CloudDeviceRole.GreenhouseServer || configuration == null) {
-            stopSelf(); return
+            stopSelf(); return@coroutineScope
         }
-        val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
+        val gateway = runCatching { gatewayForEnrollment(this@CloudHeartbeatService, configuration, enrollment) }.getOrElse { stopSelf(); return@coroutineScope }
         var failures = 0
-        var lastBackupAt = 0L
-        var lastDataUploadAt = 0L
+        val lastUpload = AtomicLong(0L)
+        var backup: Job? = null
         var publishedSensorIds: Set<String>? = null
         var publishedHouse: String? = null
-        while (scope.isActive) {
-            val health = HeartbeatHealthStore(this).load()
-            val sensors = CurrentSensorStore(this).load()
-            val device = AndroidDeviceStatusProvider(this).current()
+        while (isActive) {
             val result = runCatching {
+                val context = this@CloudHeartbeatService
+                val health = HeartbeatHealthStore(context).load()
+                val sensors = CurrentSensorStore(context).load()
+                val device = AndroidDeviceStatusProvider(context).current()
                 HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature,
                     batteryPercent=device.batteryPercent, charging=device.charging,
@@ -91,21 +109,27 @@ class CloudHeartbeatService : Service() {
                     sensorCount=sensors.size, sensorProvider=if(secure.goveeApiKey()!=null)"GOVEE" else null,
                     cameraStatus=if(packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))"AVAILABLE" else "UNAVAILABLE",
                     lastSensorSyncEpochMs=sensors.maxOfOrNull(GoveeSensor::updatedAtEpochMs),
-                    lastDataUploadEpochMs=lastDataUploadAt.takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
+                    lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
                 ))
-            }
-            val now = System.currentTimeMillis()
-            val preferences = AppPreferencesStore(this).load()
-            val backupIntervalMs = preferences.activeRefreshMinutes * 60_000L
-            val activeHouse = preferences.activeGreenhouseId
-            val available = sensors.filter { it.greenhouseId == activeHouse && it.updatedAtEpochMs > 0 }.map { it.id }.toSet()
-            if (result.isSuccess && (activeHouse != publishedHouse || available != publishedSensorIds || now - lastBackupAt >= backupIntervalMs)) runCatching {
-                gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(this@CloudHeartbeatService).snapshot())
-            }.onSuccess {
-                publishedHouse = activeHouse
-                publishedSensorIds = available
-                lastBackupAt = now
-                lastDataUploadAt = now
+                ServerHeartbeatReceipt.record(enrollment.deviceId)
+                // A slow backup must never block the next heartbeat or overlap another upload.
+                if (backup?.isActive != true) {
+                    backup?.join()
+                    val prefs = AppPreferencesStore(context).load()
+                    val house = prefs.activeGreenhouseId
+                    val available = sensors.filter { it.greenhouseId == house && it.updatedAtEpochMs > 0 }.map { it.id }.toSet()
+                    if (house != publishedHouse || available != publishedSensorIds ||
+                        System.currentTimeMillis() - lastUpload.get() >= prefs.activeRefreshMinutes * 60_000L) {
+                        backup = launch {
+                            runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot()) }
+                                .onSuccess {
+                                    publishedHouse = house
+                                    publishedSensorIds = available
+                                    lastUpload.set(System.currentTimeMillis())
+                                }
+                        }
+                    }
+                }
             }
             failures = if (result.isSuccess) 0 else failures + 1
             delay(HeartbeatRetryPolicy.delayMs(failures))

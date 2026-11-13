@@ -45,8 +45,11 @@ def handler(_event, _context):
                             "TableName": table.name,
                             "Key": {"pk": device["pk"], "sk": device["sk"]},
                             "UpdateExpression": "SET offlineAlertedAt=:now",
-                            "ConditionExpression": "attribute_not_exists(offlineAlertedAt) AND lastHeartbeat < :cutoff",
-                            "ExpressionAttributeValues": {":now": now, ":cutoff": cutoff},
+                            "ConditionExpression": ("attribute_not_exists(offlineAlertedAt) AND lastHeartbeat < :cutoff AND enabled=:yes "
+                                                    "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:no) "
+                                                    "AND greenhouseId=:greenhouse"),
+                            "ExpressionAttributeValues": {":now": now, ":cutoff": cutoff, ":yes": True, ":no": False,
+                                                          ":greenhouse": device["greenhouseId"]},
                         }},
                         {"Put": {
                             "TableName": table.name,

@@ -59,6 +59,10 @@ class StandaloneEditorTest {
                             Modifier.fillMaxSize())
                     }
                 }
+                // Settings changes orientation on entry. Wait until the portrait tree is stable.
+                click("General")
+                find("Display")
+                click("General")
                 click("Manage greenhouses")
                 click("Delete Greenhouse 2")
                 find("Delete Greenhouse 2?")
@@ -324,6 +328,79 @@ class StandaloneEditorTest {
             assertTrue("Dragging must move the sensor above the footprint center", position.yFeet < result.widthFeet / 2)
 
         }
+    }
+
+    @Test fun recoveredOfflineNotificationsAreRemovedFromAndroid() {
+        val context=instrumentation.targetContext
+        val manager=context.getSystemService(android.app.NotificationManager::class.java)
+        val channel="greenhouse_cloud_critical"
+        manager.createNotificationChannel(android.app.NotificationChannel(channel,"Critical greenhouse alerts",4))
+        val old="fixture-old".hashCode()
+        val current="fixture-active".hashCode()
+        val heat="fixture-hot".hashCode()
+        fun post(id:Int,title:String) = manager.notify(id, android.app.Notification.Builder(context,channel)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert).setContentTitle(title).build())
+        fun awaitIds(expected:Set<Int>) {
+            repeat(30) {
+                if(manager.activeNotifications.map { it.id }.toSet().intersect(setOf(old,current,heat))==expected) return
+                SystemClock.sleep(100)
+            }
+            fail("Expected posted notification IDs: $expected")
+        }
+        try {
+            post(old,"Greenhouse server offline")
+            post(current,"Greenhouse server offline")
+            post(heat,"Critical greenhouse temperature")
+            awaitIds(setOf(old,current,heat))
+            val active=studio.junecity.greenhouse.cloud.MonitoringAlert("fixture-active","house",
+                studio.junecity.greenhouse.cloud.MonitoringAlertType.ServerOffline,
+                studio.junecity.greenhouse.cloud.MonitoringAlertPriority.High,"offline",123,true)
+            studio.junecity.greenhouse.cloud.clearRecoveredOfflineAlerts(manager,listOf(active))
+            awaitIds(setOf(current,heat))
+            studio.junecity.greenhouse.cloud.clearRecoveredOfflineAlerts(manager,emptyList())
+            awaitIds(setOf(heat))
+        } finally { listOf(old,current,heat).forEach(manager::cancel) }
+    }
+
+    @Test fun shapePresetsSaveAndRoundTripThroughTheZoneFootprint() {
+        val store = AppPreferencesStore(instrumentation.targetContext,"_preset_fixture")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    activity.setContent {
+                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                            FloorPlanEditor(GreenhouseConfig(),emptyList()) { store.save(AppPreferences(greenhouses=listOf(it))) }
+                        }
+                    }
+                }
+                for ((label, shape) in listOf("L-shaped" to GreenhouseShape.LShape,"T-shaped" to GreenhouseShape.TShape,
+                        "Circle" to GreenhouseShape.Circle)) {
+                    click("Shape presets")
+                    click(label)
+                    click("Save layout")
+                    instrumentation.waitForIdleSync()
+                    val expected = GreenhouseConfig().withPreset(shape)
+                    assertEquals(expected,store.load().activeGreenhouse)
+                    val backup = store.exportJson()
+                    store.clear()
+                    store.importJson(backup)
+                    assertEquals(expected.outline(),store.load().activeGreenhouse.outline())
+                }
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    activity.setContent {
+                        StageScreen(GreenhouseUiState(screen=AppScreen.Zones,preferences=store.load()),
+                            DeviceStatus(80,true,true),java.time.LocalDateTime.now(),{},{},{},{},{_,_,_->},{_,_->},
+                            {},{},{_,_,_->},{},Modifier.fillMaxSize())
+                    }
+                }
+                find("Ø 16 ft")
+                find("Main Greenhouse · 201.06 sq ft")
+            }
+        } finally { store.clear() }
     }
 
     @Test fun dragCornersThenReopenSavedFootprintInZones() {

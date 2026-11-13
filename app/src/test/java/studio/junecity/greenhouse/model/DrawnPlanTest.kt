@@ -7,6 +7,30 @@ class DrawnPlanTest {
     private fun point(x:Int,y:Int) = NormalizedPosition(x.toDouble(),y.toDouble())
     private fun draw(vararg points:NormalizedPosition) = DrawnPlan.fromStroke(points.toList(),GreenhouseConfig(),.4)
 
+    @Test fun attachedPresetsUsePhysicalSectionsAndDifferentJunctions() {
+        for (shape in listOf(GreenhouseShape.LShape, GreenhouseShape.TShape)) {
+            val plan = GreenhouseConfig().withPreset(shape)
+            assertEquals(256.0, plan.areaSquareFeet, .001)
+            assertEquals(24.0, plan.planWidthFeet, .001)
+            assertTrue(DrawnPlan.valid(plan.outline()))
+            assertEquals(plan.areaSquareFeet, DrawnPlan.area(plan.outline())*plan.planLengthFeet*plan.planWidthFeet,.001)
+            assertEquals(shape == GreenhouseShape.LShape, plan.containsPoint(1.0, 15.0))
+            assertFalse(plan.containsPoint(15.0, 23.0))
+        }
+    }
+
+    @Test fun circleUsesDiameterAndProjectsSensorsOntoItsRim() {
+        val circle = GreenhouseConfig().withPreset(GreenhouseShape.Circle)
+        assertEquals(circle.planLengthFeet, circle.planWidthFeet, .0)
+        assertEquals(201.06193, circle.areaSquareFeet, .00001)
+        assertTrue(DrawnPlan.valid(circle.outline()))
+        assertFalse(circle.containsPoint(1.0,1.0))
+        assertTrue(circle.containsPoint(8.0,0.0))
+        val p = circle.coercePoint(16.0,16.0)
+        assertTrue(circle.containsPoint(p.xFeet,p.yFeet))
+        assertEquals(8.0,kotlin.math.hypot(p.xFeet-8,p.yFeet-8),.0001)
+    }
+
     @Test fun diagonalDragMakesRightAnglesAndPreservesFeet() {
         val g = requireNotNull(draw(point(22,30),point(6,22)))
         assertEquals(128.0,g.areaSquareFeet,.001)

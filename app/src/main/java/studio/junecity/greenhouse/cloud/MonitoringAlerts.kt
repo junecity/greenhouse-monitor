@@ -16,8 +16,22 @@ data class MonitoringAlert(
     val priority: MonitoringAlertPriority,
     val message: String,
     val occurredAtEpochMs: Long,
-    val requiresAcknowledgement: Boolean
+    val requiresAcknowledgement: Boolean,
+    val serverId: String? = null
 )
+
+data class AlertInbox(val alerts: List<MonitoringAlert>, val complete: Boolean)
+
+internal fun currentAlerts(alerts: List<MonitoringAlert>, devices: List<RegisteredDevice>?): List<MonitoringAlert> {
+    val servers = devices?.associateBy { it.id }
+    val outages = alerts.filter { it.type == MonitoringAlertType.ServerOffline }.filter { alert ->
+        val server = servers?.get(alert.serverId)
+        // A missing inventory entry can also mean the inventory page was incomplete.
+        server == null || (server.enabled && !server.communicationSuspended && !server.online &&
+            server.greenhouseId == alert.greenhouseId && (server.lastSeenAtEpochMs ?: 0) < alert.occurredAtEpochMs)
+    }.groupBy { it.serverId ?: it.greenhouseId }.values.map { incidents -> incidents.maxBy { it.occurredAtEpochMs } }
+    return alerts.filter { it.type != MonitoringAlertType.ServerOffline } + outages
+}
 
 /** Keeps safety events independent from ordinary informational preferences. */
 object MonitoringAlertPolicy {

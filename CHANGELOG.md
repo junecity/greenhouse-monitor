@@ -570,3 +570,9 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - No build, emulator, physical-device, or AWS integration tests run.
 ### Remaining
 - AWS discovery, endpoint refresh, and NAT-resistant relay are specifications only; implementation and testing remain outstanding.
+
+## 2026-11-12 — Recovered offline notifications and floor-plan presets (Android 2.10.4)
+- Filter retired outages from the pending inbox and guard the scheduled incident write against a simultaneous disconnect, revocation or reassignment. The Android app removes old offline notifications after a successful complete poll and leaves temperature notifications in place. Backup requests no longer hold up heartbeat reporting.
+- Settings → General → Edit layout → Shape presets offers L, T, circle and rectangle. Save carries the physical outline to Zones. Round plans support diameter entry and rim dragging. Both two-section 8 × 16 ft layouts cover 256 sq ft. Existing plans remain editable.
+- 106 Android JVM tests and 74 Python tests passed. Android lint, SAM build, CloudFormation lint and signed ARM upgrade installation passed. API 35 tests exercised preset selection, backup round-trip, Zones, active/recovered Android notifications, custom wall editing, triangle tracing, and confirmed deletion. Early runs exposed intermittent Settings entry and gesture-test failures; the presets control was moved alongside the editor actions and the deletion test entered via the portrait menu. Targeted reruns passed. Two unrelated emulator cases skipped due to cutout and isolated-install prerequisites.
+- Plain APK in build-out and stable Drive file verified, 83,234,350 bytes, local SHA-256 488c694231e34ec601864375b4702b8b4e41d132cc166dc587921e4d38a342d7. Backend changes built locally; CLI sessions expired. Actual customer heartbeat timing, deployed incident filtering and physical two-phone behavior remain unverified.

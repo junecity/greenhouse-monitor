@@ -126,10 +126,19 @@ class AuthenticatedCloudGateway(
         )
     }
 
-    suspend fun pendingAlerts(): List<MonitoringAlert> {
+    suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
         val json = request("GET", "/v1/alerts")
         val values = json.optJSONArray("alerts") ?: JSONArray()
-        return (0 until values.length()).map { CloudJsonCodec.alert(values.getJSONObject(it)) }
+        val alerts = (0 until values.length()).map { CloudJsonCodec.alert(values.getJSONObject(it)) }
+        val inventory = if (viewer && !json.optBoolean("offlineIncidentsVerified") &&
+            alerts.any { it.type == MonitoringAlertType.ServerOffline }) {
+            runCatching { devices().map { it.device } }.getOrNull()
+        } else null
+        val active = currentAlerts(alerts, inventory)
+        val visible = if (!viewer && !json.optBoolean("offlineIncidentsVerified") && ServerHeartbeatReceipt.recent(config.deviceId)) {
+            active.filterNot { it.type == MonitoringAlertType.ServerOffline && it.serverId == config.deviceId }
+        } else active
+        return AlertInbox(visible, json.optBoolean("complete", alerts.size < 50))
     }
 
     suspend fun acknowledgeAlert(alertId: String) {
@@ -236,6 +245,7 @@ object CloudJsonCodec {
         message = json.getString("message"),
         occurredAtEpochMs = json.getLong("createdAtEpochMs"),
         requiresAcknowledgement = json.optBoolean("requiresAcknowledgement"),
+        serverId = json.optNullableString("deviceId"),
     )
 
     fun pairing(json: JSONObject) = PairingChallenge(

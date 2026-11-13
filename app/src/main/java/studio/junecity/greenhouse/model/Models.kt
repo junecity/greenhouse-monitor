@@ -9,29 +9,61 @@ enum class Metric { Temperature, Humidity, Vpd, DewPoint }
 enum class HistoryRange { Day, Week, Month }
 enum class CameraMode { CameraServer, ViewerClient }
 enum class CameraStreamQuality { DataSaver, Balanced, High }
-enum class GreenhouseShape { Rectangle, TShape, Drawn }
+enum class GreenhouseShape { Rectangle, TShape, Drawn, LShape, Circle }
 data class SensorPosition(val xFeet:Double,val yFeet:Double,val heightFeet:Double=0.0){fun normalized(g:GreenhouseConfig)=NormalizedPosition((xFeet/g.planLengthFeet).coerceIn(0.0,1.0),(yFeet/g.planWidthFeet).coerceIn(0.0,1.0))}
 data class NormalizedPosition(val x:Double,val y:Double)
 data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap(),val shape:GreenhouseShape=GreenhouseShape.Rectangle,val attachedLengthFeet:Double=16.0,val attachedWidthFeet:Double=8.0,val refreshMinutes:Int=1,val vertices:List<NormalizedPosition> = emptyList()){
-    val planLengthFeet get()=if(shape==GreenhouseShape.TShape)max(lengthFeet,attachedWidthFeet) else lengthFeet
-    val planWidthFeet get()=if(shape==GreenhouseShape.TShape)widthFeet+attachedLengthFeet else widthFeet
+    val hasStem get() = shape == GreenhouseShape.TShape || shape == GreenhouseShape.LShape
+    fun withPreset(preset: GreenhouseShape): GreenhouseConfig {
+        require(preset != GreenhouseShape.Drawn)
+        return copy(shape=preset, widthFeet=if (preset == GreenhouseShape.Circle) lengthFeet else widthFeet, vertices=emptyList())
+    }
+    fun outline(): List<NormalizedPosition> = when (shape) {
+        GreenhouseShape.Drawn -> vertices
+        GreenhouseShape.Circle -> List(48) { i ->
+            val angle = 2*kotlin.math.PI*i/48
+            NormalizedPosition((1+kotlin.math.cos(angle))/2, (1+kotlin.math.sin(angle))/2)
+        }
+        GreenhouseShape.Rectangle -> listOf(NormalizedPosition(0.0,0.0),NormalizedPosition(1.0,0.0),
+            NormalizedPosition(1.0,1.0),NormalizedPosition(0.0,1.0))
+        GreenhouseShape.LShape, GreenhouseShape.TShape -> {
+            val bar = widthFeet/planWidthFeet
+            val left = crossbarLeftFeet/planLengthFeet
+            val right = (crossbarLeftFeet+lengthFeet)/planLengthFeet
+            val stem = stemLeftFeet/planLengthFeet
+            val end = (stemLeftFeet+attachedWidthFeet)/planLengthFeet
+            listOf(left to 0.0,right to 0.0,right to bar,end to bar,end to 1.0,stem to 1.0,stem to bar,left to bar)
+                .distinct().map { NormalizedPosition(it.first,it.second) }
+        }
+    }
+    val planLengthFeet get()=if(hasStem)max(lengthFeet,attachedWidthFeet) else lengthFeet
+    val planWidthFeet get()=if(hasStem)widthFeet+attachedLengthFeet else if(shape==GreenhouseShape.Circle) lengthFeet else widthFeet
     val crossbarLeftFeet get()=if(shape==GreenhouseShape.TShape)(planLengthFeet-lengthFeet)/2.0 else 0.0
     val stemLeftFeet get()=if(shape==GreenhouseShape.TShape)(planLengthFeet-attachedWidthFeet)/2.0 else 0.0
-    val areaSquareFeet get()=if(shape==GreenhouseShape.Drawn) lengthFeet*widthFeet*DrawnPlan.area(vertices) else lengthFeet*widthFeet+if(shape==GreenhouseShape.TShape)attachedLengthFeet*attachedWidthFeet else 0.0
+    val areaSquareFeet get()=if(shape==GreenhouseShape.Circle) kotlin.math.PI*lengthFeet*lengthFeet/4 else if(shape==GreenhouseShape.Drawn) lengthFeet*widthFeet*DrawnPlan.area(vertices) else lengthFeet*widthFeet+if(hasStem)attachedLengthFeet*attachedWidthFeet else 0.0
     fun containsPoint(xFeet:Double,yFeet:Double):Boolean{
+        if(shape==GreenhouseShape.Circle) {
+            val r = lengthFeet/2
+            return kotlin.math.hypot(xFeet-r,yFeet-r) <= r+1e-9
+        }
         if(shape==GreenhouseShape.Drawn)return DrawnPlan.contains(NormalizedPosition(xFeet/lengthFeet,yFeet/widthFeet),vertices)
         if(xFeet in crossbarLeftFeet..(crossbarLeftFeet+lengthFeet)&&yFeet in 0.0..widthFeet)return true
-        if(shape!=GreenhouseShape.TShape||yFeet !in widthFeet..planWidthFeet)return false
+        if(!hasStem||yFeet !in widthFeet..planWidthFeet)return false
         return xFeet in stemLeftFeet..(stemLeftFeet+attachedWidthFeet)
     }
     fun coercePoint(xFeet:Double,yFeet:Double):SensorPosition{
+        if(shape==GreenhouseShape.Circle) {
+            val r = lengthFeet/2
+            val scale = r / kotlin.math.hypot(xFeet-r,yFeet-r).coerceAtLeast(r)
+            return SensorPosition(r+(xFeet-r)*scale,r+(yFeet-r)*scale)
+        }
         if(shape==GreenhouseShape.Drawn && vertices.isNotEmpty()){
             if(containsPoint(xFeet,yFeet))return SensorPosition(xFeet,yFeet)
             val edge=DrawnPlan.nearest(NormalizedPosition(xFeet,yFeet),vertices.map{NormalizedPosition(it.x*lengthFeet,it.y*widthFeet)})
             return SensorPosition(edge.x,edge.y)
         }
         val y=yFeet.coerceIn(0.0,planWidthFeet)
-        val range=if(shape==GreenhouseShape.TShape&&y>widthFeet) stemLeftFeet..(stemLeftFeet+attachedWidthFeet) else crossbarLeftFeet..(crossbarLeftFeet+lengthFeet)
+        val range=if(hasStem&&y>widthFeet) stemLeftFeet..(stemLeftFeet+attachedWidthFeet) else crossbarLeftFeet..(crossbarLeftFeet+lengthFeet)
         return SensorPosition(xFeet.coerceIn(range.start,range.endInclusive),y)
     }
     fun reproject(position:SensorPosition,from:GreenhouseConfig):SensorPosition{

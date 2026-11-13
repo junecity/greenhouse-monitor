@@ -24,18 +24,6 @@ import kotlin.math.min
 import kotlin.math.ceil
 import kotlin.math.floor
 
-internal fun GreenhouseConfig.outline(): List<NormalizedPosition> = when(shape) {
-    GreenhouseShape.Drawn -> vertices
-    GreenhouseShape.Rectangle -> listOf(0.0 to 0.0,1.0 to 0.0,1.0 to 1.0,0.0 to 1.0).map { NormalizedPosition(it.first,it.second) }
-    GreenhouseShape.TShape -> {
-        val bar = widthFeet/planWidthFeet
-        val left = crossbarLeftFeet/planLengthFeet
-        val stem = stemLeftFeet/planLengthFeet
-        listOf(left to 0.0,1-left to 0.0,1-left to bar,1-stem to bar,1-stem to 1.0,stem to 1.0,stem to bar,left to bar)
-            .map { NormalizedPosition(it.first,it.second) }
-    }
-}
-
 internal fun planNumber(value: Double): String =
     java.text.DecimalFormat("0.##").format(value)
 
@@ -93,7 +81,7 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                 colors=FilterChipDefaults.filterChipColors(labelColor=Color.White,
                     selectedLabelColor=DashboardTokens.Background, selectedContainerColor=DashboardTokens.Amber))
         }
-        Text(if(drawing) "Trace the walls, or drag diagonally for a rectangle." else
+        Text(if(drawing) "Trace the walls, or drag diagonally for a rectangle." else if (draft.shape == GreenhouseShape.Circle) "Drag the rim to resize the circle." else
             "Drag a corner to reshape. Drag a wall’s midpoint to add a corner.", color=DashboardTokens.Muted)
         Canvas(Modifier.fillMaxWidth().height(220.dp).background(DashboardTokens.Background,RoundedCornerShape(12.dp))
             .onSizeChanged { size=it }.semantics { contentDescription="Greenhouse floor plan" }
@@ -114,10 +102,15 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                         val p=position(id)
                         (pixel(p.xFeet,p.yFeet)-down.position).getDistance() <= 16.dp.toPx()
                     }
-                    val editWall = !drawing && selected == null && (corner != null || edge != null) &&
+                    val circle = draft.shape == GreenhouseShape.Circle
+                    val radius = draft.lengthFeet / 2
+                    val center = pixel(radius, radius)
+                    val resizeCircle = circle && !drawing && selected == null && hitSensor == null &&
+                        kotlin.math.abs((down.position-center).getDistance() - radius*scale) <= 20.dp.toPx()
+                    val editWall = !circle && !drawing && selected == null && (corner != null || edge != null) &&
                         (hitSensor == null || corner != null)
                     val target = hitSensor ?: selected
-                    if(!drawing && !editWall && target==null) return@awaitEachGesture
+                    if(!drawing && !editWall && !resizeCircle && target==null) return@awaitEachGesture
                     down.consume()
                     feedback=""
                     val grabbed = feet(down.position)
@@ -130,7 +123,19 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                             if(finger.isConsumed || event.changes.size>1) break
                             finger.consume()
                             val point=feet(finger.position)
-                            if (editWall && (edited || (finger.position-down.position).getDistance() >= viewConfiguration.touchSlop)) {
+                            if (resizeCircle) {
+                                if ((finger.position-down.position).getDistance() >= viewConfiguration.touchSlop || edited) {
+                                    edited = true
+                                    val delta = ((finger.position-center).getDistance()-(down.position-center).getDistance())/scale
+                                    val raw = (draft.lengthFeet+2*delta).coerceIn(1.0,240.0)
+                                    val diameter = if (snap) kotlin.math.round(raw) else raw
+                                    val next = draft.copy(lengthFeet=diameter,widthFeet=diameter)
+                                    preview = next
+                                    val offset = radius-diameter/2
+                                    movingWalls = next.wallPoints().map { NormalizedPosition(it.x+offset,it.y+offset) }
+                                    if (!finger.pressed) changeShape(next)
+                                }
+                            } else if (editWall && (edited || (finger.position-down.position).getDistance() >= viewConfiguration.touchSlop)) {
                                 edited = true
                                 val vertices = walls.toMutableList()
                                 val index = corner ?: (requireNotNull(edge)+1).also { vertices.add(it,midpoints[edge]) }
@@ -185,6 +190,7 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                 drawPath(walls,DashboardTokens.Amber.copy(alpha=.13f))
                 drawPath(walls,if(movingWalls!=null && preview==null) Color.Red else DashboardTokens.Amber,style=Stroke(2.dp.toPx()))
                 if(!drawing) corners.forEachIndexed { i,p ->
+                    if (draft.shape == GreenhouseShape.Circle && i % 12 != 0) return@forEachIndexed
                     val end=corners[(i+1)%corners.size]
                     val mid=(p+end)/2f
                     if ((end-p).getDistance()>40.dp.toPx()) {
@@ -204,22 +210,37 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
         }
         if(feedback.isNotEmpty()) Text(feedback,color=DashboardTokens.Amber)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            var presetsOpen by remember { mutableStateOf(false) }
+            Box {
+                EditorAction("Shape presets") { presetsOpen = true }
+                DropdownMenu(expanded = presetsOpen, onDismissRequest = { presetsOpen = false }) {
+                    for ((label, shape) in listOf("Rectangle" to GreenhouseShape.Rectangle, "L-shaped" to GreenhouseShape.LShape,
+                        "T-shaped" to GreenhouseShape.TShape, "Circle" to GreenhouseShape.Circle)) {
+                        DropdownMenuItem(text = { Text(label) }, onClick = {
+                            changeShape(draft.withPreset(shape))
+                            drawing = false
+                            selected = null
+                            feedback = ""
+                            presetsOpen = false
+                        })
+                    }
+                }
+            }
             EditorAction(if(drawing)"Cancel drawing" else "Draw outline") { drawing=!drawing;stroke=emptyList() }
             EditorAction("Dimensions") { dimensions=!dimensions }
         }
-        if(dimensions) {
+        if(dimensions) key(draft.shape) {
             fun dimensionChange(value:String, apply:(Double)->GreenhouseConfig) {
                 value.toDoubleOrNull()?.takeIf { it in 1.0..240.0 }?.let { changeShape(apply(it)) }
             }
             PlanField("Greenhouse name",draft.name){draft=draft.copy(name=it)}
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            if (draft.shape == GreenhouseShape.Circle) {
+                PlanField("Diameter (ft)", planNumber(draft.lengthFeet)) { dimensionChange(it){v->draft.copy(lengthFeet=v,widthFeet=v)} }
+            } else Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 PlanField("Length (ft)",draft.lengthFeet.let(::planNumber),Modifier.weight(1f)){ dimensionChange(it){v->draft.copy(lengthFeet=v)} }
                 PlanField("Width (ft)",draft.widthFeet.let(::planNumber),Modifier.weight(1f)){ dimensionChange(it){v->draft.copy(widthFeet=v)} }
             }
-            EditorAction(if(draft.shape==GreenhouseShape.TShape)"Use rectangle" else "Use T-shaped plan"){
-                changeShape(draft.copy(shape=if(draft.shape==GreenhouseShape.TShape)GreenhouseShape.Rectangle else GreenhouseShape.TShape))
-            }
-            if(draft.shape==GreenhouseShape.TShape)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            if(draft.hasStem)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 PlanField("Stem length (ft)",draft.attachedLengthFeet.let(::planNumber),Modifier.weight(1f)){dimensionChange(it){v->draft.copy(attachedLengthFeet=v)}}
                 PlanField("Stem width (ft)",draft.attachedWidthFeet.let(::planNumber),Modifier.weight(1f)){dimensionChange(it){v->draft.copy(attachedWidthFeet=v)}}
             }

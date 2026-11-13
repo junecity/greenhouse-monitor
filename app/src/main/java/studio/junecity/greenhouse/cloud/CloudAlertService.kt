@@ -31,6 +31,19 @@ object CloudAlertPollingPolicy {
     }
 }
 
+private const val OFFLINE_TITLE = "Greenhouse server offline"
+private const val CRITICAL_CHANNEL = "greenhouse_cloud_critical"
+
+internal fun clearRecoveredOfflineAlerts(notifications: NotificationManager, alerts: List<MonitoringAlert>) {
+    val currentIds = alerts.filter { it.type == MonitoringAlertType.ServerOffline }.map { it.id.hashCode() }.toSet()
+    // The channel and title also identify notifications posted before the upgrade.
+    notifications.activeNotifications.filter { posted ->
+        posted.notification.channelId == CRITICAL_CHANNEL &&
+            posted.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() == OFFLINE_TITLE &&
+            posted.id !in currentIds
+    }.forEach { notifications.cancel(it.id) }
+}
+
 class CloudAlertService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val polling = EnrollmentBoundWorker(scope)
@@ -68,10 +81,13 @@ class CloudAlertService : Service() {
         val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
         var failures = 0
         while (scope.isActive) {
-            val result = runCatching { gateway.pendingAlerts() }
+            val result = runCatching { gateway.pendingAlerts(enrollment.role == CloudDeviceRole.ViewerClient) }
             if (result.isSuccess) {
                 failures = 0
-                result.getOrThrow().forEach(::showAlert)
+                val inbox = result.getOrThrow()
+                val alerts = inbox.alerts
+                if (inbox.complete) clearRecoveredOfflineAlerts(notifications, alerts)
+                alerts.forEach(::showAlert)
             } else {
                 failures++
             }
@@ -97,15 +113,18 @@ class CloudAlertService : Service() {
         } else HIGH_CHANNEL
         val title = when (alert.type) {
             MonitoringAlertType.CriticalTemperature -> "Critical greenhouse temperature"
-            MonitoringAlertType.ServerOffline -> "Greenhouse server offline"
+            MonitoringAlertType.ServerOffline -> OFFLINE_TITLE
             MonitoringAlertType.SensorCommunicationFailure -> "Greenhouse sensor connection"
             MonitoringAlertType.Information -> "Greenhouse status"
         }
+        val message = if (alert.type == MonitoringAlertType.ServerOffline) {
+            "The monitoring service has missed the greenhouse server’s heartbeat."
+        } else alert.message
         val builder = NotificationCompat.Builder(this, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(title)
-            .setContentText(alert.message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(alert.message))
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setContentIntent(openApp)
@@ -123,7 +142,6 @@ class CloudAlertService : Service() {
 
     companion object {
         private const val SERVICE_CHANNEL = "greenhouse_cloud_alert_service"
-        private const val CRITICAL_CHANNEL = "greenhouse_cloud_critical"
         private const val HIGH_CHANNEL = "greenhouse_cloud_high"
         private const val SERVICE_NOTIFICATION_ID = 4174
 
