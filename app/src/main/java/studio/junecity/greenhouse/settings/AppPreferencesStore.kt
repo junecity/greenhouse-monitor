@@ -24,11 +24,22 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
         val assignments=JSONObject();p.sensorGreenhouseIds.forEach{(sensor,greenhouse)->assignments.put(sensor,greenhouse)}
         return JSONObject().put("zip",p.zipCode).put("fahrenheit",p.temperatureFahrenheit).put("refresh",p.refreshMinutes).put("retention",p.historyRetentionDays).put("screen",p.keepScreenOn).put("boot",p.autoStart).put("active",p.activeGreenhouseId).put("cameraMode",p.cameraMode.name).put("cameraStreamQuality",p.cameraStreamQuality.name).put("notifications",notifications).put("greenhouses",greenhouses).put("sensorGreenhouses",assignments)
     }
+    // Same physical range that the corner editor accepts, including fractional custom plans.
+    private fun JSONObject.dimension(key:String, fallback:Double) =
+        optDouble(key).takeIf { it in 0.1..480.0 } ?: fallback
+
     private fun decode(o:JSONObject):AppPreferences{
         val array=o.optJSONArray("greenhouses")?:JSONArray();val greenhouses=mutableListOf<GreenhouseConfig>()
         for(i in 0 until array.length()){
             val x=array.getJSONObject(i);val po=x.optJSONObject("positions")?:JSONObject();val positions=mutableMapOf<String,SensorPosition>()
-            po.keys().forEach{id->val p=po.getJSONObject(id);positions[id]=SensorPosition(p.optDouble("x"),p.optDouble("y"),p.optDouble("z"))}
+            po.keys().forEach { id ->
+                val p = po.optJSONObject(id) ?: return@forEach
+                val px = p.optDouble("x")
+                val py = p.optDouble("y")
+                if (px.isFinite() && py.isFinite()) {
+                    positions[id] = SensorPosition(px, py, p.optDouble("z").takeIf { it.isFinite() } ?: 0.0)
+                }
+            }
             val points=x.optJSONArray("vertices")?.let{list->(0 until list.length().coerceAtMost(49)).mapNotNull{index->
                 list.optJSONArray(index)?.let{NormalizedPosition(it.optDouble(0),it.optDouble(1))}
             }}.orEmpty()
@@ -39,7 +50,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
                 else -> null
             }?.takeIf { shape == GreenhouseShape.Drawn }
             val legacyRefresh=DataSyncIntervals.normalize(o.optInt("refresh",1))
-            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.optDouble("sectionLength",16.0) else x.optDouble("length",16.0),if(preset!=null) x.optDouble("sectionWidth",8.0) else x.optDouble("width",8.0),x.optDouble("height").takeUnless{it.isNaN()},positions,preset ?: shape,x.optDouble("attachedLength",16.0),x.optDouble("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points)
+            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.dimension("sectionLength",16.0) else x.dimension("length",16.0),if(preset!=null) x.dimension("sectionWidth",8.0) else x.dimension("width",8.0),x.optDouble("height").takeUnless{it.isNaN()},positions,preset ?: shape,x.dimension("attachedLength",16.0),x.dimension("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points)
         }
         if(greenhouses.isEmpty())greenhouses+=GreenhouseConfig()
         val n=o.optJSONObject("notifications")?:JSONObject()

@@ -171,6 +171,44 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun serverCanLeaveLiveCameraForZonesWithLegacyFloorPlan() {
+        val context = instrumentation.targetContext
+        // Isolated preference namespace; never touch an enrolled device's measurements.
+        val storage = AppPreferencesStore(context, "_zones_regression")
+        val raw = context.getSharedPreferences("greenhouse_preferences_v2_zones_regression", 0)
+        raw.edit().putString("state", """{"greenhouses":[{"id":"main","length":0,"width":8,"positions":{"bench":{"x":3,"y":2},"other":{"y":4}}}]}""").commit()
+        try {
+            val preferences = storage.load()
+            assertEquals(16.0, preferences.activeGreenhouse.lengthFeet, 0.0)
+            assertEquals(mapOf("bench" to SensorPosition(3.0,2.0)), preferences.activeGreenhouse.sensorPositions)
+            storage.importJson(storage.exportJson())
+            assertEquals(preferences, storage.load())
+            val sensor = GoveeSensor("bench","H5179","Bench sensor",68.0,82.0,true,System.currentTimeMillis())
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    activity.setContent {
+                        val screen = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(AppScreen.Dashboard) }
+                        val state = GreenhouseUiState(screen=screen.value, sensors=listOf(sensor), preferences=preferences)
+                        val navigate: (AppScreen)->Unit = { screen.value=it }
+                        val status = DeviceStatus(80,true,true)
+                        val now = java.time.LocalDateTime.now()
+                        if(screen.value==AppScreen.Dashboard)
+                            DashboardScreen(state,status,now,navigate,Modifier.fillMaxSize())
+                        else StageScreen(state,status,now,navigate,{},{},{},{_,_,_->},{_,_->},{},{},{_,_,_->},{},Modifier.fillMaxSize())
+                    }
+                }
+                repeat(2) {
+                    find("Live front camera")
+                    click("Zones")
+                    find("Zone Heat Map")
+                    find("Bench sensor")
+                    click("Dashboard")
+                }
+            }
+        } finally { storage.clear() }
+    }
+
     @Test fun oversizedBackupRetriesWithRecentHistoryAndKeepsCurrentSensorsAndLocalHistory() = kotlinx.coroutines.runBlocking {
         val original = org.json.JSONObject().put("sensors", org.json.JSONArray().put("bench"))
             .put("history", org.json.JSONArray(listOf(1,2,3,4,5)))
