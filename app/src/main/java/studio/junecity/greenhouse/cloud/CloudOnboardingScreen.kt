@@ -128,7 +128,7 @@ fun CloudOnboardingGate(
     when {
         configurationError != null -> CloudSetupShell(
             "Service unavailable",
-            "This build cannot connect to junecity.studio account services."
+            "This build cannot connect to Greenhouse Studio account services."
         )
         showMonitoring -> content()
         else -> CloudOnboarding(
@@ -173,7 +173,7 @@ private fun CloudOnboarding(
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         val code = result.contents?.let(::serverPairingCodeFromPayload)
-        if (code == null) message = "That is not a valid junecity.studio server pairing code"
+        if (code == null) message = "That is not a valid Greenhouse Studio server pairing code"
         else {
             pairingCode = code
             serverSecret = newDeviceSecret()
@@ -435,8 +435,7 @@ private fun CloudSetupShell(
 @Composable
 private fun OnboardingHeader(title: String, subtitle: String, modifier: Modifier, titleSize: Int) {
     Column(modifier, verticalArrangement = Arrangement.Center) {
-        Text("junecity.studio", color = DashboardTokens.Amber, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-        Text("Greenhouse Monitor", color = DashboardTokens.Muted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(androidx.compose.ui.res.stringResource(studio.junecity.greenhouse.R.string.app_name), color = DashboardTokens.Amber, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(14.dp))
         Text(title, color = Color.White, fontSize = titleSize.sp, lineHeight = (titleSize + 4).sp, fontWeight = FontWeight.Black)
         if (subtitle.isNotBlank()) {

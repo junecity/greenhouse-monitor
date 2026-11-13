@@ -1,5 +1,11 @@
 package studio.junecity.greenhouse.streaming
 
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
+import androidx.compose.runtime.*
+import studio.junecity.greenhouse.cloud.*
+import studio.junecity.greenhouse.ui.VideoSubscriptionDialog
+import studio.junecity.greenhouse.ui.VideoPurchaseSheet
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
@@ -110,6 +116,55 @@ class TimedLiveViewInstrumentedTest {
             waitFor { starts.get() == 4 }
         }
         assertEquals(4, stops.get())
+    }
+
+    @Test fun freeViewerOpensCheckoutAndCanDismissWithoutStartingVideo() {
+        val routes = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val api = AuthenticatedCloudGateway(CloudApiConfig("https://fixture.invalid", "viewer-device"), { "fixture" },
+            client = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+                val path = chain.request().url.encodedPath
+                routes.add(path)
+                val entitlement = path == "/v1/entitlement"
+                okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(if (entitlement) 200 else 403).message("Fixture")
+                    .body((if (entitlement) """{"videoAccessMode":"SUBSCRIPTION_CONTROLLED","checkout":null}"""
+                        else """{"error":"premium_required"}""").toResponseBody("application/json".toMediaType())).build()
+            }.build())
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                assertEquals("Greenhouse Studio", activity.applicationInfo.loadLabel(activity.packageManager))
+                activity.setContent {
+                    var open by remember { mutableStateOf(false) }
+                    if (open) VideoSubscriptionDialog(api) { open = false }
+                    TimedLiveView(Modifier.fillMaxSize(), { it.sp }, { _, _ -> }) { report ->
+                        CloudWebRtcViewer(studio.junecity.greenhouse.settings.CloudEnrollment("viewer-device", "test-house",
+                            CloudDeviceRole.ViewerClient), api, { it.dp }, { it.sp }, Modifier.fillMaxSize(), report,
+                            onSubscriptionRequired = { open = true })
+                    }
+                }
+            }
+            click("Live View · 15s")
+            waitFor { find("Subscriptions are not available") != null }
+            assertEquals(null, find("Subscribe"))
+            click("Close")
+            waitFor { find("Live View · 15s") != null }
+            assertEquals(listOf("/v1/greenhouses/test-house/stream-sessions", "/v1/entitlement"), routes.toList())
+        }
+    }
+
+    @Test fun priceAndCheckoutActionsUseSelectedPlayOffer() {
+        val actions = mutableListOf<String>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                VideoPurchaseSheet("Renews monthly", "USD 2.49", false, false, true,
+                    { actions.add("later") }, { actions.add("restore") }, { actions.add("buy") })
+            } }
+            waitFor { find("USD 2.49 / month") != null }
+            click("Subscribe")
+            click("Restore purchase")
+            click("Maybe later")
+            scenario.onActivity { assertEquals(listOf("buy", "restore", "later"), actions) }
+        }
     }
 
     private fun click(text: String) {

@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-13 · Android 2.16.0 (code 47)
+- Launcher and onboarding use Greenhouse Studio. General Settings keeps junecity.studio beside the muted version. Existing package, signing identity and enrollment are preserved.
+- RemoteCameraFeed holds the Play checkout dialog across a Google Play Activity handoff. CloudWebRtcFeed opens it on a subscription-related denial. VideoSubscriptionDialog queries the base price, restores owned purchases and sends completed tokens through AuthenticatedCloudGateway. Explicit Live View still needs a server-authorized session.
+- app.py, google_play_verifier.py and the application stack gate license testing by opaque account ID, Play verification secret, product/base plan, Play test-purchase flag and SHA-256 account binding. No production checkout. See docs/AWS_DEPLOYMENT.md for internal testing and remaining Play setup.
+- 114 JVM, four API 35 instrumentation and 75 backend tests passed. Moto G7 in-place upgrade and branding verified. Android purchase buttons and backend Play responses used fixtures. CLI sessions expired. Live Play purchase, AWS deployment, and multi-phone purchase propagation remain pending.
+
 ## Current checkpoint — 2026-11-13 · Android 2.15.3 (code 46)
 - ZoneHeatScale uses progressively brighter temperature colors every degree from 40–90°F for 2D, 3D, Replay and their legends. Dew point shares the temperature scale. VPD retains its former palette independently.
 - 114 JVM tests and four API 35 instrumentation tests passed. The 3D gesture test now waits for the zoom accessibility value after a pinch. Verified 59/60°F teal and 71°F amber in both live Moto G7 views. Physical client display remains unverified.

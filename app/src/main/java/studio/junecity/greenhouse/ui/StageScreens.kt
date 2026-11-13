@@ -377,7 +377,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                 GeneralSettings(state,d,t,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences)
             }
             Text(
-                text = "v${BuildConfig.VERSION_NAME}",
+                text = "junecity.studio  ·  v${BuildConfig.VERSION_NAME}",
                 modifier = Modifier.align(Alignment.End).padding(end = 16.dp, bottom = 8.dp),
                 color = DashboardTokens.Muted.copy(alpha = .78f),
                 fontSize = 12.sp,

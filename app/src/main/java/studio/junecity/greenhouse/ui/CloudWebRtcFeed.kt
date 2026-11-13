@@ -59,18 +59,19 @@ import studio.junecity.greenhouse.streaming.WebRtcPeerEvents
 import studio.junecity.greenhouse.streaming.WebRtcRole
 
 @Composable
-fun CloudWebRtcFeed(
+internal fun CloudWebRtcFeed(
     enrollment: CloudEnrollment,
     configuration: CognitoConfiguration,
     d: (Float) -> androidx.compose.ui.unit.Dp,
     t: (Float) -> androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
-    onStatus: (Boolean, String?) -> Unit = { _, _ -> }
+    onStatus: (Boolean, String?) -> Unit,
+    onSubscriptionRequired: (AuthenticatedCloudGateway) -> Unit
 ) {
     val context = LocalContext.current
     val authResult = remember(configuration) { runCatching { CognitoAuthManager(context, configuration).also(CognitoAuthManager::initialize) } }
     val gateway = remember(authResult, enrollment.deviceId) { authResult.getOrNull()?.gateway(enrollment.deviceId) }
-    CloudWebRtcViewer(enrollment, gateway, d, t, modifier, onStatus)
+    CloudWebRtcViewer(enrollment, gateway, d, t, modifier, onStatus, onSubscriptionRequired = onSubscriptionRequired)
 }
 
 @Composable
@@ -81,7 +82,8 @@ internal fun CloudWebRtcViewer(
     t: (Float) -> androidx.compose.ui.unit.TextUnit,
     modifier: Modifier,
     onStatus: (Boolean, String?) -> Unit,
-    signaling: () -> KinesisSignalingTransport = { KinesisWebSocketSignaling() }
+    signaling: () -> KinesisSignalingTransport = { KinesisWebSocketSignaling() },
+    onSubscriptionRequired: (AuthenticatedCloudGateway) -> Unit = {}
 ) {
     val context = LocalContext.current
     val callbackScope = rememberCoroutineScope()
@@ -113,6 +115,10 @@ internal fun CloudWebRtcViewer(
                         else -> "Remote camera unavailable"
                     }
                     else -> "Remote camera unavailable"
+                }
+                if (error is CloudApiException && error.statusCode == 403 &&
+                    error.message in setOf("premium_required", "expired", "inactive")) {
+                    onSubscriptionRequired(api)
                 }
                 report(false, message)
                 return@LiveViewEffect

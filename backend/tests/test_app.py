@@ -754,7 +754,20 @@ class BootstrapApiTests(unittest.TestCase):
             },
         })
         app.table = fake
-        with patch.object(app, "verify_google_play_purchase", return_value={"active": True, "expiresAt": 2_000_000_000}):
+        verified = {"active": True, "expiresAt": 2_000_000_000, "testPurchase": True}
+        checkout_env = {"PLAY_TEST_ACCOUNT_IDS": "account-existing", "GOOGLE_PLAY_CREDENTIALS_SECRET_ID": "fixture"}
+        with patch.dict(os.environ, checkout_env):
+            verified["accountBinding"] = app.play_test_checkout("account-existing")["accountBinding"]
+        request = event("/v1/subscriptions/google-play/verify", device_id="viewer-12345678",
+                        body={"productId": "premium_monthly", "purchaseToken": "purchase-token-123456789"})
+        with patch.dict(os.environ, checkout_env), patch.object(app, "verify_google_play_purchase", return_value=verified):
+            for invalid in ({"testPurchase": False}, {"accountBinding": "different-customer"}, {"active": False}):
+                with self.subTest(invalid=invalid), patch.dict(verified, invalid):
+                    self.assertIn(app.handler(request, None)["statusCode"], (403, 409))
+                    self.assertFalse(fake.updates)
+        with patch.dict(os.environ, {"PLAY_TEST_ACCOUNT_IDS": ""}):
+            self.assertEqual(403, app.handler(request, None)["statusCode"])
+        with patch.dict(os.environ, checkout_env), patch.object(app, "verify_google_play_purchase", return_value=verified):
             result = app.handler(event(
                 "/v1/subscriptions/google-play/verify",
                 device_id="viewer-12345678",

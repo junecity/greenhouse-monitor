@@ -129,7 +129,7 @@ jobs:
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/outputs/apk/debug/app-debug.apk.sha256
       - uses: actions/upload-artifact@v7
         with:
-          name: greenhouse-monitor-2.15.3-arm-debug
+          name: greenhouse-monitor-2.16.0-arm-debug
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256

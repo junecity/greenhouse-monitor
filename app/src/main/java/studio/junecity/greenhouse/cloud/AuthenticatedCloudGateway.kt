@@ -10,6 +10,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
+data class PlayCatalog(val productId: String, val basePlanId: String, val accountBinding: String)
+data class VideoCheckout(val disabled: Boolean, val catalog: PlayCatalog?)
+
 data class CloudApiConfig(val baseUrl: String, val deviceId: String) {
     init {
         require(baseUrl.startsWith("https://")) { "Cloud API must use HTTPS" }
@@ -86,6 +89,21 @@ class AuthenticatedCloudGateway(
     override suspend fun claimPairingChallenge(displayCode: String, viewerDeviceId: String) = CloudJsonCodec.device(
         request("POST", "/v1/pairing-challenges/claim", JSONObject().put("pairingCode", displayCode).put("viewerDeviceId", viewerDeviceId))
     )
+
+    suspend fun videoCheckout(): VideoCheckout {
+        val result = request("GET", "/v1/entitlement")
+        val offer = result.optJSONObject("checkout")
+        return VideoCheckout(
+            result.optString("videoAccessMode") == "DISABLED",
+            offer?.let { PlayCatalog(it.getString("productId"), it.getString("basePlanId"), it.getString("accountBinding")) }
+        )
+    }
+
+    suspend fun verifyVideoPurchase(productId: String, token: String) {
+        val result = request("POST", "/v1/subscriptions/google-play/verify",
+            JSONObject().put("productId", productId).put("purchaseToken", token))
+        check(result.getString("state") == "ACTIVE" && result.getString("source") == "GOOGLE_PLAY_VERIFIED")
+    }
 
     override suspend fun entitlement() = CloudJsonCodec.entitlement(request("GET", "/v1/entitlement"))
 

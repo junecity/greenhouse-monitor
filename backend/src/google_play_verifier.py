@@ -27,9 +27,11 @@ def parse_subscription(payload: dict, expected_product_id: str) -> dict:
     if not expirations:
         raise GooglePlayVerificationError("google_play_expiration_missing")
     state = payload.get("subscriptionState", "")
-    active = state in {"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD"}
+    active = state in {"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "SUBSCRIPTION_STATE_CANCELED"} and max(expirations) > datetime.now(timezone.utc).timestamp()
     return {
         "active": active,
+        "testPurchase": isinstance(payload.get("testPurchase"), dict),
+        "accountBinding": (payload.get("externalAccountIdentifiers") or {}).get("obfuscatedExternalAccountId"),
         "expiresAt": max(expirations),
         "subscriptionState": state,
         "acknowledgementState": payload.get("acknowledgementState"),
@@ -37,7 +39,7 @@ def parse_subscription(payload: dict, expected_product_id: str) -> dict:
     }
 
 
-def verify_google_play_purchase(product_id: str, purchase_token: str) -> dict:
+def verify_google_play_purchase(product_id: str, purchase_token: str, *, test_account_binding: str | None = None) -> dict:
     package_name = os.environ.get("GOOGLE_PLAY_PACKAGE_NAME", "")
     secret_id = os.environ.get("GOOGLE_PLAY_CREDENTIALS_SECRET_ID", "")
     if not package_name or not secret_id:
@@ -62,7 +64,25 @@ def verify_google_play_purchase(product_id: str, purchase_token: str) -> dict:
         result = session.get(url, timeout=10)
         if result.status_code != 200:
             raise GooglePlayVerificationError("google_play_verification_failed")
-        return parse_subscription(result.json(), product_id)
+        payload = result.json()
+        verified = parse_subscription(payload, product_id)
+        if test_account_binding is not None and verified["active"]:
+            monthly = any(item.get("productId") == product_id and
+                          (item.get("offerDetails") or {}).get("basePlanId") == "monthly"
+                          for item in payload.get("lineItems", []))
+            if not monthly or not verified["testPurchase"] or verified["accountBinding"] != test_account_binding:
+                raise GooglePlayVerificationError("purchase_not_eligible")
+            if verified["acknowledgementState"] == "ACKNOWLEDGEMENT_STATE_PENDING":
+                ack_url = (
+                    "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/"
+                    f"{quote(package_name, safe='')}/purchases/subscriptions/{quote(product_id, safe='')}"
+                    f"/tokens/{quote(purchase_token, safe='')}:acknowledge"
+                )
+                if not session.post(ack_url, json={}, timeout=10).ok:
+                    raise GooglePlayVerificationError("google_play_acknowledgement_failed")
+            elif verified["acknowledgementState"] != "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED":
+                raise GooglePlayVerificationError("google_play_acknowledgement_unknown")
+        return verified
     except GooglePlayVerificationError:
         raise
     except Exception as error:

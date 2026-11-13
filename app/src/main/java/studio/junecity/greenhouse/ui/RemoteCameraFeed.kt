@@ -46,12 +46,14 @@ fun RemoteCameraFeed(
 ) {
     val context = LocalContext.current
     val configuration = remember { runCatching { CloudRuntime.configurationOrNull() }.getOrNull() }
+    var checkout by remember { mutableStateOf<studio.junecity.greenhouse.cloud.AuthenticatedCloudGateway?>(null) }
+    checkout?.let { VideoSubscriptionDialog(it) { checkout = null } }
     TimedLiveView(modifier, t, onStatus) { report ->
         // Resolve the current greenhouse when the viewer requests video after a switch or re-pair.
         val enrollment = remember { SecureSettingsStore(context).cloudEnrollment() }
         if (configuration != null) {
             if (enrollment?.role == CloudDeviceRole.ViewerClient && enrollment.greenhouseId.isNotBlank()) {
-                CloudWebRtcFeed(enrollment, configuration, d, t, Modifier.fillMaxSize(), report)
+                CloudWebRtcFeed(enrollment, configuration, d, t, Modifier.fillMaxSize(), report) { checkout = it }
             } else {
                 LaunchedEffect(Unit) { report(false, "Pair a greenhouse server to view its camera") }
             }

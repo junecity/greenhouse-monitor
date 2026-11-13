@@ -20,6 +20,10 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional Secrets Manager ARN for an approved Google Play service account. Leave blank until billing activation.
+  PlayTestAccountIds:
+    Type: String
+    Default: ''
+    Description: Comma-separated opaque Greenhouse account IDs enrolled for license testing.
   GooglePlayPackageName:
     Type: String
     Default: studio.junecity.greenhouse
@@ -195,6 +199,7 @@ Resources:
       Environment:
         Variables:
           GOOGLE_PLAY_CREDENTIALS_SECRET_ID: !Ref GooglePlayCredentialsSecretArn
+          PLAY_TEST_ACCOUNT_IDS: !Ref PlayTestAccountIds
           GOOGLE_PLAY_PACKAGE_NAME: !Ref GooglePlayPackageName
       Policies:
         - DynamoDBCrudPolicy:

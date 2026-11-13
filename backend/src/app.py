@@ -861,6 +861,16 @@ def end_stream_session(principal: Principal, session_id: str):
     return response(204, {})
 
 
+def play_test_checkout(account_id: str) -> dict | None:
+    testers = os.environ.get("PLAY_TEST_ACCOUNT_IDS", "").split(",")
+    if account_id not in testers or not os.environ.get("GOOGLE_PLAY_CREDENTIALS_SECRET_ID"):
+        return None
+    return {
+        "productId": "premium_monthly", "basePlanId": "monthly",
+        "accountBinding": hashlib.sha256(("greenhouse-play:" + account_id).encode()).hexdigest(),
+    }
+
+
 def entitlement(principal: Principal):
     item = table.get_item(Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "ENTITLEMENT"}, ConsistentRead=True).get("Item", {})
     if item.get("accountId") != principal.account_id:
@@ -871,20 +881,28 @@ def entitlement(principal: Principal):
         "source": effective.get("source", "NONE"), "features": effective.get("features", []),
         "expiresAt": effective.get("expiresAt"), "verifiedAt": effective.get("verifiedAt", 0),
         "videoAccessMode": effective.get("videoAccessMode", "SUBSCRIPTION_CONTROLLED"),
+        "checkout": play_test_checkout(principal.account_id) if effective.get("videoAccessMode") != "DISABLED" else None,
     })
 
 
 def verify_google_play_subscription(event, principal: Principal):
-    require_enabled_requester(principal)
+    require_client_requester(principal)
+    checkout = play_test_checkout(principal.account_id)
+    if not checkout:
+        raise AccessDenied("test_checkout_unavailable")
     body = json.loads(event.get("body") or "{}")
     product_id = str(body.get("productId") or "")[:160]
     purchase_token = str(body.get("purchaseToken") or "")
-    if not product_id or len(purchase_token) < 16 or len(purchase_token) > 4096:
+    if product_id != checkout["productId"] or len(purchase_token) < 16 or len(purchase_token) > 4096:
         return response(400, {"error": "valid_google_play_purchase_required"})
-    verification = verify_google_play_purchase(product_id, purchase_token)
+    verification = verify_google_play_purchase(product_id, purchase_token, test_account_binding=checkout["accountBinding"])
     now = int(datetime.now(timezone.utc).timestamp())
-    state = "ACTIVE" if verification["active"] else "EXPIRED"
-    features = ["REMOTE_LIVE_VIDEO"] if verification["active"] else []
+    if not verification.get("testPurchase") or verification.get("accountBinding") != checkout["accountBinding"]:
+        raise AccessDenied("purchase_not_eligible")
+    if not verification["active"] or verification["expiresAt"] <= now:
+        return response(409, {"error": "purchase_inactive"})
+    state = "ACTIVE"
+    features = ["REMOTE_LIVE_VIDEO"]
     account = table.get_item(
         Key={"pk": f"ACCOUNT#{principal.account_id}", "sk": "METADATA"}, ConsistentRead=True
     ).get("Item", {})

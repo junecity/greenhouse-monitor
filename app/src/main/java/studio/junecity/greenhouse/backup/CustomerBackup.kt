@@ -88,7 +88,7 @@ internal class CustomerBackup(private val context: Context, private val enrollme
                 val salt = ByteArray(16).also(envelope::readFully)
                 cipher(password, salt).newDecryptingStream(envelope, MAGIC)
             }
-            else -> throw IllegalArgumentException("Choose a Greenhouse Monitor backup file.")
+            else -> throw IllegalArgumentException("Choose a greenhouse backup file.")
         }
         DataInputStream(decrypted.buffered()).use { stream ->
             val size = stream.readInt()

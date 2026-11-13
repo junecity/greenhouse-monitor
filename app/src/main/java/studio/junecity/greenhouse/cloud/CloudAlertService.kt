@@ -61,7 +61,7 @@ class CloudAlertService : Service() {
         val notification = NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(android.R.drawable.presence_online)
             .setContentTitle("Greenhouse alert monitoring active")
-            .setContentText("Checking junecity.studio greenhouse alerts")
+            .setContentText("Checking greenhouse alerts")
             .setOngoing(true).setOnlyAlertOnce(true).build()
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         ServiceCompat.startForeground(this, SERVICE_NOTIFICATION_ID, notification, type)
