@@ -90,7 +90,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         }
         viewModelScope.launch { while (true) { delay(15*60_000L); refreshWeather(true) } }
     }
-    fun navigate(s:AppScreen){_state.value=_state.value.copy(screen=s,message=null);if(s==AppScreen.History || s==AppScreen.Zones)loadHistory()}
+    fun navigate(s:AppScreen){_state.value=_state.value.copy(screen=s,message=null);if(s==AppScreen.History || s==AppScreen.Zones || s==AppScreen.Energy)loadHistory();if(s==AppScreen.Energy)refreshWeather(true)}
     fun selectMetric(m:Metric){_state.value=_state.value.copy(metric=m)}
     fun completeCloudEnrollment(role:CloudDeviceRole){
         selectStores()
@@ -109,6 +109,21 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             _state.value = restoredState()
             updatePreferences { it.copy(cameraMode = CameraMode.CameraServer) }
         }
+    }
+
+    internal fun applyQuickStart(setup: QuickStartData) {
+        val owner = secure.cloudEnrollment() ?: return
+        val active = if (owner.role == CloudDeviceRole.ViewerClient) owner.copy(localSensors = true) else owner
+        if (active != owner) secure.saveCloudEnrollment(active)
+        selectStores()
+        val house = _state.value.preferences.activeGreenhouse
+        updateGreenhouse(house.name, setup.length, setup.width)
+        updatePreferences { prefs ->
+            prefs.copy(greenhouses = prefs.greenhouses.map { if (it.id == house.id) it.copy(heightFeet = setup.height) else it })
+        }
+        saveZip(setup.zip)
+        HeatingStore(getApplication(), active, house.id).save(HeatingSettings(setup.unit, setup.price))
+        if (setup.key.isNotBlank()) saveApiKey(setup.key)
     }
 
     fun saveApiKey(key: String) {
@@ -278,12 +293,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             }
         }
     }
-    private var heatingOpen = false
-    fun setHeatingOpen(open: Boolean) {
-        heatingOpen = open
-        loadHistory()
-    }
-    private fun needsWeekHistory() = heatingOpen || _state.value.screen == AppScreen.History || (volumeOpen.value && _state.value.screen == AppScreen.Zones)
+    private fun needsWeekHistory() = _state.value.screen == AppScreen.Dashboard || _state.value.screen == AppScreen.Energy || _state.value.screen == AppScreen.History || (volumeOpen.value && _state.value.screen == AppScreen.Zones)
     fun setVolumeOpen(open: Boolean) {
         if (volumeOpen.value == open) return
         volumeOpen.value = open

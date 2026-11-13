@@ -136,6 +136,7 @@ class MainActivity : ComponentActivity() {
                 configurationError = cloudConfiguration.exceptionOrNull()?.message,
                 portraitMonitoringScreen = state.screen == AppScreen.Settings,
                 rotateMonitoringScreen = showingVolume,
+                onSetup = viewModel::applyQuickStart,
                 onEnrolled = { role ->
                     viewModel.completeCloudEnrollment(role)
                     if (role == CloudDeviceRole.GreenhouseServer && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -168,33 +169,42 @@ class MainActivity : ComponentActivity() {
                             confirmButton = { androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close") } })
                     }
                 }
-                var heatingOpen by remember { mutableStateOf(false) }
+                var energyReturn by remember { mutableStateOf(AppScreen.Dashboard) }
+                var returnToForecast by remember { mutableStateOf(false) }
                 val heatingStore = remember(cloudEnrollmentRevision, state.preferences.activeGreenhouseId) {
                     studio.junecity.greenhouse.data.HeatingStore(applicationContext,
                         SecureSettingsStore(applicationContext).cloudEnrollment(), state.preferences.activeGreenhouseId)
                 }
-                val heatingSummary = remember(heatingStore, state.weather, state.preferences.activeGreenhouse, heatingOpen, now.toLocalDate(), now.hour) {
+                val heatingPoints = if (state.screen == AppScreen.Dashboard || state.screen == AppScreen.Energy) studio.junecity.greenhouse.ui.heatingPoints(state, heatingStore) else emptyList()
+                val learned = remember(heatingPoints) { studio.junecity.greenhouse.data.learnedTemperature(heatingPoints) }
+                val heatingSummary = remember(learned, heatingStore, state.weather, state.preferences.activeGreenhouse, state.screen, now.toLocalDate(), now.hour) {
                     val settings = heatingStore.settings()
-                    if (state.weather.zipCode != state.preferences.zipCode || state.weather.stale || settings.price == null) null else {
-                        val forecast = studio.junecity.greenhouse.data.NightHeating.forecast(state.weather, settings.targetF, System.currentTimeMillis())
+                    if (learned == null || state.weather.zipCode != state.preferences.zipCode || state.weather.stale || settings.price == null) null else {
+                        val forecast = studio.junecity.greenhouse.data.NightHeating.forecast(state.weather, learned.fahrenheit, System.currentTimeMillis())
                         forecast.first().degreeHours?.let {
                             val coefficient = studio.junecity.greenhouse.data.heatingCoefficient(state.preferences.activeGreenhouse, settings.unit)
                             studio.junecity.greenhouse.ui.money(it * coefficient.nominal * settings.price)
                         }
                     }
                 }
-                if (forecastOpen && heatingOpen) {
-                    DisposableEffect(Unit) {
-                        viewModel.setHeatingOpen(true)
-                        onDispose { viewModel.setHeatingOpen(false) }
-                    }
-                    studio.junecity.greenhouse.ui.NightHeatingDialog(state, heatingStore, refresh = { viewModel.refreshWeather() },
-                        dismiss = { heatingOpen = false })
-                }
-                if (forecastOpen && !heatingOpen) studio.junecity.greenhouse.ui.ForecastDialog(state.weather, state.preferences.zipCode,
-                    refresh = { viewModel.refreshWeather() }, heating = { heatingOpen = true }, dismiss = { forecastOpen = false; intent.action = null })
                 var openSensors by remember { mutableStateOf(false) }
-                val navigate: (AppScreen) -> Unit = { openSensors = false; viewModel.navigate(it) }
+                val navigate: (AppScreen) -> Unit = { next ->
+                    if (next == AppScreen.Energy && state.screen != next) energyReturn = state.screen
+                    openSensors = false
+                    returnToForecast = false
+                    viewModel.navigate(next)
+                }
+                androidx.activity.compose.BackHandler(enabled = state.screen == AppScreen.Energy && !forecastOpen) {
+                    viewModel.navigate(energyReturn)
+                    forecastOpen = returnToForecast
+                    returnToForecast = false
+                }
+                if (forecastOpen) studio.junecity.greenhouse.ui.ForecastDialog(state.weather, state.preferences.zipCode,
+                    refresh = { viewModel.refreshWeather() }, heating = {
+                        forecastOpen = false
+                        navigate(AppScreen.Energy)
+                        returnToForecast = true
+                    }, dismiss = { forecastOpen = false; intent.action = null })
                 if (showingVolume) {
                     androidx.activity.compose.BackHandler { viewModel.setVolumeOpen(false) }
                     studio.junecity.greenhouse.ui.ZoneVolumeScreen(state, viewModel::updatePreferences) { viewModel.setVolumeOpen(false) }
@@ -202,8 +212,12 @@ class MainActivity : ComponentActivity() {
                     if (screen == AppScreen.Dashboard) {
                         DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
                             onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
-                            heatingSummary = heatingSummary, onHeating = { forecastOpen = true; heatingOpen = true; viewModel.refreshWeather(true) },
+                            heatingSummary = heatingSummary, onHeating = { navigate(AppScreen.Energy) },
                             onRefresh = { viewModel.syncFromServer() }, onForecast = { forecastOpen = true; viewModel.refreshWeather(true) })
+                    } else if (screen == AppScreen.Energy) {
+                        studio.junecity.greenhouse.ui.ApprovedFrame(screen, status, now, navigate, Modifier.fillMaxSize(), standalone = state.standalone) { _, _ ->
+                            studio.junecity.greenhouse.ui.NightHeatingContent(state, heatingStore, { viewModel.refreshWeather() }, heatingPoints)
+                        }
                     } else {
                         StageScreen(
                             state.copy(screen = screen), status, now, navigate, viewModel::selectMetric,

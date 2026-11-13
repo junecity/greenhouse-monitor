@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-13 · Android 2.17.1 (49)
+- Energy is a bottom tab following Dashboard. Both use the current house’s nighttime sensor history, matching weather and saved billing unit/rate. NightHeating learns typical indoor temperature from steady quarter-hour samples; it withholds estimates during cold start. No manual target input.
+- CloudOnboardingGate presents QuickStartScreen following new enrollment, skips previously enrolled phones and replacement servers with a restored snapshot. Single-phone setup uses the encrypted standalone Govee path. Energy and Quick Start use the same scoped HeatingStore.
+- Passed 121 JVM and three isolated Android tests; lint 0 errors. Physical Moto in-place upgrade showed a learned reading, navigation and retained setup. Live first-time Cognito and a second physical phone were not exercised. See CHANGELOG for the artifact.
+
 ## Current checkpoint — 2026-11-13 · Android 2.17.0 (code 48)
 - Dashboard → Outdoor → Heating costs opens the seven-night forecast. NightHeating integrates positive hourly target deficits between local sunset and sunrise. LiveWeatherProvider uses epoch timestamps and requests eight forecast days to include the last sunrise. Energy price and target are scoped to the enrolled phone and greenhouse. The prior daily forecast and alert rules still use seven days.
 - NightHeatingWorker reuses the collector's saved readings; twelve-hour network-constrained work refreshes a thirty-day local profile. Paired viewers derive a profile from available server history. Temperature patterns refine the similar-night indoor outlook. Absolute cost uses perimeter, area, height and explicit heat-loss and delivery assumptions. Keep unavailable solar or weather intervals distinct from zero demand.

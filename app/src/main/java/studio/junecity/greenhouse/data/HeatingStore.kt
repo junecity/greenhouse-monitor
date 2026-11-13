@@ -17,11 +17,10 @@ internal class HeatingStore(context: Context, owner: CloudEnrollment?, greenhous
         owner.isStandaloneClient(), greenhouse).joinToString("|")
     private val prefs = context.getSharedPreferences("night_heating", Context.MODE_PRIVATE)
     fun settings(): HeatingSettings = HeatingSettings(
-        prefs.getString("$namespace.target", null)?.toDoubleOrNull() ?: 60.0,
         if (prefs.getString("$namespace.unit", "") == "Therm") EnergyUnit.Therm else EnergyUnit.Kwh,
         prefs.getString("$namespace.price", null)?.toDoubleOrNull())
     fun save(value: HeatingSettings) {
-        prefs.edit().putString("$namespace.target", value.targetF.toString())
+        prefs.edit()
             .putString("$namespace.unit", value.unit.name)
             .putString("$namespace.price", value.price?.toString()).apply()
     }

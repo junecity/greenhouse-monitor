@@ -108,12 +108,13 @@ fun newDeviceSecret(): String = ByteArray(32).also(SecureRandom()::nextBytes).le
 }
 
 @Composable
-fun CloudOnboardingGate(
+internal fun CloudOnboardingGate(
     configuration: CognitoConfiguration?,
     configurationError: String?,
     portraitMonitoringScreen: Boolean = false,
     rotateMonitoringScreen: Boolean = false,
     onEnrolled: (CloudDeviceRole) -> Unit,
+    onSetup: (QuickStartData) -> Unit,
     content: @Composable () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -123,20 +124,35 @@ fun CloudOnboardingGate(
     val showMonitoring = configurationError == null &&
         (configuration == null || (enrollment != null && sessionValidated))
 
-    AppOrientation(showMonitoring, portraitMonitoringScreen, rotateMonitoringScreen)
+    val guidePrefs = remember { context.getSharedPreferences("first_run_guide", Context.MODE_PRIVATE) }
+    var pending by remember { mutableStateOf(guidePrefs.getString("pending", null)) }
+    val showGuide = showMonitoring && pending != null && pending == enrollment?.deviceId
+    fun finishGuide() {
+        guidePrefs.edit().remove("pending").apply()
+        pending = null
+    }
+    AppOrientation(showMonitoring && !showGuide, portraitMonitoringScreen, rotateMonitoringScreen)
 
     when {
         configurationError != null -> CloudSetupShell(
             "Service unavailable",
             "This build cannot connect to Greenhouse Studio account services."
         )
+        showGuide -> QuickStartScreen(requireNotNull(enrollment), { finishGuide() }) { data ->
+            onSetup(data)
+            finishGuide()
+        }
         showMonitoring -> content()
         else -> CloudOnboarding(
             configuration = requireNotNull(configuration),
             secure = secure,
             existingEnrollment = enrollment,
             onAuthenticated = { sessionValidated = true },
-            onComplete = {
+            onComplete = { it, needsGuide ->
+                if (needsGuide) {
+                    pending = it.deviceId
+                    guidePrefs.edit().putString("pending", it.deviceId).apply()
+                }
                 secure.saveCloudEnrollment(it)
                 enrollment = it
                 sessionValidated = true
@@ -152,7 +168,7 @@ private fun CloudOnboarding(
     secure: SecureSettingsStore,
     existingEnrollment: CloudEnrollment?,
     onAuthenticated: () -> Unit,
-    onComplete: (CloudEnrollment) -> Unit
+    onComplete: (CloudEnrollment, Boolean) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -236,7 +252,7 @@ private fun CloudOnboarding(
                         }
                         onAuthenticated()
                     }
-                    else onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient, tenantId = registered.tenantId))
+                    else onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient, tenantId = registered.tenantId), true)
                 }
             }.onFailure { message = accountErrorMessage(it); retryRestore(it) }
             busy = false
@@ -258,10 +274,11 @@ private fun CloudOnboarding(
                     val device = requireNotNull(status.device)
                     val completed = CloudEnrollment(deviceId, requireNotNull(device.greenhouseId), CloudDeviceRole.GreenhouseServer, serverSecret, tenantId = device.tenantId)
                     val deviceGateway = gatewayForEnrollment(context, configuration, completed)
-                    deviceGateway.greenhouseBackup(completed.greenhouseId)?.let {
+                    val backup = deviceGateway.greenhouseBackup(completed.greenhouseId)
+                    backup?.let {
                         GreenhouseBackupStore(context).restore(it, CameraMode.CameraServer)
                     }
-                    onComplete(completed)
+                    onComplete(completed, backup == null)
                     break
                 }
                 if (System.currentTimeMillis() >= status.expiresAtEpochMs) error("This pairing code expired. Generate a new code on the client phone.")
@@ -306,7 +323,7 @@ private fun CloudOnboarding(
                             api.bootstrap()
                             val registered = api.registerClientDevice()
                             val greenhouse = resolveClientGreenhouse(null, registered.greenhouseId, api::devices)
-                            onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient, tenantId = registered.tenantId))
+                            onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient, tenantId = registered.tenantId), true)
                         }
                     }
                     SecondaryButton("Create account", Modifier.fillMaxWidth(), busy) {
@@ -403,7 +420,7 @@ private fun CloudOnboarding(
 }
 
 @Composable
-private fun CloudSetupShell(
+internal fun CloudSetupShell(
     title: String,
     subtitle: String = "",
     message: String? = null,
@@ -534,7 +551,7 @@ internal fun newAccountPasswordIssue(password: String): String? =
     } else null
 
 @Composable
-private fun CloudField(value: String, onValue: (String) -> Unit, label: String, keyboard: KeyboardType, password: Boolean = false) {
+internal fun CloudField(value: String, onValue: (String) -> Unit, label: String, keyboard: KeyboardType, password: Boolean = false) {
     OutlinedTextField(
         value = value, onValueChange = onValue, label = { Text(label) }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboard),
@@ -550,7 +567,7 @@ private fun CloudField(value: String, onValue: (String) -> Unit, label: String, 
 }
 
 @Composable
-private fun PrimaryButton(label: String, modifier: Modifier, disabled: Boolean, onClick: () -> Unit) {
+internal fun PrimaryButton(label: String, modifier: Modifier, disabled: Boolean, onClick: () -> Unit) {
     Button(
         onClick = onClick, enabled = !disabled, modifier = modifier.height(54.dp),
         shape = RoundedCornerShape(17.dp),
@@ -559,7 +576,7 @@ private fun PrimaryButton(label: String, modifier: Modifier, disabled: Boolean, 
 }
 
 @Composable
-private fun SecondaryButton(label: String, modifier: Modifier, disabled: Boolean, onClick: () -> Unit) {
+internal fun SecondaryButton(label: String, modifier: Modifier, disabled: Boolean, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick, enabled = !disabled, modifier = modifier.height(54.dp),
         shape = RoundedCornerShape(17.dp),

@@ -4,7 +4,7 @@ import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-enum class AppScreen { Dashboard, Zones, History, Cameras, Settings }
+enum class AppScreen { Dashboard, Energy, Zones, History, Cameras, Settings }
 enum class Metric { Temperature, Humidity, Vpd, DewPoint }
 enum class HistoryRange { Day, Week, Month }
 enum class CameraMode { CameraServer, ViewerClient }

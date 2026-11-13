@@ -15,7 +15,7 @@ internal const val HEATING_HOUR = 3_600_000L
 internal enum class EnergyUnit(val label: String, val btu: Double, val delivery: Double) {
     Kwh("kWh", 3412.1416, 1.0), Therm("therm", 100000.0, .8)
 }
-internal data class HeatingSettings(val targetF: Double = 60.0, val unit: EnergyUnit = EnergyUnit.Kwh, val price: Double? = null)
+internal data class HeatingSettings(val unit: EnergyUnit = EnergyUnit.Kwh, val price: Double? = null)
 internal data class HeatCoefficient(val nominal: Double, val low: Double, val high: Double)
 
 internal fun heatingCoefficient(house: GreenhouseConfig, unit: EnergyUnit): HeatCoefficient {
@@ -102,6 +102,28 @@ internal object NightHeating {
 }
 
 internal data class ThermalPoint(val date: LocalDate, val time: Long, val indoor: Double, val outdoor: Double, val sensors: List<String>)
+internal data class LearnedTemperature(val fahrenheit: Double, val nights: Int)
+
+// Give each night one vote. Overlapping windows must not give a long night more weight.
+internal fun learnedTemperature(points: List<ThermalPoint>): LearnedTemperature? {
+    fun median(values: List<Double>): Double {
+        val sorted = values.sorted()
+        return (sorted[(sorted.size - 1) / 2] + sorted[sorted.size / 2]) / 2
+    }
+    val nightly = points.groupBy { it.date }.toSortedMap(compareByDescending { it }).values.mapNotNull { night ->
+        val centers = night.sortedBy { it.time }.windowed(5).mapNotNull window@{ window ->
+            val first = window.first()
+            if (window.any { !it.indoor.isFinite() || !it.outdoor.isFinite() || it.sensors.isEmpty() ||
+                    it.sensors != first.sensors || it.indoor - it.outdoor < 2.0 }) return@window null
+            if (window.zipWithNext().any { (a, b) -> b.time - a.time != HEATING_HOUR / 4 }) return@window null
+            val temps = window.map { it.indoor }
+            if (temps.max() - temps.min() > 2.0 || abs(temps.last() - temps.first()) > 1.0) null else median(temps)
+        }
+        if (centers.isEmpty()) null else median(centers)
+    }.take(7)
+    return if (nightly.isEmpty()) null else LearnedTemperature(median(nightly), nightly.size)
+}
+
 internal data class NightBehavior(val nights: Int, val hours: Double, val nearTarget: Double, val cooling: Double?,
     val recovery: Double?, val swing: Double, val indoorDelta: Double)
 internal fun nightBehavior(points: List<ThermalPoint>, target: Double, comparableOutdoor: Double? = null): NightBehavior? {

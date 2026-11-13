@@ -8,6 +8,18 @@ import java.time.*
 
 class NightHeatingTest {
     private val date = LocalDate.of(2026, 3, 7)
+    @Test fun learnsSteadyNightsWithEqualWeightAndRejectsMissingOrDriftingData() {
+        fun samples(day: Int, values: List<Double>) = values.mapIndexed { i, f ->
+            ThermalPoint(date.plusDays(day.toLong()), day * 24 * HEATING_HOUR + i * HEATING_HOUR / 4, f, 40.0, listOf("a"))
+        }
+        val stable = samples(1, listOf(62.0, 62.5, 63.0, 62.5, 62.0))
+        assertEquals(62.5, learnedTemperature(stable)!!.fahrenheit, 0.0001)
+        assertEquals(LearnedTemperature(64.25, 2), learnedTemperature(stable + samples(2, List(25) { 66.0 })))
+        assertNull(learnedTemperature(stable.drop(1)))
+        assertNull(learnedTemperature(stable.mapIndexed { i, p -> if (i == 2) p.copy(sensors = listOf("b")) else p }))
+        assertNull(learnedTemperature(stable.map { it.copy(outdoor = it.indoor) }))
+        assertNull(learnedTemperature(samples(1, listOf(67.0, 66.0, 65.0, 64.0, 63.0))))
+    }
     private val zone = ZoneId.of("America/New_York")
     private fun at(day: LocalDate, time: String) = day.atTime(LocalTime.parse(time)).atZone(zone).toInstant().toEpochMilli()
     private val sunsets = (-3L..8L).associate { n ->

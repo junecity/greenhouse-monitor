@@ -336,7 +336,8 @@ class StandaloneEditorTest {
                 assertTrue(first.state.value.standalone)
                 assertEquals(CameraMode.ViewerClient,first.state.value.preferences.cameraMode)
                 assertTrue(first.state.value.sensors.isEmpty())
-                first.saveApiKey("example-test-key")
+                first.applyQuickStart(studio.junecity.greenhouse.cloud.QuickStartData("06382", 18.0, 9.0, 7.5,
+                    studio.junecity.greenhouse.data.EnergyUnit.Kwh, .24, "example-test-key"))
             }
             repeat(50){if(first.state.value.sensors.isEmpty())SystemClock.sleep(80)}
             assertEquals(72.0,first.state.value.sensors.single().temperatureF!!,0.0)
@@ -345,6 +346,8 @@ class StandaloneEditorTest {
             instrumentation.runOnMainSync {
                 first.viewModelScope.cancel()
                 reopened=GreenhouseViewModel(context.applicationContext as Application,provider)
+                assertEquals(18.0,reopened.state.value.preferences.activeGreenhouse.lengthFeet,0.0)
+                assertEquals(7.5,reopened.state.value.preferences.activeGreenhouse.heightFeet!!,0.0)
                 assertEquals("fixture-bench",reopened.state.value.sensors.single().id)
                 assertTrue(reopened.state.value.preferences.activeGreenhouse.sensorPositions.containsKey("fixture-bench"))
                 reopened.viewModelScope.cancel()

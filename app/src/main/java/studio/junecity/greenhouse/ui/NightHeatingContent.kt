@@ -16,8 +16,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import studio.junecity.greenhouse.data.*
@@ -36,21 +34,12 @@ private fun number(value: Double) = String.format(Locale.US, "%.1f", value).remo
 private fun clock(ms: Long, zone: ZoneId) = Instant.ofEpochMilli(ms).atZone(zone).format(DateTimeFormatter.ofPattern("h:mm a"))
 
 @Composable
-internal fun NightHeatingDialog(state: GreenhouseUiState, store: HeatingStore, refresh: () -> Unit, dismiss: () -> Unit) {
+internal fun heatingPoints(state: GreenhouseUiState, store: HeatingStore): List<ThermalPoint> {
     val house = state.preferences.activeGreenhouse
     val zip = state.preferences.zipCode
     val weather = state.weather
-    var settings by remember(store) { mutableStateOf(store.settings()) }
-    var editing by remember(store) { mutableStateOf(false) }
-    var detail by remember { mutableStateOf(false) }
-    val now = System.currentTimeMillis()
-    val nights = remember(weather, settings.targetF, now / 60_000L) { NightHeating.forecast(weather, settings.targetF, now) }
-    var index by remember(store, nights.first().date) { mutableIntStateOf(0) }
-    val night = nights[index]
-    val coefficient = remember(house, settings.unit) { heatingCoefficient(house, settings.unit) }
-    val rate = settings.price
-    val costPerDegree = rate?.times(coefficient.nominal)
     val validWeather = weather.zipCode == zip && weather.updatedAtEpochMs > 0
+    val now = System.currentTimeMillis()
     val ids = remember(state.sensors, state.preferences) {
         state.sensors.filter { state.preferences.sensorHouse(it) == house.id }.map { it.id }.toSet()
     }
@@ -64,15 +53,34 @@ internal fun NightHeatingDialog(state: GreenhouseUiState, store: HeatingStore, r
             (cached + observed).associateBy { it.time }.values.sortedBy { it.time }
         }
     }
-    val behavior = remember(points, settings.targetF) { nightBehavior(points, settings.targetF) }
-    val analog = remember(points, settings.targetF, night.outdoorMean) {
-        night.outdoorMean?.let { nightBehavior(points, settings.targetF, it) }
+    return points
+}
+
+@Composable
+internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, refresh: () -> Unit, points: List<ThermalPoint> = heatingPoints(state, store)) {
+    val house = state.preferences.activeGreenhouse
+    val zip = state.preferences.zipCode
+    val weather = state.weather
+    var settings by remember(store) { mutableStateOf(store.settings()) }
+    var editing by remember(store) { mutableStateOf(false) }
+    var detail by remember { mutableStateOf(false) }
+    val now = System.currentTimeMillis()
+    val learned = remember(points) { learnedTemperature(points) }
+    val nights = remember(weather, learned, now / 60_000L) { learned?.let { NightHeating.forecast(weather, it.fahrenheit, now) }.orEmpty() }
+    var index by remember(store, nights.firstOrNull()?.date) { mutableIntStateOf(0) }
+    val night = nights.getOrNull(index)
+    val coefficient = remember(house, settings.unit) { heatingCoefficient(house, settings.unit) }
+    val rate = settings.price
+    val costPerDegree = rate?.times(coefficient.nominal)
+    val validWeather = weather.zipCode == zip && weather.updatedAtEpochMs > 0
+    val behavior = remember(points, learned) { learned?.let { nightBehavior(points, it.fahrenheit) } }
+    val analog = remember(points, learned, night?.outdoorMean) {
+        night?.outdoorMean?.let { nightBehavior(points, requireNotNull(learned).fahrenheit, it) }
     }
-    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        MaterialTheme(colorScheme = darkColorScheme(primary = DashboardTokens.Amber, onPrimary = DashboardTokens.Background,
-            surface = DashboardTokens.Panel, onSurface = DashboardTokens.White, onSurfaceVariant = DashboardTokens.Muted,
-            secondaryContainer = DashboardTokens.Amber, onSecondaryContainer = DashboardTokens.Background)) {
-        Surface(modifier = Modifier.padding(10.dp).widthIn(max = 920.dp).fillMaxSize(),
+    MaterialTheme(colorScheme = darkColorScheme(primary = DashboardTokens.Amber, onPrimary = DashboardTokens.Background,
+        surface = DashboardTokens.Panel, onSurface = DashboardTokens.White, onSurfaceVariant = DashboardTokens.Muted,
+        secondaryContainer = DashboardTokens.Amber, onSecondaryContainer = DashboardTokens.Background)) {
+        Surface(modifier = Modifier.fillMaxSize(),
             shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, DashboardTokens.PanelEdge),
             color = DashboardTokens.Panel, contentColor = DashboardTokens.White) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
@@ -82,7 +90,6 @@ internal fun NightHeatingDialog(state: GreenhouseUiState, store: HeatingStore, r
                         Text("${house.name}  ·  ${if (validWeather) weather.location else "ZIP $zip"}",
                             color = DashboardTokens.Muted, fontSize = 14.sp)
                     }
-                    TextButton(onClick = dismiss) { Text("Back", color = DashboardTokens.Amber) }
                 }
                 HorizontalDivider(color = DashboardTokens.Divider)
                 Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth().padding(vertical = 6.dp),
@@ -91,12 +98,14 @@ internal fun NightHeatingDialog(state: GreenhouseUiState, store: HeatingStore, r
                         HeatingInputs(settings, { editing = false }) { store.save(it); settings = it; editing = false }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Target ${number(settings.targetF)}°F   ·   " +
+                            Text((learned?.let { "${number(it.fahrenheit)}°F learned from ${it.nights} " + if (it.nights == 1) "night" else "nights" } ?: "Learning overnight temperature") + "   ·   " +
                                 (rate?.let { "${priceLabel(it)} / ${settings.unit.label}" } ?: "Energy price needed"),
                                 Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                             TextButton(onClick = { editing = true }) { Text(if (rate == null) "Set price" else "Edit", color = DashboardTokens.Amber) }
                         }
-                        if (validWeather && weather.solarDays.isNotEmpty()) {
+                        if (validWeather && weather.solarDays.isNotEmpty() && night == null) {
+                            Text("The first estimate appears after an hour of steady indoor readings on a cooler night.")
+                        } else if (validWeather && weather.solarDays.isNotEmpty() && night != null) {
                             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 nights.forEachIndexed { i, n ->
                                     FilterChip(selected = index == i, onClick = { index = i }, label = {
@@ -145,7 +154,7 @@ internal fun NightHeatingDialog(state: GreenhouseUiState, store: HeatingStore, r
                         }
                         TextButton(onClick = { detail = !detail }) { Text(if (detail) "Hide assumptions" else "How the estimate works", color = DashboardTokens.Amber) }
                         if (detail) {
-                            Text("Each forecast hour adds heat demand only when outdoors is below your target. The eight-hour window starts at sunset. The full-night estimate includes the entire night, even if it is already underway.")
+                            Text("Each forecast hour adds heat demand only when outdoors is below the learned overnight temperature. The eight-hour window starts at sunset. The full-night estimate includes the entire night, even if it is already underway.")
                             Text("The model uses your floor plan and ${house.heightFeet?.let { "${number(it)} ft height" } ?: "an assumed 8 ft height"}. It approximates wall height at 80% of peak, roof area at 110% of floor area, plastic cover loss at 0.7–1.2 Btu/h·ft²·°F, and 0.5–2 air changes/hour.")
                             Text("Energy coefficient: ${number(coefficient.nominal * 1000)} ${settings.unit.label} per 1,000 °F·h. Assumes " +
                                 (if (settings.unit == EnergyUnit.Kwh) "resistance-equivalent electricity." else "80% useful heat from billed gas (range 70–95%).") +
@@ -154,7 +163,6 @@ internal fun NightHeatingDialog(state: GreenhouseUiState, store: HeatingStore, r
                     }
                 }
             }
-        }
         }
     }
 }
@@ -212,7 +220,6 @@ private fun HeatingChart(night: HeatingNight, costPerDegree: Double?, zone: Zone
 
 @Composable
 private fun HeatingInputs(initial: HeatingSettings, cancel: () -> Unit, save: (HeatingSettings) -> Unit) {
-    var target by remember { mutableStateOf(number(initial.targetF)) }
     var unit by remember { mutableStateOf(initial.unit) }
     var price by remember { mutableStateOf(initial.price?.toString().orEmpty()) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -221,17 +228,13 @@ private fun HeatingInputs(initial: HeatingSettings, cancel: () -> Unit, save: (H
         }, label = { Text(u.label) }) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(target, { target = it }, label = { Text("Indoor target (°F)") },
-            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.weight(1f))
         OutlinedTextField(price, { price = it }, label = { Text("Price ($ / ${unit.label})") },
             singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f))
     }
-    val t = target.toDoubleOrNull()?.takeIf { it in -40.0..130.0 }
     val p = price.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Button(enabled = t != null && p != null, onClick = { if (t != null && p != null) save(HeatingSettings(t, unit, p)) }) { Text("Save") }
+        Button(enabled = p != null, onClick = { if (p != null) save(HeatingSettings(unit, p)) }) { Text("Save") }
         TextButton(onClick = cancel) { Text("Cancel") }
     }
 }
