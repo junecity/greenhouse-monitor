@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-12 · Android 2.11.2 (code 39)
+- DashboardScreen adds an amber calendar/Forecast cue within the Outdoor card. ForecastDialog uses the same weather icons and a responsive week grid with today highlighted. The entire card opens the forecast.
+- Final Moto G7 screenshot shows all seven days together. Tested opening, refresh, alert editor, back and close on hardware. 109 JVM tests passed, lint 0 errors; forecast notification regression passed on API 35. Large text and Pixel layout were not physically verified.
+
 ## Current checkpoint — 2026-11-12 · Android 2.11.1 (code 38)
 - StageScreens.kt places the installed BuildConfig.VERSION_NAME in a muted footer at the bottom right of General Settings. The scrolling controls occupy a separate area above it.
 - Verified the portrait footer above navigation on the physical Moto G7 after an in-place upgrade. 109 JVM tests passed, lint reported zero errors. The client Pixel was not tested. Screenshot and plain APK are in build-out.

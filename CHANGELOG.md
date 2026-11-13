@@ -601,3 +601,9 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Added a small muted version label at the bottom-right of General Settings, sourced from the installed build. Updated StageScreens.kt, app version, CI artifact name and admin template version default.
 - Verified signed in-place Moto G7 install and the actual version label above bottom navigation. Screenshot in build-out/2.11.1-qa. 109 JVM tests passed; lint had zero errors, 42 warnings and one hint. No physical Pixel check or cloud deployment.
 - Updated the stable Drive APK. Size 82,196,656 bytes, local SHA-256 `0811c277f20db3a47eec7e6cc2a03142322461c68645c5f6ea7007da5550d612`.
+
+## 2026-11-12 — Dashboard forecast affordance and weekly outlook (Android 2.11.2)
+
+- Added a visible amber Forecast label and calendar to the existing Outdoor tile and a button role to the tile. Updated ForecastDialog with aligned daily cards, today highlight, precipitation and weather icons, persistent Refresh and Set alerts actions. Width and font scale govern wrapping.
+- Initial landscape grid wrapped after four days on Moto. Adjusted breakpoint and verified all seven days, update time, and alert access together in the final installed signed build. Tapped Forecast, Refresh, Set alerts, Back and Close. Physical screenshot in build-out/2.11.2-qa. No physical Pixel or enlarged-font test. JVM 109 passed, lint zero errors (42 warnings and one hint), emulator forecast notification regression passed before the final layout breakpoint adjustment.
+- Changed DashboardScreen.kt, ForecastDialog.kt, Gradle version, CI artifact name and admin version default. Stable Drive file replaced with signed APK, 83,427,034 bytes, local SHA-256 `b206514a45f6c522ef8983a829f79193bb27260d61584f8bd27503c1d4e807e3`. No backend deployment.

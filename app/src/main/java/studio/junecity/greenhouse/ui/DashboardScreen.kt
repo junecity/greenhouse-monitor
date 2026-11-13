@@ -69,7 +69,7 @@ private val ProEdge=DashboardTokens.PanelEdge
         Row(Modifier.fillMaxSize().alpha(contentAlpha).graphicsLayer{translationY=(1f-contentAlpha)*d(8f).toPx()},horizontalArrangement=Arrangement.spacedBy(d(14f))){
             Row(Modifier.weight(.59f).fillMaxHeight(),horizontalArrangement=Arrangement.spacedBy(d(14f))){
                 Column(Modifier.weight(.46f),verticalArrangement=Arrangement.spacedBy(d(12f))){
-                    WeatherCard(state,d,t,Modifier.weight(.38f).clickable(onClickLabel="Open seven-day forecast", onClick=onForecast))
+                    WeatherCard(state,d,t,Modifier.weight(.38f).clickable(role=androidx.compose.ui.semantics.Role.Button, onClickLabel="Open seven-day forecast", onClick=onForecast))
                     Row(Modifier.weight(.31f),horizontalArrangement=Arrangement.spacedBy(d(12f))){MiniMetric("Avg Temp",formatTemp(temperature),DashboardIcon.Thermometer,ProAmber,d,t,Modifier.weight(1f));MiniMetric("Avg RH",formatHumidity(humidity),DashboardIcon.Droplet,ProBlue,d,t,Modifier.weight(1f))}
                     Row(Modifier.weight(.31f),horizontalArrangement=Arrangement.spacedBy(d(12f))){MiniMetric("VPD",vpd?.let{"%.1f kPa".format(it)}?:"—",DashboardIcon.Gauge,Color(0xFF8EEB75),d,t,Modifier.weight(1f));MiniMetric("Dew Point",formatTemp(dewPoint),DashboardIcon.Droplet,ProBlue,d,t,Modifier.weight(1f))}
                 }
@@ -100,14 +100,7 @@ private val ProEdge=DashboardTokens.PanelEdge
 
 @Composable private fun WeatherCard(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier) {
     val weather=state.weather
-    val icon=when {
-        weather.condition.contains("storm",true)||weather.condition.contains("thunder",true)->DashboardIcon.Storm
-        weather.condition.contains("snow",true)->DashboardIcon.Snow
-        weather.condition.contains("rain",true)||weather.condition.contains("drizzle",true)->DashboardIcon.Rain
-        weather.condition.contains("clear",true)->DashboardIcon.Sun
-        weather.condition.contains("cloud",true)->DashboardIcon.CloudSun
-        else->DashboardIcon.Cloud
-    }
+    val icon = forecastIcon(weather.condition)
     ProPanel(modifier) {
         BoxWithConstraints(Modifier.fillMaxSize().dashboardLensClearance(curved=true).padding(horizontal=d(14f))) {
             val compact=maxWidth < 190.dp
@@ -125,6 +118,13 @@ private val ProEdge=DashboardTokens.PanelEdge
                 Column(Modifier.weight(1.17f)) {
                     Text(weather.location,color=DashboardTokens.Muted,fontSize=t(if(compact) 12f else 13f),maxLines=2)
                     Text(weather.condition,color=Color.White,fontSize=t(if(compact) 13f else 16f),fontWeight=FontWeight.Bold,maxLines=2)
+                    Spacer(Modifier.height(d(4f)))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DashboardIconView(DashboardIcon.Calendar, ProAmber, Modifier.size(d(14f)), contentDescription = null)
+                        Spacer(Modifier.width(d(4f)))
+                        Text("Forecast", color = ProAmber, fontSize = t(if (compact) 12f else 14f),
+                            fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
             }
         }
