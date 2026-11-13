@@ -47,10 +47,11 @@ class ForecastAlerts(private val context: Context) {
         prefs.getBoolean("heat", false), prefs.getInt("high", 90),
         prefs.getBoolean("reminder", false), prefs.getInt("minute", 420))
 
-    fun save(rules: ForecastRules) {
-        prefs.edit().putBoolean("cold", rules.cold).putInt("low", rules.lowF)
+    fun save(rules: ForecastRules, durable: Boolean = false) {
+        val edit = prefs.edit().putBoolean("cold", rules.cold).putInt("low", rules.lowF)
             .putBoolean("heat", rules.heat).putInt("high", rules.highF)
-            .putBoolean("reminder", rules.reminder).putInt("minute", rules.minuteOfDay).apply()
+            .putBoolean("reminder", rules.reminder).putInt("minute", rules.minuteOfDay)
+        if (durable) check(edit.commit()) else edit.apply()
         schedule()
     }
 

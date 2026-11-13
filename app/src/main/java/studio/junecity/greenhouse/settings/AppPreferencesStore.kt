@@ -9,12 +9,13 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
     private val prefs=context.getSharedPreferences("greenhouse_preferences_v2$suffix",Context.MODE_PRIVATE)
     fun load():AppPreferences=runCatching{prefs.getString("state",null)?.let{decode(JSONObject(it))}?:AppPreferences()}.getOrElse{AppPreferences()}
     fun save(value:AppPreferences){prefs.edit().putString("state",encode(value).toString()).apply()}
+    internal fun restore(value:AppPreferences){check(prefs.edit().putString("state",encode(value).toString()).commit())}
     fun clear(){prefs.edit().clear().apply()}
     fun exportJson():JSONObject=encode(load())
     fun importJson(value:JSONObject){save(decode(value))}
     private fun encode(p:AppPreferences):JSONObject{
         val n=p.notifications
-        val notifications=JSONObject().put("master",n.masterEnabled).put("popups",n.popupsEnabled).put("sound",n.soundEnabled).put("vibration",n.vibrationEnabled).put("repeat",n.repeatedAlerts).put("repeatMinutes",n.repeatMinutes).put("snooze",n.snoozedUntilEpochMs).put("temp",n.temperatureAlerts).put("humidity",n.humidityAlerts).put("offline",n.offlineAlerts).put("connection",n.connectionAlerts).put("lowT",n.lowTemperatureF).put("highT",n.highTemperatureF).put("lowH",n.lowHumidity).put("highH",n.highHumidity)
+        val notifications=JSONObject().put("master",n.masterEnabled).put("popups",n.popupsEnabled).put("sound",n.soundEnabled).put("vibration",n.vibrationEnabled).put("repeat",n.repeatedAlerts).put("repeatMinutes",n.repeatMinutes).put("snooze",n.snoozedUntilEpochMs).put("temp",n.temperatureAlerts).put("humidity",n.humidityAlerts).put("offline",n.offlineAlerts).put("connection",n.connectionAlerts).put("lowT",n.lowTemperatureF).put("highT",n.highTemperatureF).put("lowH",n.lowHumidity).put("highH",n.highHumidity).put("recoveryMargin",n.recoveryMargin)
         val greenhouses=JSONArray()
         p.greenhouses.forEach{g->
             val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet))}
@@ -28,7 +29,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
     private fun JSONObject.dimension(key:String, fallback:Double) =
         optDouble(key).takeIf { it in 0.1..480.0 } ?: fallback
 
-    private fun decode(o:JSONObject):AppPreferences{
+    internal fun decode(o:JSONObject):AppPreferences{
         val array=o.optJSONArray("greenhouses")?:JSONArray();val greenhouses=mutableListOf<GreenhouseConfig>()
         for(i in 0 until array.length()){
             val x=array.getJSONObject(i);val po=x.optJSONObject("positions")?:JSONObject();val positions=mutableMapOf<String,SensorPosition>()
@@ -57,6 +58,6 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
         val assignmentsJson=o.optJSONObject("sensorGreenhouses")?:JSONObject();val assignments=mutableMapOf<String,String>();assignmentsJson.keys().forEach{id->assignments[id]=assignmentsJson.optString(id)}
         val cameraMode=runCatching{CameraMode.valueOf(o.optString("cameraMode",CameraMode.CameraServer.name))}.getOrDefault(CameraMode.CameraServer)
         val cameraStreamQuality=runCatching{CameraStreamQuality.valueOf(o.optString("cameraStreamQuality",CameraStreamQuality.Balanced.name))}.getOrDefault(CameraStreamQuality.Balanced)
-        return AppPreferences(zipCode=o.optString("zip","06382"),temperatureFahrenheit=o.optBoolean("fahrenheit",true),refreshMinutes=DataSyncIntervals.normalize(o.optInt("refresh",1)),historyRetentionDays=o.optInt("retention",30),keepScreenOn=o.optBoolean("screen",true),autoStart=o.optBoolean("boot",false),greenhouses=greenhouses,activeGreenhouseId=o.optString("active",greenhouses.first().id),notifications=NotificationPreferences(n.optBoolean("master",true),n.optBoolean("popups",false),n.optBoolean("sound",false),n.optBoolean("vibration",false),n.optBoolean("repeat",false),n.optInt("repeatMinutes",30),n.optLong("snooze",0),n.optBoolean("temp",true),n.optBoolean("humidity",true),n.optBoolean("offline",true),n.optBoolean("connection",false),n.optDouble("lowT",45.0),n.optDouble("highT",95.0),n.optDouble("lowH",30.0),n.optDouble("highH",85.0)),sensorGreenhouseIds=assignments,cameraMode=cameraMode,cameraStreamQuality=cameraStreamQuality)
+        return AppPreferences(zipCode=o.optString("zip","06382"),temperatureFahrenheit=o.optBoolean("fahrenheit",true),refreshMinutes=DataSyncIntervals.normalize(o.optInt("refresh",1)),historyRetentionDays=o.optInt("retention",30),keepScreenOn=o.optBoolean("screen",true),autoStart=o.optBoolean("boot",false),greenhouses=greenhouses,activeGreenhouseId=o.optString("active",greenhouses.first().id),notifications=NotificationPreferences(n.optBoolean("master",true),n.optBoolean("popups",false),n.optBoolean("sound",false),n.optBoolean("vibration",false),n.optBoolean("repeat",false),n.optInt("repeatMinutes",30),n.optLong("snooze",0),n.optBoolean("temp",true),n.optBoolean("humidity",true),n.optBoolean("offline",true),n.optBoolean("connection",false),n.optDouble("lowT",45.0),n.optDouble("highT",95.0),n.optDouble("lowH",30.0),n.optDouble("highH",85.0),n.optDouble("recoveryMargin",2.0)),sensorGreenhouseIds=assignments,cameraMode=cameraMode,cameraStreamQuality=cameraStreamQuality)
     }
 }

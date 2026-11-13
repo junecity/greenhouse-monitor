@@ -13,6 +13,10 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).apply()
     }
 
+    internal fun restore(sensors: List<GoveeSensor>) {
+        check(preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).commit())
+    }
+
     fun load(): List<GoveeSensor> = runCatching {
         preferences.getString("sensors", null)?.let { CurrentSensorCodec.decode(JSONArray(it)) }.orEmpty()
     }.getOrDefault(emptyList())

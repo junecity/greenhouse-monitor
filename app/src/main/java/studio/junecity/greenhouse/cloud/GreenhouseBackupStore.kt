@@ -12,15 +12,14 @@ import studio.junecity.greenhouse.settings.CurrentSensorCodec
 import studio.junecity.greenhouse.settings.CurrentSensorStore
 import studio.junecity.greenhouse.settings.ZoneAssignmentStore
 
-class GreenhouseBackupStore(context: Context) {
+class GreenhouseBackupStore(private val context: Context) {
     private val preferences = AppPreferencesStore(context)
     private val zones = ZoneAssignmentStore(context)
-    private val history = HistoryStore(context)
     private val currentSensors = CurrentSensorStore(context)
 
     fun snapshot(): JSONObject {
         val zoneValues = JSONObject().also { json -> zones.exportAssignments().forEach(json::put) }
-        val readings = JSONArray().also { array -> history.recent(1_500).asReversed().forEach { reading ->
+        val readings = JSONArray().also { array -> HistoryStore(context).use { it.recent(1_500) }.asReversed().forEach { reading ->
             array.put(JSONObject().put("sensorId", reading.sensorId).put("sensorName", reading.sensorName)
                 .put("temperatureF", reading.temperatureF).put("humidityPercent", reading.humidityPercent)
                 .put("timestampEpochMs", reading.timestampEpochMs))
@@ -31,18 +30,26 @@ class GreenhouseBackupStore(context: Context) {
 
     fun restore(value: JSONObject, localCameraMode: CameraMode? = null) {
         require(value.optInt("schema") in 1..2) { "Unsupported greenhouse backup" }
-        value.optJSONObject("preferences")?.let(preferences::importJson)
-        localCameraMode?.let { mode -> preferences.save(preferences.load().copy(cameraMode = mode)) }
-        value.optJSONObject("zones")?.let { json ->
-            val values = buildMap { json.keys().forEach { key -> put(key, json.optString(key, "Unassigned")) } }
-            zones.clear()
-            zones.importAssignments(values)
+        // Decode the entire payload before touching persisted state. A bad history row can
+        // otherwise leave a replacement phone with a mixture of old and restored settings.
+        val savedPreferences = value.optJSONObject("preferences")?.let(preferences::decode)
+        val effective = (savedPreferences ?: preferences.load()).let {
+            if (localCameraMode == null) it else it.copy(cameraMode = localCameraMode)
         }
-        value.optJSONArray("sensors")?.let { currentSensors.save(CurrentSensorCodec.decode(it).inSavedHouses(preferences.load())) }
-        value.optJSONArray("history")?.let { array ->
-            history.importReadings((0 until array.length()).map { index -> array.getJSONObject(index).let { reading ->
-                HistoryReading(reading.getString("sensorId"), reading.getString("sensorName"), reading.getDouble("temperatureF"), reading.getDouble("humidityPercent"), reading.getLong("timestampEpochMs"))
-            } })
+        val assignments = value.optJSONObject("zones")?.let { json ->
+            json.keys().asSequence().associateWith { json.optString(it, "Unassigned") }
         }
+        val inventory = value.optJSONArray("sensors")?.let { CurrentSensorCodec.decode(it).inSavedHouses(effective) }
+        val readings = value.optJSONArray("history")?.let { array ->
+            (0 until array.length()).map { index ->
+                val row = array.getJSONObject(index)
+                HistoryReading(row.getString("sensorId"), row.getString("sensorName"),
+                    row.getDouble("temperatureF"), row.getDouble("humidityPercent"), row.getLong("timestampEpochMs"))
+            }
+        }
+        if (readings != null) HistoryStore(context).use { it.importReadings(readings) }
+        if (savedPreferences != null || localCameraMode != null) preferences.save(effective)
+        if (assignments != null) zones.replaceAssignments(assignments)
+        if (inventory != null) currentSensors.save(inventory)
     }
 }

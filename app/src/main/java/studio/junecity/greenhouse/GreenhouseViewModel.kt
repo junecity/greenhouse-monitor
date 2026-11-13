@@ -38,6 +38,9 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     private var weatherJob: kotlinx.coroutines.Job? = null
     private var requestedZip: String? = null
     private val weather = LiveWeatherProvider()
+    init {
+        studio.junecity.greenhouse.backup.CustomerBackup(app, secure.cloudEnrollment()).resumePendingRestore()
+    }
     private val _state = MutableStateFlow(restoredState())
     val state = _state.asStateFlow()
     private var cloudSyncing = false
@@ -51,6 +54,14 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             preferences = if (viewer) prefs.copy(cameraMode = CameraMode.ViewerClient) else prefs,
             goveeConnected = if (viewer && !enrollment.isStandaloneClient()) currentSensors.load().any { it.isFresh() }
                 else secure.sensorKey(enrollment) != null)
+    }
+
+    fun reloadAfterRestore() {
+        sensorJob?.cancel()
+        weatherJob?.cancel()
+        _state.value = restoredState().copy(screen = _state.value.screen)
+        loadHistory()
+        refreshWeather(true)
     }
 
     fun selectStores() {

@@ -70,7 +70,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
-@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor);AppScreen.History->HistoryContent(state,d,stageText,onMetric);AppScreen.Cameras->CameraContent(state,d,stageText);AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors);else->Unit}}}
+@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={}){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor);AppScreen.History->HistoryContent(state,d,stageText,onMetric);AppScreen.Cameras->CameraContent(state,d,stageText);AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored);else->Unit}}}
 
 @Composable private fun MetricControls(active:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){val labels=listOf(Triple(Metric.Temperature,"Temperature",DashboardIcon.Thermometer),Triple(Metric.Humidity,"Humidity",DashboardIcon.Droplet),Triple(Metric.Vpd,"VPD",DashboardIcon.Gauge),Triple(Metric.DewPoint,"Dew Point",DashboardIcon.Droplet));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){labels.forEach{(m,label,icon)->val selected=m==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onMetric(m)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else if(m==Metric.Humidity||m==Metric.DewPoint)DashboardTokens.Blue else Color.White,Modifier.size(d(26f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
@@ -185,7 +185,7 @@ import kotlin.math.roundToInt
 @Composable private fun LiveCameraPreview(d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,quality:CameraStreamQuality,onStatus:(Boolean,String?)->Unit){FrontCameraFeed(d,t,Modifier.fillMaxSize(),quality,onStatus)}
 @Composable private fun CameraControls(active:Int,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSelect:(Int)->Unit){val tabs=listOf(Triple("Live View",DashboardIcon.Video,0),Triple("Playback",DashboardIcon.Play,1),Triple("Timelapse",DashboardIcon.Calendar,2),Triple("Settings",DashboardIcon.Settings,3));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){tabs.forEach{(label,icon,i)->val selected=i==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onSelect(i)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else Color.White,Modifier.size(d(27f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
-private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIcon.Sliders),Connectivity(DashboardIcon.Wifi),Camera(DashboardIcon.Camera),Alerts(DashboardIcon.Bell),Devices(DashboardIcon.Signal),Display(DashboardIcon.Resize),}
+private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIcon.Sliders),Connectivity(DashboardIcon.Wifi),Camera(DashboardIcon.Camera),Alerts(DashboardIcon.Bell),Devices(DashboardIcon.Signal),Display(DashboardIcon.Resize),Backup(DashboardIcon.Download),}
 @Composable private fun visibleCategories(state:GreenhouseUiState):List<SettingsCategory>{
     val context=LocalContext.current
     val role=remember(state.standalone,state.preferences.cameraMode){SecureSettingsStore(context).cloudEnrollment()?.role}
@@ -198,14 +198,14 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     }
 }
 
-@Composable private fun SettingsContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,openSensors:Boolean=false){
-    var category by remember{mutableStateOf(if(openSensors || (state.standalone && state.sensors.isEmpty())) SettingsCategory.Devices else SettingsCategory.General)}
+@Composable private fun SettingsContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,openSensors:Boolean=false,onRestored:()->Unit){
+    var category by androidx.compose.runtime.saveable.rememberSaveable{mutableStateOf(if(openSensors || (state.standalone && state.sensors.isEmpty())) SettingsCategory.Devices else SettingsCategory.General)}
     BoxWithConstraints(Modifier.fillMaxSize()){
         val portrait=maxHeight>maxWidth
         if(portrait){
             Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(d(10f))){
                 SettingsMenuBar(category,visibleCategories(state),d,t){category=it}
-                NeonPanel(Modifier.fillMaxWidth().weight(1f)){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences)}
+                NeonPanel(Modifier.fillMaxWidth().weight(1f)){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences,onRestored)}
             }
         }else{
             Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.spacedBy(d(18f))){
@@ -214,7 +214,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                         visibleCategories(state).forEach{c->SettingsCategoryButton(c,c==category,false,d,t,Modifier.fillMaxWidth().weight(1f)){category=c}}
                     }
                 }
-                NeonPanel(Modifier.weight(.77f).fillMaxHeight()){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences)}
+                NeonPanel(Modifier.weight(.77f).fillMaxHeight()){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences,onRestored)}
             }
         }
     }
@@ -276,7 +276,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     }
 }
 
-@Composable private fun SettingsDetail(category:SettingsCategory,state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit){
+@Composable private fun SettingsDetail(category:SettingsCategory,state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,onRestored:()->Unit){
     when(category){
         SettingsCategory.General -> Column(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -294,6 +294,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         SettingsCategory.Camera->CameraRoleSettings(state,d,t,onUpdatePreferences)
         SettingsCategory.Alerts->AlertSettings(state,d,t,onUpdatePreferences)
         SettingsCategory.Devices->DevicesSettings(state,d,t,onAssignZone,onRefresh,onSaveKey)
+        SettingsCategory.Backup -> BackupPanel(onRestored)
         SettingsCategory.Display->DisplaySettings(state,d,t,onUpdatePreferences)
     }
 }
@@ -575,7 +576,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 @Composable private fun ActionButton(label:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier,onClick:()->Unit){val interaction=remember{MutableInteractionSource()};val pressed by interaction.collectIsPressedAsState();val pressDuration=accessibleMotionDuration(if(pressed)90 else 140);val scale by androidx.compose.animation.core.animateFloatAsState(if(pressed).98f else 1f,androidx.compose.animation.core.tween(pressDuration),label="button press");Button(onClick,interactionSource=interaction,modifier=modifier.heightIn(min=d(46f)).graphicsLayer{scaleX=scale;scaleY=scale},shape=RoundedCornerShape(d(14f)),colors=ButtonDefaults.buttonColors(containerColor=DashboardTokens.Amber,contentColor=DashboardTokens.Background),border=androidx.compose.foundation.BorderStroke(d(1f),DashboardTokens.AmberBright.copy(alpha=.75f)),contentPadding=PaddingValues(horizontal=d(16f),vertical=d(8f))){Text(label,fontSize=t(13f),fontWeight=FontWeight.ExtraBold,maxLines=1)}}
 @Composable private fun StepButton(label:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onClick:()->Unit){OutlinedButton(onClick,shape=RoundedCornerShape(d(14f)),border=androidx.compose.foundation.BorderStroke(d(1f),DashboardTokens.PanelEdge),contentPadding=PaddingValues(0.dp),modifier=Modifier.size(d(46f))){Text(label,color=Color.White,fontSize=t(20f),fontWeight=FontWeight.Bold)}}
 @Composable private fun ToggleRow(label:String,checked:Boolean,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onChange:(Boolean)->Unit){Row(Modifier.fillMaxWidth().padding(vertical=d(7f)),verticalAlignment=Alignment.CenterVertically){Text(label,color=Color.White,fontSize=t(17f),modifier=Modifier.weight(1f));Switch(checked,onChange,colors=SwitchDefaults.colors(checkedThumbColor=Color.White,checkedTrackColor=DashboardTokens.Amber))}}
-@Composable private fun darkFieldColors()=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedBorderColor=DashboardTokens.Amber,unfocusedBorderColor=DashboardTokens.PanelEdge,cursorColor=DashboardTokens.Amber)
+@Composable internal fun darkFieldColors()=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedBorderColor=DashboardTokens.Amber,unfocusedBorderColor=DashboardTokens.PanelEdge,cursorColor=DashboardTokens.Amber)
 private fun formatMetric(v:Double?,m:Metric)=when(m){Metric.Humidity->formatHumidity(v);Metric.Vpd->v?.let{"%.1f kPa".format(it)}?:"—";else->formatTemp(v)}
 internal fun historyMetric(r:HistoryReading,m:Metric):Double=when(m){Metric.Temperature->r.temperatureF;Metric.Humidity->r.humidityPercent;Metric.Vpd->{val c=(r.temperatureF-32)*5/9;.6108*kotlin.math.exp(17.27*c/(c+237.3))*(1-r.humidityPercent/100)};Metric.DewPoint->{val c=(r.temperatureF-32)*5/9;val a=17.625;val b=243.04;val gamma=kotlin.math.ln(r.humidityPercent.coerceAtLeast(.1)/100)+a*c/(b+c);(b*gamma/(a-gamma))*9/5+32}}
 private fun sensorColor(sensor:GoveeSensor)=sensorColor(sensor.id.hashCode())

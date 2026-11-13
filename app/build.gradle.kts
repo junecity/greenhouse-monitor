@@ -20,8 +20,8 @@ android {
         minSdk = 29
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 39
-        versionName = "2.11.2"
+        versionCode = 40
+        versionName = "2.12.0"
         if (armOnlyBuild) {
             ndk {
                 abiFilters += setOf("armeabi-v7a", "arm64-v8a")
@@ -47,6 +47,7 @@ android {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     val composeBom = platform("androidx.compose:compose-bom:2026.04.01")
+    implementation("com.google.crypto.tink:tink-android:1.8.0")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.12.3")
     implementation("androidx.core:core-ktx:1.17.0")

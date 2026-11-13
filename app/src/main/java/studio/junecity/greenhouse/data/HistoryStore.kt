@@ -51,5 +51,46 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
             db.setTransactionSuccessful()
         }finally{db.endTransaction()}
     }
-    fun clear(){writableDatabase.delete("readings",null,null)}
+    fun visitReadings(visit: (HistoryReading) -> Unit) {
+        readableDatabase.rawQuery("SELECT sensor_id,sensor_name,temperature,humidity,recorded_at FROM readings ORDER BY id", null).use { rows ->
+            while (rows.moveToNext()) visit(HistoryReading(rows.getString(0), rows.getString(1), rows.getDouble(2), rows.getDouble(3), rows.getLong(4)))
+        }
+    }
+
+    // Commit the settings journal with the history. An interrupted apply can then be replayed.
+    internal fun mergeBackup(metadata: String, read: ((HistoryReading) -> Unit) -> Unit) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.compileStatement("INSERT OR IGNORE INTO readings(sensor_id,sensor_name,temperature,humidity,recorded_at) VALUES(?,?,?,?,?)").use { insert ->
+                read { row ->
+                    insert.bindString(1, row.sensorId)
+                    insert.bindString(2, row.sensorName)
+                    insert.bindDouble(3, row.temperatureF)
+                    insert.bindDouble(4, row.humidityPercent)
+                    insert.bindLong(5, row.timestampEpochMs)
+                    insert.executeInsert()
+                }
+            }
+            db.execSQL("CREATE TABLE IF NOT EXISTS backup_restore(id INTEGER PRIMARY KEY, metadata TEXT NOT NULL)")
+            db.execSQL("INSERT OR REPLACE INTO backup_restore VALUES(1, ?)", arrayOf(metadata))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    internal fun pendingRestore(): String? {
+        val db = readableDatabase
+        val exists = db.rawQuery("SELECT name FROM sqlite_master WHERE name='backup_restore'", null).use { it.moveToFirst() }
+        if (!exists) return null
+        return db.rawQuery("SELECT metadata FROM backup_restore WHERE id=1", null).use { if (it.moveToFirst()) it.getString(0) else null }
+    }
+
+    internal fun finishRestore() { writableDatabase.execSQL("DROP TABLE IF EXISTS backup_restore") }
+
+    fun clear(){
+        writableDatabase.delete("readings",null,null)
+        finishRestore()
+    }
 }

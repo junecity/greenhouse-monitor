@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-12 · Android 2.12.0 (code 40)
+- Settings → Backup exports a password-encrypted GHBACK01 document. CustomerBackup streams retained SQLite history on collecting phones, merges on the unique sensor/time key, authenticates through EOF before committing, and journals settings for restart recovery. Verify current tenant, mode, and assigned server greenhouse through the existing current-device endpoint. A paired viewer backs up its local forecast rules. Never transfer credentials, enrollment, or camera access via these files.
+- BackupPanel uses Android document pickers. GreenhouseViewModel reloads after restore. Existing automatic snapshots remain bounded, and GreenhouseBackupStore now parses incoming snapshots before applying them.
+- 109 JVM, seven Android instrumentation and 74 mocked backend tests passed. Signed update installed on the Moto and Restore opened the system picker. Restore into a second physical enrollment and Drive document-provider round trip remain untested. See CHANGELOG for the artifact.
+
 ## Current checkpoint — 2026-11-12 · Android 2.11.2 (code 39)
 - DashboardScreen adds an amber calendar/Forecast cue within the Outdoor card. ForecastDialog uses the same weather icons and a responsive week grid with today highlighted. The entire card opens the forecast.
 - Final Moto G7 screenshot shows all seven days together. Tested opening, refresh, alert editor, back and close on hardware. 109 JVM tests passed, lint 0 errors; forecast notification regression passed on API 35. Large text and Pixel layout were not physically verified.
