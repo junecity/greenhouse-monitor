@@ -3,7 +3,7 @@
 ## Current checkpoint — 2026-11-12 · Android 2.10.4 (code 34)
 - app.py checks offline incidents against the source device’s current marker and ownership. heartbeat_monitor.py checks enabled, suspension and greenhouse again at write time. A completed alert poll clears recovered Android offline notifications, including those left by older versions. Older API fallback uses client device inventory or a server’s successful heartbeat receipt. Heartbeat uploads and backup uploads run independently. Live AWS session expired; deploy the built application stack after login, then verify actual heartbeat timing on the reporting phones.
 - FloorPlanEditor → Shape presets includes Rectangle, L-shaped, T-shaped and Circle. Models shares physical outlines and area with Zones; circle uses diameter and exact circular area. AppPreferencesStore writes a drawn-polygon fallback for older readers. No schema migration.
-- See CHANGELOG for tests and APK. Govee and camera paths were outside this change.
+- See CHANGELOG for tests and APK. The unrelated existing deletion UI test is intermittent across emulator display configurations. Govee and camera paths were outside this change.
 
 ## Release checkpoint — 2026-11-12 · Android 2.10.3 (code 33)
 - Settings → General → Manage greenhouses has named, confirmed floor-plan deletion on the collecting phone. Keep at least one local plan. GreenhouseInventory, GreenhouseViewModel, CollectReadings, StageScreens, DashboardScreen and GreenhouseBackupStore preserve historical measurements and mark removed assignments with an empty greenhouse ID for manual reassignment. Server/device authorization is independent.
