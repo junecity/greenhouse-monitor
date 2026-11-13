@@ -196,7 +196,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             }
             val readings = withContext(Dispatchers.IO) {
                 GreenhouseBackupStore(getApplication()).restore(snapshot, CameraMode.ViewerClient)
-                paired.history.dashboardReadings()
+                if (_state.value.screen == AppScreen.History) paired.history.weekReadings() else paired.history.dashboardReadings()
             }
             if (secure.cloudEnrollment() != enrollment.copy(greenhouseId=greenhouseId) || stores != paired) return false
             val syncedSensors = paired.sensors.load()
@@ -279,7 +279,9 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         val storage = stores
         val owner = secure.cloudEnrollment()
         viewModelScope.launch {
-            val rows = withContext(Dispatchers.IO) { storage.history.dashboardReadings() }
+            val forHistory = _state.value.screen == AppScreen.History
+            val rows = withContext(Dispatchers.IO) { if (forHistory) storage.history.weekReadings() else storage.history.dashboardReadings() }
+            if (forHistory != (_state.value.screen == AppScreen.History)) return@launch
             if (storage == stores && owner == secure.cloudEnrollment()) _state.value = _state.value.copy(history = rows)
         }
     }

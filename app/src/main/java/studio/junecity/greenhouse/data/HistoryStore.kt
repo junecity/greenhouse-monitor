@@ -34,6 +34,9 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
         return readRows(selection, arrayOf(since.toString()), null)
     }
 
+    fun weekReadings():List<HistoryReading> = readRows("recorded_at >= ?",
+        arrayOf((System.currentTimeMillis() - 7L * 24 * 3_600_000).toString()), null)
+
     private fun readRows(selection:String?, args:Array<String>?, limit:String?):List<HistoryReading>{
         val result=mutableListOf<HistoryReading>()
         val cursor=readableDatabase.query("readings",arrayOf("sensor_id","sensor_name","temperature","humidity","recorded_at"),selection,args,null,null,"recorded_at DESC",limit)

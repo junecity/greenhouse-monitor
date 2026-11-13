@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-13 · Android 2.14.0 (code 42)
+- SensorTrendChart renders time-aligned, scrubbable native graphs in History, Compare and Replay. Keep gaps longer than the ten-minute reading lifetime visible. StageScreens offers 6h/24h/7d History. GreenhouseViewModel requests HistoryStore.weekReadings for History; the paired viewer can only plot history it has synchronized.
+- ZoneInsights compares temperature or humidity at a selected time and replays the overnight floor plan alongside the timeline. Backgrounding or dragging pauses replay. The map uses the saved sensor placement.
+- 109 JVM tests, three API 35 instrumented tests and lint passed. Verified real History, Compare and Replay on the Moto G7. Pixel, a seven-day cross-phone transfer and screen reader use on hardware remain unverified. See CHANGELOG for delivery details.
+
 ## Current checkpoint — 2026-11-12 · Android 2.13.0 (code 41)
 - StageScreens commits each Zones drag from the latest stored position on the collecting phone. The paired viewer displays the server layout. FloorPlanEditor prioritizes the selected sensor; CloudHeartbeatService detects changed positions on the next successful heartbeat. ZoneInsights groups Compare by metric and folds Replay details below the map.
 - CustomerBackup writes password-free GHBACK02, checks gzip integrity before committing, and retains the password reader for GHBACK01. LocalBackupWorker uses Android's periodic scheduler and atomic rotation under the app-private no-backup directory. Encrypted enrollment now stores the verified tenant for offline local backups. BackupPanel lists the latest three per scope. Export a file for recovery after uninstall or loss of the device.

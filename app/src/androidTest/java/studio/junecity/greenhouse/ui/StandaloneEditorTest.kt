@@ -655,6 +655,23 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun historyWeekIncludesOlderReadingsBeyondDashboardLimit() {
+        val context = instrumentation.targetContext
+        val suffix = "_week_chart_fixture"
+        val now = System.currentTimeMillis()
+        val rows = (1..2200).map { HistoryReading("fixture","Bench",65.0,80.0,now-it) }
+        val old = rows.first().copy(timestampEpochMs=now-6*86_400_000L)
+        val expired = rows.first().copy(timestampEpochMs=now-8*86_400_000L)
+        try {
+            studio.junecity.greenhouse.data.HistoryStore(context,suffix).use { db ->
+                db.importReadings(rows+old+expired)
+                assertEquals(2201,db.weekReadings().size)
+                assertEquals(old,db.weekReadings().last())
+                assertFalse(old in db.dashboardReadings())
+            }
+        } finally { context.deleteDatabase("greenhouse_history$suffix.db") }
+    }
+
     @Test fun openComparisonReplayAndOvernightReport() {
         val now = System.currentTimeMillis()
         val night = studio.junecity.greenhouse.data.NightWindow.at(now)
@@ -679,14 +696,35 @@ class StandaloneEditorTest {
             find("Current difference · 4°F")
             click("Humidity")
             find("Current difference · 10 percentage points")
+            fun scrub(label: String, fraction: Float) {
+                val bounds = Rect().also { find(label).getBoundsInScreen(it) }
+                gesture(bounds, listOf(.1f to .5f, fraction to .5f))
+            }
+            scrub("Humidity trend", .5f)
+            find("Difference · —")
+            click("Latest")
+            find("Current difference · 10 percentage points")
             screenshot("compare")
             click("Close")
             click("Replay")
             find("Overnight replay")
             find("S1")
+            click("Play")
+            find("Pause")
+            scrub("Temperature trend", .5f)
+            find("Play")
+            find("No mapped readings")
+            scrub("Temperature trend", 0f)
+            find("S1")
             screenshot("replay")
             click("Close")
             show(AppScreen.History)
+            click("7d")
+            scrub("Temperature trend", .5f)
+            find("—")
+            click("6h")
+            find("Latest readings")
+            screenshot("history")
             click("Overnight report")
             find("Overnight report")
             screenshot("overnight")

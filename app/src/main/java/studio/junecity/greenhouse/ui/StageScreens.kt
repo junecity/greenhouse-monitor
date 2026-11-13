@@ -184,8 +184,71 @@ import kotlin.math.roundToInt
     }
 }
 
-@Composable private fun HistoryContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){var overnight by remember { mutableStateOf(false) };if(overnight)InsightsDialog(Insight.Overnight,state,d,t){overnight=false};Column(Modifier.fillMaxSize()){Row(Modifier.height(d(72f)),horizontalArrangement=Arrangement.spacedBy(d(18f))){NeonPanel(Modifier.weight(.30f).fillMaxHeight()){Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(DashboardIcon.Calendar,Color.White,Modifier.size(d(28f)));Spacer(Modifier.width(d(14f)));InsightButton("Overnight report"){overnight=true}}};Box(Modifier.weight(.70f)){MetricControls(state.metric,d,t,onMetric)}};Spacer(Modifier.height(d(16f)));Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(14f))){NeonPanel(Modifier.weight(.70f).fillMaxHeight()){Column(Modifier.fillMaxSize().padding(d(22f))){Text("${state.metric.name} History",color=Color.White,fontSize=t(24f),fontWeight=FontWeight.Bold);Spacer(Modifier.height(d(12f)));HistoryChart(state.history,state.metric,d,t,Modifier.weight(1f).fillMaxWidth())}};NeonPanel(Modifier.weight(.30f).fillMaxHeight()){val grouped=state.history.groupBy{it.sensorId};if(grouped.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("No recorded sensors",color=DashboardTokens.Muted,fontSize=t(15f))}else LazyColumn(Modifier.fillMaxSize().padding(d(10f)),verticalArrangement=Arrangement.spacedBy(d(7f))){items(grouped.entries.toList().take(6)){(_,rows)->val latest=rows.maxByOrNull{it.timestampEpochMs};val vals=rows.map{historyMetric(it,state.metric)};Row(Modifier.fillMaxWidth().height(d(76f)).background(Color(0x6607272B),RoundedCornerShape(d(14f))).padding(d(12f)),verticalAlignment=Alignment.CenterVertically){Box(Modifier.width(d(9f)).fillMaxHeight().background(sensorColor(latest?.sensorName?:""),RoundedCornerShape(d(6f))));Spacer(Modifier.width(d(12f)));Column(Modifier.weight(1f)){Text(latest?.sensorName?:"Sensor",color=Color.White,fontSize=t(16f),fontWeight=FontWeight.Bold);Text("Min ${formatMetric(vals.minOrNull(),state.metric)}   Max ${formatMetric(vals.maxOrNull(),state.metric)}",color=DashboardTokens.Muted,fontSize=t(11f))};Text(formatMetric(latest?.let{historyMetric(it,state.metric)},state.metric),color=DashboardTokens.Green,fontSize=t(21f),fontWeight=FontWeight.Bold)}}}}}}}
-@Composable private fun HistoryChart(history:List<HistoryReading>,metric:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier){Box(modifier){var entered by remember(metric){mutableStateOf(false)};LaunchedEffect(metric){entered=true};val reveal by androidx.compose.animation.core.animateFloatAsState(if(entered)1f else 0f,androidx.compose.animation.core.tween(accessibleMotionDuration(AppMotion.ChartRevealMs)),label="chart reveal");Canvas(Modifier.fillMaxSize().graphicsLayer{scaleX=reveal;transformOrigin=androidx.compose.ui.graphics.TransformOrigin(0f,.5f)}){val cutoff=System.currentTimeMillis()-7L*24*60*60*1000;val rows=history.filter{it.timestampEpochMs>=cutoff}.sortedBy{it.timestampEpochMs};if(rows.isEmpty()){drawLine(Color(0xFF35646B),Offset(0f,size.height/2),Offset(size.width,size.height/2),2f);return@Canvas};val values=rows.map{historyMetric(it,metric)};val padding=if(metric==Metric.Vpd).2 else 2.0;val min=(values.minOrNull()?:0.0)-padding;val max=(values.maxOrNull()?:1.0)+padding;val start=rows.first().timestampEpochMs;val end=rows.last().timestampEpochMs.coerceAtLeast(start+1);repeat(5){i->val y=size.height*i/4;drawLine(Color(0xFF35646B),Offset(0f,y),Offset(size.width,y),1f)};rows.groupBy{it.sensorId}.values.forEachIndexed{i,series->val p=Path();series.forEachIndexed{j,r->val x=((r.timestampEpochMs-start).toFloat()/(end-start))*size.width;val v=historyMetric(r,metric);val y=size.height-((v-min)/(max-min)*size.height).toFloat();if(j==0)p.moveTo(x,y)else p.lineTo(x,y)};drawPath(p,sensorColor(i),style=Stroke(5f,cap=StrokeCap.Round))}};if(history.isEmpty())Text("No history yet · readings appear after the first sensor sync",color=DashboardTokens.Muted,fontSize=t(15f),modifier=Modifier.align(Alignment.Center))}}
+@Composable private fun HistoryContent(state: GreenhouseUiState, d: (Float)->androidx.compose.ui.unit.Dp,
+    t: (Float)->androidx.compose.ui.unit.TextUnit, onMetric: (Metric)->Unit) {
+    var overnight by remember { mutableStateOf(false) }
+    if (overnight) InsightsDialog(Insight.Overnight,state,d,t){ overnight = false }
+    var hours by remember { mutableIntStateOf(24) }
+    val end = remember(state.history) { System.currentTimeMillis() }
+    val start = end - hours * 3_600_000L
+    val series = remember(state.history, start) {
+        state.history.filter { it.timestampEpochMs in start..end }.groupBy { it.sensorId }.toSortedMap()
+            .entries.mapIndexed { i, (id, rows) ->
+                val timeline = studio.junecity.greenhouse.data.SensorTimeline(rows)
+                TrendSensor(id, rows.maxBy { it.timestampEpochMs }.sensorName, timeline, trendPalette[i % trendPalette.size])
+            }
+    }
+    var cursor by remember(hours, state.metric) { mutableStateOf<Long?>(null) }
+    val metric = state.metric
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.height(d(72f)),horizontalArrangement=Arrangement.spacedBy(d(18f))) {
+            NeonPanel(Modifier.weight(.30f).fillMaxHeight()) {
+                Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
+                    DashboardIconView(DashboardIcon.Calendar,Color.White,Modifier.size(d(28f)))
+                    InsightButton("Overnight report"){ overnight=true }
+                }
+            }
+            Box(Modifier.weight(.70f)){ MetricControls(metric,d,t,onMetric) }
+        }
+        Spacer(Modifier.height(d(12f)))
+        Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(14f))) {
+            NeonPanel(Modifier.weight(.7f).fillMaxHeight()) {
+                Column(Modifier.fillMaxSize().padding(horizontal=12.dp, vertical=6.dp)) {
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text(metric.displayName(), color=Color.White, fontSize=18.sp, fontWeight=FontWeight.Bold, modifier=Modifier.weight(1f))
+                        for ((value, label) in listOf(6 to "6h",24 to "24h",168 to "7d")) {
+                            TextButton({ hours=value }, colors=ButtonDefaults.textButtonColors(contentColor=if(hours==value) DashboardTokens.Amber else DashboardTokens.Muted),
+                                contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(label) }
+                        }
+                    }
+                    key(hours) {
+                        SensorTrendChart(series,metric,start,end,cursor,{ cursor=it },Modifier.fillMaxWidth().weight(1f))
+                    }
+                }
+            }
+            NeonPanel(Modifier.weight(.30f).fillMaxHeight()) {
+                Column(Modifier.fillMaxSize().padding(9.dp)) {
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text(cursor?.let { chartTime(it,"MMM d, h:mm a") } ?: "Latest readings", color=DashboardTokens.Muted,
+                            fontSize=13.sp, modifier=Modifier.weight(1f))
+                        if (cursor != null) InsightButton("Latest"){ cursor=null }
+                    }
+                    LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                        items(series,key={it.id}) { sensor ->
+                            val stats = remember(sensor,metric) { sensor.timeline.rows.map { historyMetric(it,metric) }.filter { it.isFinite() } }
+                            val row = cursor?.let { sensor.timeline.at(it) } ?: if(cursor==null) sensor.timeline.rows.lastOrNull() else null
+                            Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(10.dp)).padding(8.dp)) {
+                                Text(sensor.name,color=sensor.color,fontWeight=FontWeight.Bold,fontSize=14.sp)
+                                Text(formatMetric(row?.let { historyMetric(it,metric) },metric),color=Color.White,fontSize=19.sp,fontWeight=FontWeight.Bold)
+                                Text("${formatMetric(stats.minOrNull(),metric)} – ${formatMetric(stats.maxOrNull(),metric)}",color=DashboardTokens.Muted,fontSize=12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable private fun CameraContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit){
     val context=LocalContext.current
@@ -620,7 +683,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 @Composable private fun StepButton(label:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onClick:()->Unit){OutlinedButton(onClick,shape=RoundedCornerShape(d(14f)),border=androidx.compose.foundation.BorderStroke(d(1f),DashboardTokens.PanelEdge),contentPadding=PaddingValues(0.dp),modifier=Modifier.size(d(46f))){Text(label,color=Color.White,fontSize=t(20f),fontWeight=FontWeight.Bold)}}
 @Composable private fun ToggleRow(label:String,checked:Boolean,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onChange:(Boolean)->Unit){Row(Modifier.fillMaxWidth().padding(vertical=d(7f)),verticalAlignment=Alignment.CenterVertically){Text(label,color=Color.White,fontSize=t(17f),modifier=Modifier.weight(1f));Switch(checked,onChange,colors=SwitchDefaults.colors(checkedThumbColor=Color.White,checkedTrackColor=DashboardTokens.Amber))}}
 @Composable internal fun darkFieldColors()=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedBorderColor=DashboardTokens.Amber,unfocusedBorderColor=DashboardTokens.PanelEdge,cursorColor=DashboardTokens.Amber)
-private fun formatMetric(v:Double?,m:Metric)=when(m){Metric.Humidity->formatHumidity(v);Metric.Vpd->v?.let{"%.1f kPa".format(it)}?:"—";else->formatTemp(v)}
+internal fun formatMetric(v:Double?,m:Metric)=when(m){Metric.Humidity->formatHumidity(v);Metric.Vpd->v?.let{"%.1f kPa".format(it)}?:"—";else->formatTemp(v)}
 internal fun historyMetric(r:HistoryReading,m:Metric):Double=when(m){Metric.Temperature->r.temperatureF;Metric.Humidity->r.humidityPercent;Metric.Vpd->{val c=(r.temperatureF-32)*5/9;.6108*kotlin.math.exp(17.27*c/(c+237.3))*(1-r.humidityPercent/100)};Metric.DewPoint->{val c=(r.temperatureF-32)*5/9;val a=17.625;val b=243.04;val gamma=kotlin.math.ln(r.humidityPercent.coerceAtLeast(.1)/100)+a*c/(b+c);(b*gamma/(a-gamma))*9/5+32}}
 private fun sensorColor(sensor:GoveeSensor)=sensorColor(sensor.id.hashCode())
 private fun sensorColor(value:Any)=sensorColor(value.hashCode())
