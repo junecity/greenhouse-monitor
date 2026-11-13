@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import studio.junecity.greenhouse.data.HistoryStore
+import studio.junecity.greenhouse.model.inSavedHouses
 import studio.junecity.greenhouse.model.HistoryReading
 import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.settings.AppPreferencesStore
@@ -25,7 +26,7 @@ class GreenhouseBackupStore(context: Context) {
                 .put("timestampEpochMs", reading.timestampEpochMs))
         } }
         return JSONObject().put("schema", 2).put("preferences", preferences.exportJson()).put("zones", zoneValues)
-            .put("sensors", CurrentSensorCodec.encode(currentSensors.load())).put("history", readings)
+            .put("sensors", CurrentSensorCodec.encode(currentSensors.load().inSavedHouses(preferences.load()))).put("history", readings)
     }
 
     fun restore(value: JSONObject, localCameraMode: CameraMode? = null) {
@@ -37,7 +38,7 @@ class GreenhouseBackupStore(context: Context) {
             zones.clear()
             zones.importAssignments(values)
         }
-        value.optJSONArray("sensors")?.let { currentSensors.save(CurrentSensorCodec.decode(it)) }
+        value.optJSONArray("sensors")?.let { currentSensors.save(CurrentSensorCodec.decode(it).inSavedHouses(preferences.load())) }
         value.optJSONArray("history")?.let { array ->
             history.importReadings((0 until array.length()).map { index -> array.getJSONObject(index).let { reading ->
                 HistoryReading(reading.getString("sensorId"), reading.getString("sensorName"), reading.getDouble("temperatureF"), reading.getDouble("humidityPercent"), reading.getLong("timestampEpochMs"))

@@ -45,7 +45,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         val enrollment = secure.cloudEnrollment()
         val viewer = enrollment?.role == CloudDeviceRole.ViewerClient
         val prefs = preferences.load()
-        return GreenhouseUiState(standalone = enrollment.isStandaloneClient(), sensors = currentSensors.load(),
+        return GreenhouseUiState(standalone = enrollment.isStandaloneClient(), sensors = currentSensors.load().inSavedHouses(prefs),
             preferences = if (viewer) prefs.copy(cameraMode = CameraMode.ViewerClient) else prefs,
             goveeConnected = if (viewer && !enrollment.isStandaloneClient()) currentSensors.load().any { it.isFresh() }
                 else secure.sensorKey(enrollment) != null)
@@ -220,7 +220,18 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     }
     fun updateGreenhouse(name:String,length:Double,width:Double){if(length<=0||width<=0)return;val p=_state.value.preferences;val old=p.activeGreenhouse;val geometry=old.copy(name=name.ifBlank{old.name},lengthFeet=length,widthFeet=width);val updated=geometry.copy(sensorPositions=old.sensorPositions.mapValues{(_,v)->geometry.reproject(v,old)});savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==old.id)updated else it}))}
     fun updatePreferences(transform:(AppPreferences)->AppPreferences)=savePreferences(transform(_state.value.preferences))
-    private fun savePreferences(p:AppPreferences){preferences.save(p);_state.value=_state.value.copy(preferences=p)}
+    private fun savePreferences(p: AppPreferences) {
+        val previous = _state.value
+        preferences.save(p)
+        val removed = previous.preferences.greenhouses.any { old -> p.greenhouses.none { it.id == old.id } }
+        if (removed) {
+            val sensors = currentSensors.load().inSavedHouses(p)
+            currentSensors.save(sensors)
+            _state.value = previous.copy(preferences = p, sensors = sensors)
+        } else {
+            _state.value = previous.copy(preferences = p)
+        }
+    }
     fun saveZip(zip:String){if(!Regex("\\d{5}").matches(zip)){_state.value=_state.value.copy(message="Enter a valid five-digit ZIP code");return};savePreferences(_state.value.preferences.copy(zipCode=zip));refreshWeather()}
     fun refreshWeather(silent:Boolean=false){val zip=_state.value.preferences.zipCode;viewModelScope.launch{runCatching{weather.current(zip)}.onSuccess{_state.value=_state.value.copy(weather=it)}.onFailure{if(!silent)_state.value=_state.value.copy(message=it.message);_state.value=_state.value.copy(weather=_state.value.weather.copy(stale=true))}}}
     private fun loadHistory() {

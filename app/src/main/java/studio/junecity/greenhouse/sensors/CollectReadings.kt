@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.sensors
 
 import kotlinx.coroutines.CancellationException
+import studio.junecity.greenhouse.model.sensorHouse
 import studio.junecity.greenhouse.model.AppPreferences
 import studio.junecity.greenhouse.model.GoveeSensor
 
@@ -34,6 +35,6 @@ internal suspend fun SensorProvider.collectReadings(
 
 internal fun List<GoveeSensor>.withCurrentAssignments(preferences: AppPreferences, zoneFor: (String) -> String) =
     map { sensor -> sensor.copy(
-        greenhouseId = preferences.sensorGreenhouseIds[sensor.id] ?: sensor.greenhouseId,
+        greenhouseId = preferences.sensorHouse(sensor),
         zone = zoneFor(sensor.id).takeUnless { it == "Unassigned" } ?: sensor.zone
     ) }

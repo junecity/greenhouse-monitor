@@ -2,6 +2,12 @@
 
 All meaningful changes must be recorded here, newest first. Each entry should include date (YYYY-MM-DD), branch/commit where known, Added/Changed/Fixed, validation performed, and limitations. Do not claim untested work is working.
 
+## 2026-11-12 — Delete greenhouse floor plans from General settings (2.10.3)
+- Added a Delete action per greenhouse, named confirmation, cancellation and protection for the last plan. Deleting the displayed plan selects a remaining one. Affected sensors can be reassigned in Devices and retain their recorded history. Generated floor-plan names skip names already in use.
+- Made explicit and cached assignments consistent across collection, preferences, local sensor storage and backup restoration. No database migration or backend deployment.
+- A first compile flagged a missing history import, which was restored. Final configured ARM build passed 103 JVM tests, Android lint (0 errors, 40 warnings, 1 hint), signature verification and emulator upgrade-install. One targeted API 35 instrumentation test exercised the actual Settings action, cancel, confirm, fallback house, last-house protection, retained sensor/history and local server snapshot round-trip. No physical device or live cloud deletion test.
+- Plain 83,208,450-byte APK in build-out and the existing Drive download. Verified Drive metadata. SHA-256 `247ffd2c8745e427470ff478fa3fd123b136754824245195ae08e8b4e062b5dd`.
+
 ## 2026-11-12 — Sensor recovery and full-width server dashboard (2.10.2)
 - Both collectors isolate individual H5179 read failures, retain measurement timestamps and honor saved greenhouse assignments. Foreground entry triggers collection on the server. The viewer retries a missing server backup. Persisted reassignment and first available readings can reach the next heartbeat without waiting for the longer backup interval. Oversized backups retry with recent history, preserving local records.
 - Dashboard distinguishes registered, live, and stale sensors. An empty server dashboard opens sensor management, including explicit assignment to the selected house. SpatialInterpolator supports readings before map placement. MainActivity restores immersive mode after rotation or focus changes. Compact weather cards allow long text to wrap.

@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -350,7 +352,22 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     var zip by remember(state.preferences.zipCode){mutableStateOf(state.preferences.zipCode)}
     var layoutExpanded by remember(g.id){mutableStateOf(false)}
     var greenhouseManagerExpanded by remember{mutableStateOf(false)}
+    var deleteId by remember { mutableStateOf<String?>(null) }
     val editable=!viewer || state.standalone
+    val target = state.preferences.greenhouses.firstOrNull { it.id == deleteId }
+    if (editable && target != null && state.preferences.greenhouses.size > 1) {
+        AlertDialog(
+            onDismissRequest = { deleteId = null },
+            containerColor = DashboardTokens.PanelRaised,
+            title = { Text("Delete ${target.name}?", color = DashboardTokens.White) },
+            text = { Text("This removes its floor plan. You can assign its sensors to another greenhouse in Devices. Their reading history is kept.", color = DashboardTokens.Muted) },
+            confirmButton = { TextButton(onClick = {
+                onPrefs { it.removeFloorPlan(target.id,state.sensors) }
+                deleteId = null
+            }) { Text("Delete greenhouse", color = DashboardTokens.Danger) } },
+            dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Cancel", color = DashboardTokens.White) } }
+        )
+    }
     if (layoutExpanded && editable) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(d(20f)),
             verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -373,7 +390,37 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     }
     LazyColumn(Modifier.fillMaxSize().padding(d(20f)),verticalArrangement=Arrangement.spacedBy(d(12f))){
         item{Text(g.name,color=Color.White,fontSize=t(27f),fontWeight=FontWeight.ExtraBold)}
-        if(editable && greenhouseManagerExpanded)item{SettingsRow("Greenhouses"){state.preferences.greenhouses.forEach{house->ActionButton(house.name,d,t){onPrefs{it.copy(activeGreenhouseId=house.id)};greenhouseManagerExpanded=false}};ActionButton("Add greenhouse",d,t){val id="greenhouse_${System.currentTimeMillis()}";onPrefs{it.copy(greenhouses=it.greenhouses+GreenhouseConfig(id=id,name="Greenhouse ${it.greenhouses.size+1}"),activeGreenhouseId=id)};greenhouseManagerExpanded=false;layoutExpanded=true}}}
+        if (editable && greenhouseManagerExpanded) item {
+            SettingsRow("Greenhouses") {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    state.preferences.greenhouses.forEach { house ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = {
+                                onPrefs { it.copy(activeGreenhouseId = house.id) }
+                                greenhouseManagerExpanded = false
+                            }, modifier = Modifier.weight(1f)) {
+                                Text(house.name, modifier = Modifier.fillMaxWidth(), color = if (house.id == g.id) DashboardTokens.Amber else DashboardTokens.White,
+                                    fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            }
+                            if (state.preferences.greenhouses.size > 1) TextButton(onClick = { deleteId = house.id },
+                                modifier = Modifier.semantics { contentDescription = "Delete ${house.name}" }) {
+                                Text("Delete", color = DashboardTokens.Danger)
+                            }
+                        }
+                    }
+                    ActionButton("Add greenhouse",d,t) {
+                        val id = "greenhouse_${java.util.UUID.randomUUID()}"
+                        onPrefs { prefs ->
+                            val names = prefs.greenhouses.map { it.name }.toSet()
+                            val number = generateSequence(2) { it + 1 }.first { "Greenhouse $it" !in names }
+                            prefs.copy(greenhouses = prefs.greenhouses + GreenhouseConfig(id=id, name="Greenhouse $number"), activeGreenhouseId=id)
+                        }
+                        greenhouseManagerExpanded=false
+                        layoutExpanded=true
+                    }
+                }
+            }
+        }
         if(editable)item{ResponsiveActionSetting("Floor plan","${g.dimensionsLabel()} · ${g.areaLabel()}","Edit layout",d,t){layoutExpanded=!layoutExpanded}}
         if(!editable)item{SettingsRow("Floor plan"){Text("${g.dimensionsLabel()} · ${g.areaLabel()} · Edit on the greenhouse phone",color=DashboardTokens.Muted)}}
         if(editable)item{ActionButton(if(greenhouseManagerExpanded)"Close greenhouses" else "Manage greenhouses",d,t){greenhouseManagerExpanded=!greenhouseManagerExpanded}}
@@ -421,9 +468,9 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
             Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(12.dp)).clickable(enabled=local){expanded=if(expanded==sensor.id)null else sensor.id}.padding(14.dp)){
                 Text(sensor.name,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
                 val assigned = state.preferences.greenhouses.firstOrNull { it.id == sensor.greenhouseId }
-                Text(listOfNotNull(assigned?.name, sensor.zone, if(sensor.isFresh()) "Online" else "Offline").joinToString(" · "), color=DashboardTokens.Muted)
+                Text(listOfNotNull(assigned?.name ?: "Choose a greenhouse", sensor.zone.takeIf { assigned != null }, if(sensor.isFresh()) "Online" else "Offline").joinToString(" · "), color=DashboardTokens.Muted)
                 if(local && expanded==sensor.id && sensor.greenhouseId!=state.preferences.activeGreenhouse.id) {
-                    ActionButton("Assign to ${state.preferences.activeGreenhouse.name}",d,t){onAssign(sensor.id,sensor.zone);expanded=null}
+                    ActionButton("Assign to ${state.preferences.activeGreenhouse.name}",d,t){onAssign(sensor.id,if (assigned == null) "Unassigned" else sensor.zone);expanded=null}
                 }
                 if(local && expanded==sensor.id)FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)){(1..4).forEach{z->
                     ActionButton("Zone $z",d,t){onAssign(sensor.id,"Zone $z");expanded=null}

@@ -87,6 +87,7 @@ private val ProEdge=DashboardTokens.PanelEdge
                 val emptyText = when {
                     viewer -> "Waiting for readings from the server"
                     otherHouses.isNotEmpty() -> "Sensors assigned to " + otherHouses.joinToString { it.name }
+                    state.sensors.any { it.greenhouseId.isEmpty() } -> "Choose a greenhouse for your sensors in Devices"
                     state.goveeConnected -> "No H5179 sensors discovered"
                     else -> "Connect your Govee H5179 sensors"
                 }

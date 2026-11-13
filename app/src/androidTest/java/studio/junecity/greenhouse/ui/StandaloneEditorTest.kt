@@ -32,6 +32,57 @@ class StandaloneEditorTest {
     private val instrumentation=InstrumentationRegistry.getInstrumentation()
     private val ui get()=instrumentation.uiAutomation
 
+    @Test fun deleteGreenhouseFromSettingsRequiresConfirmationAndPersists() {
+        val context = instrumentation.targetContext
+        val secure = SecureSettingsStore(context)
+        assumeTrue("Requires isolated local monitoring", secure.cloudEnrollment() == null && secure.goveeApiKey() == null)
+        val snapshot = studio.junecity.greenhouse.cloud.GreenhouseBackupStore(context)
+        val original = snapshot.snapshot()
+        val prefs = AppPreferencesStore(context)
+        val sensors = CurrentSensorStore(context)
+        val second = GreenhouseConfig(id="qa-second",name="Greenhouse 2")
+        val bench = GoveeSensor("qa-delete-bench","H5179","Bench",69.0,80.0,true,System.currentTimeMillis(),second.id,"Zone 2")
+        val history = studio.junecity.greenhouse.data.HistoryStore(context)
+        var model: GreenhouseViewModel? = null
+        try {
+            prefs.save(AppPreferences(greenhouses=listOf(GreenhouseConfig(),second),activeGreenhouseId=second.id))
+            sensors.save(listOf(bench))
+            history.insert(bench)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val vm = GreenhouseViewModel(activity.application)
+                    model = vm
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    activity.setContent {
+                        StageScreen(vm.state.collectAsState().value.copy(screen=AppScreen.Settings), DeviceStatus(80,true,true),
+                            java.time.LocalDateTime.now(),{},{},{},{},{_,_,_->},{_,_->},{},{},{_,_,_->},vm::updatePreferences,
+                            Modifier.fillMaxSize())
+                    }
+                }
+                click("Manage greenhouses")
+                click("Delete Greenhouse 2")
+                find("Delete Greenhouse 2?")
+                click("Cancel")
+                assertEquals(2,prefs.load().greenhouses.size)
+                click("Delete Greenhouse 2")
+                click("Delete greenhouse")
+                find("Main Greenhouse")
+                assertEquals(listOf("main"),prefs.load().greenhouses.map { it.id })
+                assertEquals(bench.copy(greenhouseId=""),sensors.load().single())
+                assertTrue(history.recent().any { it.sensorId == bench.id })
+                snapshot.restore(snapshot.snapshot(),CameraMode.ViewerClient)
+                assertEquals("main",prefs.load().activeGreenhouseId)
+                assertEquals("",sensors.load().single().greenhouseId)
+                assertTrue(ui.rootInActiveWindow.findAccessibilityNodeInfosByText("Delete").isEmpty())
+            }
+        } finally {
+            instrumentation.runOnMainSync { model?.viewModelScope?.cancel() }
+            history.writableDatabase.delete("readings","sensor_id=?",arrayOf(bench.id))
+            history.close()
+            snapshot.restore(original)
+        }
+    }
+
     @Test fun independentCredentialAndLayoutStorage() {
         val context=instrumentation.targetContext
         val secure=SecureSettingsStore(context)
