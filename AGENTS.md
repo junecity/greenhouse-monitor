@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-13 · Android 2.15.3 (code 46)
+- ZoneHeatScale uses progressively brighter temperature colors every degree from 40–90°F for 2D, 3D, Replay and their legends. Dew point shares the temperature scale. VPD retains its former palette independently.
+- 114 JVM tests and four API 35 instrumentation tests passed. The 3D gesture test now waits for the zoom accessibility value after a pinch. Verified 59/60°F teal and 71°F amber in both live Moto G7 views. Physical client display remains unverified.
+
 ## Current checkpoint — 2026-11-13 · Android 2.15.2 (code 45)
 - ZoneHeatScale owns the shared bitmap, palette and legend for the Zones and Replay floor maps and the 3D scene. Use fixed temperature/dew point 40–90°F, humidity 35–100%, and 2D VPD 0–3 kPa. The floor texture fades with distance using the existing 3D behavior. The 2D map uses all mapped readings; the 3D floor layer uses unknown-height readings and mounted sensors retain air volumes.
 - 114 JVM tests and four API 35 instrumentation tests passed, lint had zero errors. Verified live 2D temperature/humidity and the matching 3D humidity legend on the Moto. Physical viewer was not tested. See CHANGELOG for artifact details.

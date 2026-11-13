@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.ui
 
+import androidx.compose.ui.graphics.luminance
 import android.app.Application
 import android.graphics.Rect
 import androidx.lifecycle.viewModelScope
@@ -695,7 +696,12 @@ class StandaloneEditorTest {
             }
         }
         val heat = ZoneHeatScale.Temperature
-        assertEquals(androidx.compose.ui.graphics.Color(0xffadd989), heat.color(65.0))
+        assertEquals(androidx.compose.ui.graphics.Color(0xffffb446), heat.color(70.0))
+        for (degrees in 41..90) {
+            assertTrue("Brightness must increase at ${degrees}°F",
+                heat.color(degrees.toDouble()).luminance() > heat.color(degrees - 1.0).luminance())
+        }
+        assertTrue(heat.color(71.0).luminance() > 2 * heat.color(60.0).luminance())
         assertEquals(heat.color(40.0), heat.color(30.0))
         assertEquals(heat.color(90.0), heat.color(100.0))
         assertNotEquals(heat.color(65.0), ZoneHeatScale.Humidity.color(65.0))
@@ -772,7 +778,11 @@ class StandaloneEditorTest {
                 val view = "3D greenhouse. Drag to rotate; pinch to zoom and pan."
                 pinchAndPan(canvas)
                 if (android.os.Build.VERSION.SDK_INT >= 30) {
-                    assertNotEquals("Zoom 100%", find(view).stateDescription)
+                    val deadline = SystemClock.uptimeMillis() + 3000
+                    while (find(view).stateDescription?.toString() == "Zoom 100%" && SystemClock.uptimeMillis() < deadline) {
+                        SystemClock.sleep(50)
+                    }
+                    assertNotEquals("Zoom 100%", find(view).stateDescription?.toString())
                 }
                 click("Fit")
                 if (android.os.Build.VERSION.SDK_INT >= 30) {

@@ -17,15 +17,20 @@ import studio.junecity.greenhouse.model.GreenhouseConfig
 import studio.junecity.greenhouse.model.Metric
 import kotlin.math.*
 
-private val thermal = listOf(Color(0xff568aff),Color(0xff49ccdd),Color(0xffadd989),Color(0xffffbb55),Color(0xfffa714e))
+// Ten-degree stops from 40°F to 90°F, ordered by increasing luminance.
+private val temperatureColors = listOf(
+    Color(0xff253769), Color(0xff26639b), Color(0xff3298a8),
+    Color(0xffffb446), Color(0xffffda77), Color(0xfffff6d3)
+)
+private val vaporPressureColors = listOf(Color(0xff568aff),Color(0xff49ccdd),Color(0xffadd989),Color(0xffffbb55),Color(0xfffa714e))
 private val moisture = listOf(Color(0xffeabb72),Color(0xffb6d397),Color(0xff5bcabf),Color(0xff519ee6),Color(0xff9885ed))
 
 internal enum class ZoneHeatScale(
     val minimum: Double, val maximum: Double, val unit: String, val colors: List<Color>
 ) {
-    Temperature(40.0, 90.0, "°F", thermal),
+    Temperature(40.0, 90.0, "°F", temperatureColors),
     Humidity(35.0, 100.0, "%", moisture),
-    VaporPressureDeficit(0.0, 3.0, " kPa", thermal);
+    VaporPressureDeficit(0.0, 3.0, " kPa", vaporPressureColors);
 
     fun color(value: Double): Color {
         val index = ((value - minimum) / (maximum - minimum)).coerceIn(0.0, 1.0) * colors.lastIndex
