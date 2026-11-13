@@ -142,6 +142,7 @@ class MainActivity : ComponentActivity() {
                 }
             ) {
                 LaunchedEffect(cloudEnrollmentRevision) {
+                    studio.junecity.greenhouse.backup.LocalBackupWorker.schedule(applicationContext, SecureSettingsStore(applicationContext).cloudEnrollment())
                     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                         viewModel.refreshWhileVisible()
                     }

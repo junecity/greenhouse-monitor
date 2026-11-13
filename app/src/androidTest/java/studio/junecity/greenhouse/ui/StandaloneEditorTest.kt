@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -379,6 +381,60 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun repeatedZoneDragsPersistAfterReopen() {
+        val context = instrumentation.targetContext
+        assumeTrue("Requires isolated emulator", android.os.Build.MODEL.contains("sdk", true) &&
+            SecureSettingsStore(context).cloudEnrollment() == null)
+        val store = AppPreferencesStore(context)
+        val original = store.load()
+        val sensor = GoveeSensor("placement", "H5179", "Bench", 65.0, 70.0, true,
+            System.currentTimeMillis(), zone = "Zone 1")
+        val initial = SensorPosition(3.0, 2.0)
+        val house = GreenhouseConfig(sensorPositions = mapOf(sensor.id to initial))
+        val app = context.applicationContext as Application
+        fun position() = store.load().activeGreenhouse.sensorPositions.getValue(sensor.id)
+        fun marker() = Rect().also { find("S1").getBoundsInScreen(it) }
+        try {
+            store.save(AppPreferences(greenhouses = listOf(house)))
+            var lastBounds = Rect()
+            repeat(2) { launch ->
+                val vm = GreenhouseViewModel(app)
+                try {
+                    ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                        scenario.onActivity { activity ->
+                            activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            activity.setContent {
+                                val g = vm.state.collectAsState().value.preferences.activeGreenhouse
+                                HeatMap(emptyList(), Metric.Temperature, g, listOf(sensor),
+                                    { (it * .5f).dp }, { it.sp }, vm::moveSensor, Modifier.fillMaxSize())
+                            }
+                        }
+                        if (launch == 0) {
+                            var previous = initial
+                            repeat(2) {
+                                val start = marker()
+                                val distance = 3 * start.width()
+                                val path = Rect(start.centerX(), start.centerY(), start.centerX() + distance, start.centerY() + 1)
+                                gesture(path, listOf(0f to 0f, 1f to 0f))
+                                assertTrue("Each drag advances the stored position", position().xFeet > previous.xFeet + .1)
+                                previous = position()
+                                val deadline = SystemClock.elapsedRealtime() + 3000
+                                do {
+                                    SystemClock.sleep(100)
+                                    lastBounds = marker()
+                                } while (lastBounds.centerX() <= start.centerX() && SystemClock.elapsedRealtime() < deadline)
+                                assertTrue("Marker moves from ${start.centerX()} to ${lastBounds.centerX()}", lastBounds.centerX() > start.centerX())
+                            }
+                        } else {
+                            assertEquals(lastBounds.centerX(), marker().centerX())
+                            assertEquals(position(), vm.state.value.preferences.activeGreenhouse.sensorPositions[sensor.id])
+                        }
+                    }
+                } finally { vm.viewModelScope.cancel() }
+            }
+        } finally { store.save(original) }
+    }
+
     @Test fun traceTrianglePlaceSensorAndSave() {
         val saved=AtomicReference<GreenhouseConfig>()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -620,11 +676,14 @@ class StandaloneEditorTest {
             }
             show(AppScreen.Zones)
             click("Compare")
-            find("Current difference · 4°F · 10 humidity points")
+            find("Current difference · 4°F")
+            click("Humidity")
+            find("Current difference · 10 percentage points")
             screenshot("compare")
             click("Close")
             click("Replay")
-            find("Markers show readings. Colors estimate conditions between sensors using the current layout.")
+            find("Overnight replay")
+            find("S1")
             screenshot("replay")
             click("Close")
             show(AppScreen.History)

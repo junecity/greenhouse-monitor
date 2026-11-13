@@ -8,7 +8,8 @@ import studio.junecity.greenhouse.data.*
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.*
 import java.io.*
-import java.security.SecureRandom
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
@@ -31,7 +32,9 @@ internal suspend fun verifiedBackupScope(context: Context, enrollment: CloudEnro
     }
 }
 
-/** GHBACK01: PBKDF2 salt, authenticated streaming payload, metadata then consecutive historical rows. */
+internal class LegacyPasswordRequired : IOException("This older backup requires its original password.")
+
+/** GHBACK02 uses a checksummed gzip payload. GHBACK01 remains readable with its original password. */
 internal class CustomerBackup(private val context: Context, private val enrollment: CloudEnrollment?) {
     private val suffix = if (enrollment.isStandaloneClient()) "_standalone" else ""
     private val preferences = AppPreferencesStore(context, suffix)
@@ -40,8 +43,7 @@ internal class CustomerBackup(private val context: Context, private val enrollme
     private val forecast = ForecastAlerts(context)
     private val deviceId = enrollment?.deviceId ?: "local"
 
-    fun write(output: OutputStream, password: CharArray, scope: BackupScope): Int {
-        require(password.size >= 10)
+    fun write(output: OutputStream, scope: BackupScope): Int {
         checkEnrollment()
         val rules = forecast.load()
         val meta = JSONObject().put("tenant", scope.tenant).put("house", scope.house).put("kind", scope.kind)
@@ -53,11 +55,9 @@ internal class CustomerBackup(private val context: Context, private val enrollme
         }
         val bytes = meta.toString().toByteArray(Charsets.UTF_8)
         require(bytes.size in 1..MAX_META)
-        val salt = ByteArray(16).also(SecureRandom()::nextBytes)
-        output.write(MAGIC)
-        output.write(salt)
+        output.write(LOCAL_FORMAT)
         var count = 0
-        DataOutputStream(cipher(password, salt).newEncryptingStream(output, MAGIC).buffered()).use { stream ->
+        DataOutputStream(GZIPOutputStream(output.buffered()).buffered()).use { stream ->
             stream.writeInt(bytes.size)
             stream.write(bytes)
             if (scope.kind != "viewer") HistoryStore(context, suffix).use { db ->
@@ -81,9 +81,15 @@ internal class CustomerBackup(private val context: Context, private val enrollme
     fun restore(input: InputStream, password: CharArray, scope: BackupScope): Int {
         val envelope = DataInputStream(input.buffered())
         val header = ByteArray(MAGIC.size).also(envelope::readFully)
-        require(header.contentEquals(MAGIC)) { "Choose a Greenhouse Monitor backup file." }
-        val salt = ByteArray(16).also(envelope::readFully)
-        val decrypted = cipher(password, salt).newDecryptingStream(envelope, MAGIC)
+        val decrypted = when {
+            header.contentEquals(LOCAL_FORMAT) -> GZIPInputStream(envelope)
+            header.contentEquals(MAGIC) -> {
+                if (password.isEmpty()) throw LegacyPasswordRequired()
+                val salt = ByteArray(16).also(envelope::readFully)
+                cipher(password, salt).newDecryptingStream(envelope, MAGIC)
+            }
+            else -> throw IllegalArgumentException("Choose a Greenhouse Monitor backup file.")
+        }
         DataInputStream(decrypted.buffered()).use { stream ->
             val size = stream.readInt()
             require(size in 1..MAX_META)
@@ -161,6 +167,7 @@ internal class CustomerBackup(private val context: Context, private val enrollme
     }
 
     private companion object {
+        val LOCAL_FORMAT = "GHBACK02".toByteArray(Charsets.US_ASCII)
         val MAGIC = "GHBACK01".toByteArray(Charsets.US_ASCII)
         const val MAX_META = 2 * 1024 * 1024
         val restoreLock = Any()

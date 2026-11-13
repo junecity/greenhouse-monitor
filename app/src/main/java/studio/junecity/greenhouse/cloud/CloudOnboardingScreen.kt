@@ -207,7 +207,8 @@ private fun CloudOnboarding(
         if (existingEnrollment?.role == CloudDeviceRole.GreenhouseServer && existingEnrollment.deviceSecret != null) {
             busy = true
             runCatching {
-                gatewayForEnrollment(context, configuration, existingEnrollment).currentDevice()
+                val registered = gatewayForEnrollment(context, configuration, existingEnrollment).currentDevice()
+                if (existingEnrollment.tenantId != registered.tenantId) secure.saveCloudEnrollment(existingEnrollment.copy(tenantId = registered.tenantId))
                 onAuthenticated()
             }.onFailure {
                 if (it is CloudApiException && it.statusCode == 403 &&
@@ -229,12 +230,12 @@ private fun CloudOnboarding(
                     val greenhouse = if(existingEnrollment?.localSensors==true) existingEnrollment.greenhouseId else
                         resolveClientGreenhouse(existingEnrollment?.greenhouseId, registered.greenhouseId, gateway::devices)
                     if (existingEnrollment != null) {
-                        if (greenhouse.isNotBlank() && greenhouse != existingEnrollment.greenhouseId) {
-                            secure.saveCloudEnrollment(existingEnrollment.copy(greenhouseId = greenhouse))
+                        if (greenhouse.isNotBlank() && greenhouse != existingEnrollment.greenhouseId || existingEnrollment.tenantId != registered.tenantId) {
+                            secure.saveCloudEnrollment(existingEnrollment.copy(greenhouseId = greenhouse, tenantId = registered.tenantId))
                         }
                         onAuthenticated()
                     }
-                    else onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient))
+                    else onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient, tenantId = registered.tenantId))
                 }
             }.onFailure { message = accountErrorMessage(it); retryRestore(it) }
             busy = false
@@ -254,7 +255,7 @@ private fun CloudOnboarding(
                 val status = serverPairing.status(initial.requestId, deviceId, requireNotNull(serverSecret))
                 if (status.state == "APPROVED") {
                     val device = requireNotNull(status.device)
-                    val completed = CloudEnrollment(deviceId, requireNotNull(device.greenhouseId), CloudDeviceRole.GreenhouseServer, serverSecret)
+                    val completed = CloudEnrollment(deviceId, requireNotNull(device.greenhouseId), CloudDeviceRole.GreenhouseServer, serverSecret, tenantId = device.tenantId)
                     val deviceGateway = gatewayForEnrollment(context, configuration, completed)
                     deviceGateway.greenhouseBackup(completed.greenhouseId)?.let {
                         GreenhouseBackupStore(context).restore(it, CameraMode.CameraServer)
@@ -304,7 +305,7 @@ private fun CloudOnboarding(
                             api.bootstrap()
                             val registered = api.registerClientDevice()
                             val greenhouse = resolveClientGreenhouse(null, registered.greenhouseId, api::devices)
-                            onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient))
+                            onComplete(CloudEnrollment(deviceId, greenhouse, CloudDeviceRole.ViewerClient, tenantId = registered.tenantId))
                         }
                     }
                     SecondaryButton("Create account", Modifier.fillMaxWidth(), busy) {

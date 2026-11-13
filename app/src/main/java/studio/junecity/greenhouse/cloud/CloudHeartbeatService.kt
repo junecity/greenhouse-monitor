@@ -95,7 +95,7 @@ class CloudHeartbeatService : Service() {
         val lastUpload = AtomicLong(0L)
         var backup: Job? = null
         var publishedSensorIds: Set<String>? = null
-        var publishedHouse: String? = null
+        var publishedPlan: studio.junecity.greenhouse.model.GreenhouseConfig? = null
         while (isActive) {
             val result = runCatching {
                 val context = this@CloudHeartbeatService
@@ -118,12 +118,12 @@ class CloudHeartbeatService : Service() {
                     val prefs = AppPreferencesStore(context).load()
                     val house = prefs.activeGreenhouseId
                     val available = sensors.filter { it.greenhouseId == house && it.updatedAtEpochMs > 0 }.map { it.id }.toSet()
-                    if (house != publishedHouse || available != publishedSensorIds ||
+                    if (prefs.activeGreenhouse != publishedPlan || available != publishedSensorIds ||
                         System.currentTimeMillis() - lastUpload.get() >= prefs.activeRefreshMinutes * 60_000L) {
                         backup = launch {
                             runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot()) }
                                 .onSuccess {
-                                    publishedHouse = house
+                                    publishedPlan = prefs.activeGreenhouse
                                     publishedSensorIds = available
                                     lastUpload.set(System.currentTimeMillis())
                                 }

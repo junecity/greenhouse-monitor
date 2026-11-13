@@ -219,7 +219,10 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         }
     }
     private fun ensurePositions(sensors:List<GoveeSensor>){val p=_state.value.preferences;val g=p.activeGreenhouse;var positions=g.sensorPositions;sensors.filter{it.greenhouseId==g.id&&it.id !in positions}.forEachIndexed{i,s->val defaults=listOf(.2 to .18,.8 to .18,.4 to .62,.6 to .82);val n=defaults[i%defaults.size];positions=positions+(s.id to g.coercePoint(n.first*g.planLengthFeet,n.second*g.planWidthFeet))};if(positions!=g.sensorPositions)savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=positions)else it}))}
-    fun moveSensor(id:String,nx:Double,ny:Double){val p=_state.value.preferences;val g=p.activeGreenhouse;val projected=g.coercePoint(nx.coerceIn(.03,.97)*g.planLengthFeet,ny.coerceIn(.05,.95)*g.planWidthFeet);val pos=projected.copy(heightFeet=g.sensorPositions[id]?.heightFeet?:0.0);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
+    fun moveSensor(id:String,nx:Double,ny:Double){
+        val owner = secure.cloudEnrollment()
+        if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
+        val p=_state.value.preferences;val g=p.activeGreenhouse;val projected=g.coercePoint(nx.coerceIn(.03,.97)*g.planLengthFeet,ny.coerceIn(.05,.95)*g.planWidthFeet);val pos=projected.copy(heightFeet=g.sensorPositions[id]?.heightFeet?:0.0);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
     fun assignZone(sensorId: String, zone: String) {
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return

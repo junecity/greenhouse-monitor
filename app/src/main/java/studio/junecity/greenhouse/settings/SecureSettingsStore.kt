@@ -30,9 +30,10 @@ data class CloudEnrollment(
     val greenhouseId: String,
     val role: CloudDeviceRole,
     val deviceSecret: String? = null,
-    val localSensors: Boolean = false
+    val localSensors: Boolean = false,
+    val tenantId: String = ""
 ) {
-    fun toJson() = JSONObject().put("deviceId", deviceId).put("greenhouseId", greenhouseId).put("role", role.name).put("deviceSecret", deviceSecret).put("localSensors",localSensors).toString()
+    fun toJson() = JSONObject().put("deviceId", deviceId).put("greenhouseId", greenhouseId).put("role", role.name).put("deviceSecret", deviceSecret).put("localSensors",localSensors).put("tenantId",tenantId).toString()
     companion object {
         fun parse(value: String) = JSONObject(value).let {
             CloudEnrollment(
@@ -41,7 +42,7 @@ data class CloudEnrollment(
                 it.optString("greenhouseId").takeUnless { id -> id == "null" }.orEmpty(),
                 CloudDeviceRole.valueOf(it.getString("role")),
                 if (it.has("deviceSecret") && !it.isNull("deviceSecret")) it.getString("deviceSecret").ifBlank { null } else null,
-                it.optBoolean("localSensors",false)
+                it.optBoolean("localSensors",false), it.optString("tenantId")
             )
         }
     }

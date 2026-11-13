@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-12 · Android 2.13.0 (code 41)
+- StageScreens commits each Zones drag from the latest stored position on the collecting phone. The paired viewer displays the server layout. FloorPlanEditor prioritizes the selected sensor; CloudHeartbeatService detects changed positions on the next successful heartbeat. ZoneInsights groups Compare by metric and folds Replay details below the map.
+- CustomerBackup writes password-free GHBACK02, checks gzip integrity before committing, and retains the password reader for GHBACK01. LocalBackupWorker uses Android's periodic scheduler and atomic rotation under the app-private no-backup directory. Encrypted enrollment now stores the verified tenant for offline local backups. BackupPanel lists the latest three per scope. Export a file for recovery after uninstall or loss of the device.
+- 109 JVM tests, ten API 35 instrumented tests and lint passed. Physical Moto verified both dialogs and the first scheduled copy. Keep live client propagation, prolonged scheduler timing and restore onto another physical phone on the hardware checklist. See CHANGELOG.
+
 ## Current checkpoint — 2026-11-12 · Android 2.12.0 (code 40)
 - Settings → Backup exports a password-encrypted GHBACK01 document. CustomerBackup streams retained SQLite history on collecting phones, merges on the unique sensor/time key, authenticates through EOF before committing, and journals settings for restart recovery. Verify current tenant, mode, and assigned server greenhouse through the existing current-device endpoint. A paired viewer backs up its local forecast rules. Never transfer credentials, enrollment, or camera access via these files.
 - BackupPanel uses Android document pickers. GreenhouseViewModel reloads after restore. Existing automatic snapshots remain bounded, and GreenhouseBackupStore now parses incoming snapshots before applying them.

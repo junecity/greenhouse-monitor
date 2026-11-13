@@ -1,5 +1,11 @@
 package studio.junecity.greenhouse.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -49,6 +55,33 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(10_000) } }
     val night = NightWindow.at(now)
+    if (mode == Insight.Compare || mode == Insight.Replay) {
+        Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                .widthIn(max = 920.dp).fillMaxWidth().fillMaxHeight(.94f), shape = RoundedCornerShape(20.dp),
+                color = DashboardTokens.Panel, contentColor = Color.White, border = BorderStroke(1.dp, DashboardTokens.PanelEdge)) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DashboardIconView(if (mode == Insight.Replay) DashboardIcon.Play else DashboardIcon.ChartBars,
+                            DashboardTokens.Amber, Modifier.size(26.dp), null)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(mode.title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text(g.name, color = DashboardTokens.Muted, fontSize = 14.sp)
+                        }
+                        InsightButton("Close", close)
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = DashboardTokens.Divider)
+                    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (mode == Insight.Compare) CompareSensors(sensors, timelines, night, now)
+                        else Replay(sensors, timelines, g, night, state.metric, d, t)
+                    }
+                }
+            }
+        }
+        return
+    }
     Dialog(onDismissRequest = close) {
         Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp), color = DashboardTokens.Panel, contentColor = Color.White) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -74,31 +107,8 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
                                 Text("${minutes(covered)} observed · ${minutes(night.end - night.start - covered)} without coverage")
                             }
                         }
-                        Insight.Compare -> CompareSensors(sensors, timelines, night, now)
-                        Insight.Replay -> {
-                            var progress by remember { mutableFloatStateOf(1f) }
-                            val at = night.start + ((night.end - night.start) * progress.toDouble()).toLong()
-                            val scale = remember(timelines, g, night.start, night.end / 60_000L, state.metric) {
-                                val values = timelines.filterKeys { it in g.sensorPositions }.values.flatMap { series ->
-                                    series.rows.filter { it.timestampEpochMs in (night.start - READING_LIFETIME)..night.end }
-                                        .map { historyMetric(it, state.metric) }.filter { it.isFinite() }
-                                }
-                                values.minOrNull()?.let { it..values.max() }
-                            }
-                            val readings = sensors.mapNotNull { sensor ->
-                                val row = timelines[sensor.id]?.at(at) ?: return@mapNotNull null
-                                if (sensor.id !in g.sensorPositions) return@mapNotNull null
-                                sensor.copy(temperatureF = row.temperatureF, humidityPercent = row.humidityPercent, online = true, updatedAtEpochMs = row.timestampEpochMs)
-                            }
-                            Text(clock(at))
-                            Slider(value = progress, onValueChange = { progress = it })
-                            if (readings.isEmpty()) Text("No placed sensors with measurements at this time.")
-                            else {
-                                HeatMap(SpatialInterpolator.samples(readings, g, state.metric, at), state.metric, g, readings, d, t, { _,_,_ -> }, Modifier.fillMaxWidth().height(145.dp), editable = false, scale = scale)
-                                Text("Markers show readings. Colors estimate conditions between sensors using the current layout.")
-                                readings.forEach { Text("${label(it)} · ${clock(it.updatedAtEpochMs)}") }
-                            }
-                        }
+                        Insight.Compare -> Unit
+                        Insight.Replay -> Unit
                         Insight.Alert -> {
                             val eventTime = (alertTime ?: now).coerceAtMost(now)
                             Text("Alert · ${clock(eventTime)}")
@@ -140,6 +150,46 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
     }
 }
 
+@Composable private fun Replay(sensors: List<GoveeSensor>, timelines: Map<String, SensorTimeline>,
+    g: GreenhouseConfig, night: NightWindow, metric: Metric, d: (Float)->Dp, t:(Float)->TextUnit) {
+    var progress by remember { mutableFloatStateOf(1f) }
+    val at = night.start + ((night.end - night.start) * progress.toDouble()).toLong()
+    val scale = remember(timelines, g, night.start, night.end / 60_000L, metric) {
+        val values = timelines.filterKeys { it in g.sensorPositions }.values.flatMap { series ->
+            series.rows.filter { it.timestampEpochMs in (night.start - READING_LIFETIME)..night.end }
+                .map { historyMetric(it, metric) }.filter { it.isFinite() }
+        }
+        values.minOrNull()?.let { it..values.max() }
+    }
+    val readings = sensors.mapNotNull { sensor ->
+        val row = timelines[sensor.id]?.at(at) ?: return@mapNotNull null
+        if (sensor.id !in g.sensorPositions) return@mapNotNull null
+        sensor.copy(temperatureF = row.temperatureF, humidityPercent = row.humidityPercent, online = true, updatedAtEpochMs = row.timestampEpochMs)
+    }
+    Text(clock(at), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    if (readings.isEmpty()) {
+        Box(Modifier.fillMaxWidth().height(105.dp), contentAlignment = Alignment.Center) {
+            Text("No readings at this time", color = DashboardTokens.Muted)
+        }
+    } else {
+        HeatMap(SpatialInterpolator.samples(readings, g, metric, at), metric, g, readings, d, t,
+            { _,_,_ -> }, Modifier.fillMaxWidth().height(130.dp), editable = false, scale = scale)
+    }
+    Slider(progress, { progress = it }, colors = SliderDefaults.colors(thumbColor = DashboardTokens.Amber, activeTrackColor = DashboardTokens.Amber))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(clock(night.start), color = DashboardTokens.Muted, fontSize = 12.sp)
+        Text(clock(night.end), color = DashboardTokens.Muted, fontSize = 12.sp)
+    }
+    var details by remember { mutableStateOf(false) }
+    if (readings.isNotEmpty()) {
+        InsightButton(if (details) "Hide readings" else "Sensor readings (${readings.size})") { details = !details }
+        if (details) {
+            Text("Map colors estimate conditions between sensors on the current floor plan.", color = DashboardTokens.Muted)
+            readings.forEach { Text("${label(it)} · ${clock(it.updatedAtEpochMs)}") }
+        }
+    }
+}
+
 @Composable private fun CompareSensors(sensors: List<GoveeSensor>, timelines: Map<String, SensorTimeline>, night: NightWindow, now: Long) {
     if (sensors.size < 2) { Text("Add two sensors to compare readings."); return }
     val ids = sensors.map { it.id }
@@ -147,10 +197,22 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
     var second by remember(ids) { mutableStateOf(ids[1]) }
     val a = sensors.first { it.id == first }
     val b = sensors.first { it.id == second }
-    Picker(a, sensors.filter { it.id != second }) { first = it }
-    Picker(b, sensors.filter { it.id != first }) { second = it }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.weight(1f)) { Picker(a, sensors.filter { it.id != second }) { first = it } }
+        Box(Modifier.weight(1f)) { Picker(b, sensors.filter { it.id != first }) { second = it } }
+    }
+    var humidity by remember { mutableStateOf(false) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((name, rh) in listOf("Temperature" to false, "Humidity" to true)) {
+            FilterChip(selected = humidity == rh, onClick = { humidity = rh }, label = { Text(name) },
+                colors = FilterChipDefaults.filterChipColors(labelColor = Color.White,
+                    selectedContainerColor = DashboardTokens.Amber, selectedLabelColor = DashboardTokens.Background))
+        }
+    }
     if (a.isFresh(now) && b.isFresh(now) && a.updatedAtEpochMs <= now && b.updatedAtEpochMs <= now) {
-        Text("Current difference · ${formatTemp(abs(a.temperatureF!! - b.temperatureF!!))} · %.0f humidity points".format(abs(a.humidityPercent!! - b.humidityPercent!!)))
+        val diff = if (humidity) "%.0f percentage points".format(abs(a.humidityPercent!! - b.humidityPercent!!))
+            else formatTemp(abs(a.temperatureF!! - b.temperatureF!!))
+        Text("Current difference · $diff", fontSize = 20.sp, fontWeight = FontWeight.Bold)
     } else Text("Live comparison paused until both sensors report fresh readings.")
     // Fixed five-minute samples keep the two series time-aligned and bound replay work.
     val spreads = remember(first, second, timelines, night.start, night.end / 300_000) {
@@ -162,19 +224,22 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
     }
     if (spreads.isEmpty()) Text("No overlapping overnight readings.")
     else {
-        val peak = spreads.maxBy { it.second }
-        Text("Overnight temperature difference · peak ${formatTemp(peak.second)} at ${clock(peak.first)}")
-        Trace(spreads.map { it.first to it.second }, night.start, night.end, 300_000)
-        val humidPeak = spreads.maxBy { it.third }
-        Text("Overnight humidity difference · peak %.0f points at %s".format(humidPeak.third, clock(humidPeak.first)))
-        Trace(spreads.map { it.first to it.third }, night.start, night.end, 300_000)
+        val series = spreads.map { it.first to if (humidity) it.third else it.second }
+        val peak = series.maxBy { it.second }
+        val value = if (humidity) "%.0f points".format(peak.second) else formatTemp(peak.second)
+        Text("Overnight peak · $value at ${clock(peak.first)}", color = DashboardTokens.Muted)
+        Trace(series, night.start, night.end, 300_000)
+
     }
 }
 
 @Composable private fun Picker(selected: GoveeSensor, options: List<GoveeSensor>, select: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        InsightButton("${label(selected)} · ${if(selected.updatedAtEpochMs > 0) clock(selected.updatedAtEpochMs) else "No reading"} ▾") { open = true }
+        OutlinedButton({ open = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp,DashboardTokens.PanelEdge)) {
+            Text("${label(selected)} ▾", color = DashboardTokens.White)
+        }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEach { sensor -> DropdownMenuItem(text = { Text(label(sensor)) }, onClick = { select(sensor.id); open = false }) }
         }

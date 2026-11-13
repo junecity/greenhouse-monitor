@@ -108,8 +108,8 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                     val resizeCircle = circle && !drawing && selected == null && hitSensor == null &&
                         kotlin.math.abs((down.position-center).getDistance() - radius*scale) <= 20.dp.toPx()
                     val editWall = !circle && !drawing && selected == null && (corner != null || edge != null) &&
-                        (hitSensor == null || corner != null)
-                    val target = hitSensor ?: selected
+                        hitSensor == null
+                    val target = selected ?: hitSensor
                     if(!drawing && !editWall && !resizeCircle && target==null) return@awaitEachGesture
                     down.consume()
                     feedback=""

@@ -46,7 +46,7 @@ class CustomerBackupTest {
         val rows = (1..2200).map { HistoryReading(sensor.id,sensor.name,70.0,80.0,sensor.updatedAtEpochMs - it) }
         HistoryStore(context,"_standalone").use { it.importReadings(rows) }
         val stream = ByteArrayOutputStream()
-        assertEquals(rows.size,CustomerBackup(context,enrollment).write(stream, pass, scope))
+        assertEquals(rows.size,CustomerBackup(context,enrollment).write(stream, scope))
         return stream.toByteArray() to rows
     }
 
@@ -61,7 +61,7 @@ class CustomerBackupTest {
         current.save(listOf(fresh))
         HistoryStore(context,"_standalone").use { db -> db.clear(); db.insert(fresh) }
         repeat(2) {
-            assertEquals(2200,CustomerBackup(context,replacement).restore(file.inputStream(),pass,scope))
+            assertEquals(2200,CustomerBackup(context,replacement).restore(file.inputStream(),charArrayOf(),scope))
         }
         assertEquals(settings,prefs.load())
         assertEquals("Zone 2", zones.zone("probe"))
@@ -86,13 +86,47 @@ class CustomerBackupTest {
         val corrupt = file.copyOf().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
         val backup = CustomerBackup(context,enrollment)
         for ((bytes,pwd,owner) in listOf(Triple(corrupt,pass,scope),Triple(file.copyOf(file.size - 12),pass,scope),
-            Triple(file,"wrong password".toCharArray(),scope),Triple(file,pass,scope.copy(tenant="unrelated")),
+            Triple(file,pass,scope.copy(tenant="unrelated")),
             Triple(file,pass,scope.copy(house="another")),Triple(file,pass,scope.copy(kind="viewer")))) {
             assertTrue(runCatching { backup.restore(bytes.inputStream(),pwd,owner) }.isFailure)
             assertEquals(AppPreferences(), prefs.load())
             assertEquals("other",zones.zone("probe"))
             HistoryStore(context,"_standalone").use { assertEquals(1,it.recent().size); assertNull(it.pendingRestore()) }
         }
+    }
+
+    @Test fun olderEncryptedFileRequiresOriginalPassword() {
+        val (file,rows) = seed()
+        val header = "GHBACK01".toByteArray()
+        val salt = ByteArray(16) { it.toByte() }
+        val key = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            .generateSecret(javax.crypto.spec.PBEKeySpec(pass,salt,210_000,256)).encoded
+        val old = ByteArrayOutputStream()
+        old.write(header)
+        old.write(salt)
+        com.google.crypto.tink.subtle.AesGcmHkdfStreaming(key,"HmacSha256",32,65536,0)
+            .newEncryptingStream(old,header).use { stream ->
+                java.util.zip.GZIPInputStream(file.inputStream().apply { skip(8) }).use { it.copyTo(stream) }
+            }
+        val backup = CustomerBackup(context,enrollment)
+        val archived = old.toByteArray()
+        assertTrue(runCatching { backup.restore(archived.inputStream(),charArrayOf(),scope) }.exceptionOrNull() is LegacyPasswordRequired)
+        assertTrue(runCatching { backup.restore(archived.inputStream(),"wrong password".toCharArray(),scope) }.isFailure)
+        assertEquals(rows.size,backup.restore(archived.inputStream(),pass,scope))
+    }
+
+    @Test fun automaticCopiesRotateAndRestoreSensorPositions() {
+        val (_,rows) = seed()
+        val bucket = scope.copy(tenant=prefix)
+        val copies = LocalBackups(context,bucket)
+        val backup = CustomerBackup(context,enrollment)
+        try {
+            repeat(4) { copies.save(backup) }
+            assertEquals(3,copies.copies().size)
+            prefs.clear()
+            copies.copies().first().inputStream().use { assertEquals(rows.size,backup.restore(it,charArrayOf(),bucket)) }
+            assertEquals(settings.activeGreenhouse.sensorPositions,prefs.load().activeGreenhouse.sensorPositions)
+        } finally { copies.copies().forEach { it.delete() } }
     }
 
     @Test fun cloudSnapshotRejectsDamagedHistoryBeforeReplacingSettings() {
@@ -128,7 +162,7 @@ class CustomerBackupTest {
         val viewerScope = scope.copy(kind="viewer")
         ForecastAlerts(context).save(rules)
         val file = ByteArrayOutputStream()
-        assertEquals(0,backup.write(file,pass,viewerScope))
+        assertEquals(0,backup.write(file,viewerScope))
         AppPreferencesStore(context).save(settings)
         ForecastAlerts(context).save(ForecastRules())
         backup.restore(file.toByteArray().inputStream(), pass, viewerScope)
