@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-12 · Android 2.11.1 (code 38)
+- StageScreens.kt places the installed BuildConfig.VERSION_NAME in a muted footer at the bottom right of General Settings. The scrolling controls occupy a separate area above it.
+- Verified the portrait footer above navigation on the physical Moto G7 after an in-place upgrade. 109 JVM tests passed, lint reported zero errors. The client Pixel was not tested. Screenshot and plain APK are in build-out.
+
 ## Current checkpoint — 2026-11-12 · Android 2.11.0 (code 37)
 - Tap Dashboard → Outdoor for seven local forecast days from the existing Open-Meteo ZIP lookup. LiveWeatherProvider fetches current and daily values together. GreenhouseViewModel coalesces concurrent refreshes and guards against old-ZIP results.
 - ForecastDialog and ForecastAlerts keep optional low/high forecast thresholds and an approximate daily reminder per enrolled phone. Evaluate only current forecasts for today/tomorrow in the forecast zone. The clock reminder uses phone time; its receiver restores scheduling after reboot/time changes. Threshold work runs hourly when Android allows network access. Indoor sensor alarms are separate.

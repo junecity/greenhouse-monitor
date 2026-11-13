@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.ui
 
 import android.graphics.Bitmap
+import studio.junecity.greenhouse.BuildConfig
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.foundation.rememberScrollState
@@ -277,7 +278,18 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 
 @Composable private fun SettingsDetail(category:SettingsCategory,state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit){
     when(category){
-        SettingsCategory.General->GeneralSettings(state,d,t,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences)
+        SettingsCategory.General -> Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                GeneralSettings(state,d,t,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences)
+            }
+            Text(
+                text = "v${BuildConfig.VERSION_NAME}",
+                modifier = Modifier.align(Alignment.End).padding(end = 16.dp, bottom = 8.dp),
+                color = DashboardTokens.Muted.copy(alpha = .78f),
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            )
+        }
         SettingsCategory.Connectivity->ConnectivitySettings(state,d,t,onRefresh,onSaveKey)
         SettingsCategory.Camera->CameraRoleSettings(state,d,t,onUpdatePreferences)
         SettingsCategory.Alerts->AlertSettings(state,d,t,onUpdatePreferences)
