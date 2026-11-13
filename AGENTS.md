@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-13 · Android 2.15.1 (code 44)
+- ZoneVolumeScreen projects fresh mapped sensors with unset heights onto a colored floor layer. SpatialInterpolator estimates temperature or humidity in plan coordinates. Color fades with distance, clips to the saved outline and follows rotation, zoom and pan. Measured mounts still use ZoneClimate's volumetric field. A missing height stays null in storage.
+- The enrolled Moto G7 displayed the floor layer for both metrics with real readings of unknown height. API 35 viewer screenshot assertions verified visible colored regions for each metric, and the mounted-sensor interaction regression passed. 114 JVM tests passed. Live physical client pairing/sync was not exercised. See CHANGELOG for delivery.
+
 ## Current checkpoint — 2026-11-13 · Android 2.15.0 (code 43)
 - Zones → 3D view projects the saved physical footprint, greenhouse height and sensor positions. ZoneVolumeScreen reads fresh observations, supports rotation, pinch/pan, Fit and mounting heights on collecting phones. MainActivity and CloudOnboardingScreen support device rotation within this view. GreenhouseViewModel loads up to a week of available history there.
 - Models and AppPreferencesStore preserve explicit floor mounts separately from unspecified legacy zero elevations. ZoneClimate confines estimates to measured neighborhoods. LiveWeatherProvider retains hourly outdoor temperatures for recent and forecast periods while continuing to show seven upcoming days. Similar-weather advice reports historical ranges only with qualifying observations on three days.

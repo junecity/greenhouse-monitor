@@ -672,6 +672,47 @@ class StandaloneEditorTest {
         } finally { context.deleteDatabase("greenhouse_history$suffix.db") }
     }
 
+    @Test fun viewerWithoutMountingHeightsRendersBothHeatMaps() {
+        val plan = GreenhouseConfig(shape = GreenhouseShape.TShape, sensorPositions = mapOf(
+            "north" to SensorPosition(2.0, 3.0), "east" to SensorPosition(13.0, 2.0),
+            "south" to SensorPosition(7.0, 21.0)))
+        val sensor = GoveeSensor("north", "H5179", "North", 70.0, 84.0, true, System.currentTimeMillis())
+        val readings = listOf(sensor, sensor.copy(id = "east", name = "East", temperatureF = 59.0),
+            sensor.copy(id = "south", name = "South", temperatureF = 60.0))
+        val prefs = AppPreferences(cameraMode = CameraMode.ViewerClient, greenhouses = listOf(plan))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                activity.setContent {
+                    ZoneVolumeScreen(GreenhouseUiState(sensors = readings, preferences = prefs),
+                        { error("The viewer must not write mounting heights") }, {})
+                }
+            }
+            find("Sensors with unknown heights are shown on the floor plan.")
+            fun coloredPixels(humidity: Boolean): Int {
+                SystemClock.sleep(650)
+                val bounds = Rect().also { find("3D greenhouse. Drag to rotate; pinch to zoom and pan.").getBoundsInScreen(it) }
+                val image = requireNotNull(ui.takeScreenshot())
+                try {
+                    var count = 0
+                    for (y in bounds.top until bounds.bottom step 3) for (x in bounds.left until bounds.right step 3) {
+                        val pixel = image.getPixel(x, y)
+                        val blue = android.graphics.Color.blue(pixel)
+                        val green = android.graphics.Color.green(pixel)
+                        if (if (humidity) blue > green + 20 && blue > 110 else green > blue + 20 && green > 110) count++
+                    }
+                    return count
+                } finally { image.recycle() }
+            }
+            assertTrue("Temperature must visibly color the footprint", coloredPixels(false) > 300)
+            screenshot("height-unset-temperature")
+            click("Humidity")
+            find("North ▾  ·  84%  ·  Height unset")
+            assertTrue("Humidity must visibly recolor the footprint", coloredPixels(true) > 300)
+            screenshot("height-unset-humidity")
+        }
+    }
+
     @Test fun volumeGesturesHumidityMountingAndLegacyBackup() {
         val store = AppPreferencesStore(instrumentation.targetContext,"_volume_fixture")
         try {

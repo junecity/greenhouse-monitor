@@ -23,6 +23,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import kotlinx.coroutines.delay
+import studio.junecity.greenhouse.data.SpatialInterpolator
+import studio.junecity.greenhouse.data.SpatialSample
+import studio.junecity.greenhouse.data.ZoneProbe
 import studio.junecity.greenhouse.data.ZoneClimate
 import studio.junecity.greenhouse.model.*
 import kotlin.math.*
@@ -35,6 +38,31 @@ private fun shade(value:Double,metric:Metric):Color {
     val index=fraction.coerceIn(0.0,1.0)*(colors.size-1)
     val i=index.toInt().coerceAtMost(colors.size-2)
     return lerp(colors[i],colors[i+1],(index-i).toFloat())
+}
+
+// A plan projection locates a reading horizontally without assigning an elevation to it.
+private fun planHeatLayer(g: GreenhouseConfig, probes: List<ZoneProbe>, metric: Metric): android.graphics.Bitmap? {
+    val samples = probes.mapNotNull { (sensor, position) ->
+        if (position.heightFeet != null) return@mapNotNull null
+        val value = if (metric == Metric.Humidity) sensor.humidityPercent else sensor.temperatureF
+        value?.let { SpatialSample(position.xFeet, position.yFeet, it) }
+    }
+    if (samples.isEmpty()) return null
+
+    val pixelsPerFoot = 64.0 / max(g.planLengthFeet, g.planWidthFeet)
+    val width = ceil(g.planLengthFeet * pixelsPerFoot).toInt().coerceIn(1, 64)
+    val height = ceil(g.planWidthFeet * pixelsPerFoot).toInt().coerceIn(1, 64)
+    val fadeDistance = min(g.planLengthFeet, g.planWidthFeet).coerceAtLeast(1.0) / 2
+    val pixels = IntArray(width * height)
+    for (row in 0 until height) for (column in 0 until width) {
+        val x = (column + .5) * g.planLengthFeet / width
+        val y = (row + .5) * g.planWidthFeet / height
+        val value = SpatialInterpolator.estimate(samples, x, y) ?: continue
+        val nearest = samples.minOf { hypot(x - it.xFeet, y - it.yFeet) }
+        val opacity = .88 / (1 + (nearest / fadeDistance).pow(2))
+        pixels[row * width + column] = shade(value, metric).copy(alpha = opacity.toFloat()).toArgb()
+    }
+    return android.graphics.Bitmap.createBitmap(pixels, width, height, android.graphics.Bitmap.Config.ARGB_8888)
 }
 
 private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:Double, tilt:Double,
@@ -66,6 +94,8 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
     val insight=remember(g,probes,state.weather,state.history,state.preferences.notifications,now){ZoneClimate.insight(state,probes,now)}
     val h=ZoneClimate.height(g)
     val cells=remember(g,probes,metric){ZoneClimate.field(g,probes,metric).map {it to shade(it.value,metric).copy(alpha=(it.opacity*.44).toFloat())}}
+    val planLayer = remember(g, probes, metric) { planHeatLayer(g, probes, metric) }
+    val layerPaint = remember { android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG) }
     val editable=state.standalone || state.preferences.cameraMode!=CameraMode.ViewerClient
     var editing by remember {mutableStateOf(false)}
     if(editing) HeightDialog(g,sensor,{editing=false}) {roof,mount ->
@@ -151,6 +181,17 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                 val pitched=g.hasStem || g.shape==GreenhouseShape.Rectangle
                 val eaves=if(pitched) h*.76 else h
                 drawPath(floor,Color(0xff22343a))
+                if (planLayer != null) {
+                    val origin = camera.point(0.0, 0.0, 0.0)
+                    val xEnd = camera.point(g.planLengthFeet, 0.0, 0.0)
+                    val yEnd = camera.point(0.0, g.planWidthFeet, 0.0)
+                    val transform = android.graphics.Matrix().apply {
+                        setPolyToPoly(floatArrayOf(0f, 0f, planLayer.width.toFloat(), 0f, 0f, planLayer.height.toFloat()), 0,
+                            floatArrayOf(origin.x, origin.y, xEnd.x, xEnd.y, yEnd.x, yEnd.y), 0, 3)
+                    }
+                    layerPaint.alpha = (255 * reveal.value).roundToInt()
+                    clipPath(floor) { drawContext.canvas.nativeCanvas.drawBitmap(planLayer, transform, layerPaint) }
+                }
                 val rim=Color(0xff9daeb4).copy(alpha=.65f)
                 val strut=rim.copy(alpha=.38f)
                 androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()).let {
@@ -187,7 +228,7 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                 }
                 for((probe,pt) in positions){
                     val p=probe.position; val v=if(metric==Metric.Humidity)probe.sensor.humidityPercent!! else probe.sensor.temperatureF!!
-                    val mounted=p.heightFeet!=null; val color=if(mounted)shade(v,metric) else DashboardTokens.Muted
+                    val mounted=p.heightFeet!=null; val color=shade(v,metric)
                     if(mounted)drawLine(color.copy(alpha=.5f),camera.point(p.xFeet,p.yFeet,0.0),pt,1.dp.toPx())
                     drawCircle(DashboardTokens.Background,7.dp.toPx(),pt);drawCircle(color,4.dp.toPx(),pt)
                     if(probe.sensor.id==sensor?.id)drawCircle(activeColor,9.dp.toPx(),pt,style=androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
@@ -205,8 +246,8 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                     }
                 }
             }
-            if(probes.isNotEmpty() && probes.all { it.position.heightFeet == null }) {
-                Text(if(editable) "Set mounting heights to see the air map" else "Set mounting heights on the greenhouse phone",
+            if(planLayer != null) {
+                Text("Sensors with unknown heights are shown on the floor plan.",
                     Modifier.align(Alignment.TopStart).padding(10.dp),color=DashboardTokens.Muted,fontSize=12.sp)
             }
             if(sensors.isEmpty()) Text("Add a sensor to see readings here",Modifier.align(Alignment.Center).background(DashboardTokens.Background).padding(8.dp),color=Color.White)
