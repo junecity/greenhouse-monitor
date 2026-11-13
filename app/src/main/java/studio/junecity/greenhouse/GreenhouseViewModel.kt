@@ -41,6 +41,8 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     init {
         studio.junecity.greenhouse.backup.CustomerBackup(app, secure.cloudEnrollment()).resumePendingRestore()
     }
+    private val volumeOpen = MutableStateFlow(false)
+    val volumeVisible = volumeOpen.asStateFlow()
     private val _state = MutableStateFlow(restoredState())
     val state = _state.asStateFlow()
     private var cloudSyncing = false
@@ -196,7 +198,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             }
             val readings = withContext(Dispatchers.IO) {
                 GreenhouseBackupStore(getApplication()).restore(snapshot, CameraMode.ViewerClient)
-                if (_state.value.screen == AppScreen.History) paired.history.weekReadings() else paired.history.dashboardReadings()
+                if (needsWeekHistory()) paired.history.weekReadings() else paired.history.dashboardReadings()
             }
             if (secure.cloudEnrollment() != enrollment.copy(greenhouseId=greenhouseId) || stores != paired) return false
             val syncedSensors = paired.sensors.load()
@@ -222,7 +224,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     fun moveSensor(id:String,nx:Double,ny:Double){
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
-        val p=_state.value.preferences;val g=p.activeGreenhouse;val projected=g.coercePoint(nx.coerceIn(.03,.97)*g.planLengthFeet,ny.coerceIn(.05,.95)*g.planWidthFeet);val pos=projected.copy(heightFeet=g.sensorPositions[id]?.heightFeet?:0.0);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
+        val p=_state.value.preferences;val g=p.activeGreenhouse;val projected=g.coercePoint(nx.coerceIn(.03,.97)*g.planLengthFeet,ny.coerceIn(.05,.95)*g.planWidthFeet);val pos=projected.copy(heightFeet=g.sensorPositions[id]?.heightFeet);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
     fun assignZone(sensorId: String, zone: String) {
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
@@ -275,13 +277,20 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             }
         }
     }
+    private fun needsWeekHistory() = _state.value.screen == AppScreen.History || (volumeOpen.value && _state.value.screen == AppScreen.Zones)
+    fun setVolumeOpen(open: Boolean) {
+        if (volumeOpen.value == open) return
+        volumeOpen.value = open
+        loadHistory()
+    }
+
     private fun loadHistory() {
         val storage = stores
         val owner = secure.cloudEnrollment()
         viewModelScope.launch {
-            val forHistory = _state.value.screen == AppScreen.History
+            val forHistory = needsWeekHistory()
             val rows = withContext(Dispatchers.IO) { if (forHistory) storage.history.weekReadings() else storage.history.dashboardReadings() }
-            if (forHistory != (_state.value.screen == AppScreen.History)) return@launch
+            if (forHistory != needsWeekHistory()) return@launch
             if (storage == stores && owner == secure.cloudEnrollment()) _state.value = _state.value.copy(history = rows)
         }
     }

@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## Current checkpoint — 2026-11-13 · Android 2.15.0 (code 43)
+- Zones → 3D view projects the saved physical footprint, greenhouse height and sensor positions. ZoneVolumeScreen reads fresh observations, supports rotation, pinch/pan, Fit and mounting heights on collecting phones. MainActivity and CloudOnboardingScreen support device rotation within this view. GreenhouseViewModel loads up to a week of available history there.
+- Models and AppPreferencesStore preserve explicit floor mounts separately from unspecified legacy zero elevations. ZoneClimate confines estimates to measured neighborhoods. LiveWeatherProvider retains hourly outdoor temperatures for recent and forecast periods while continuing to show seven upcoming days. Similar-weather advice reports historical ranges only with qualifying observations on three days.
+- 114 JVM tests, three final API 35 instrumentation tests, Android lint and signature verification passed. Verified production entry, humidity, height dialog, return to Zones and Dashboard camera on the physical Moto G7. Live transfer of heights to a second enrolled phone and forecast accuracy remain unverified. See CHANGELOG for artifact and regression details.
+
 ## Current checkpoint — 2026-11-13 · Android 2.14.0 (code 42)
 - SensorTrendChart renders time-aligned, scrubbable native graphs in History, Compare and Replay. Keep gaps longer than the ten-minute reading lifetime visible. StageScreens offers 6h/24h/7d History. GreenhouseViewModel requests HistoryStore.weekReadings for History; the paired viewer can only plot history it has synchronized.
 - ZoneInsights compares temperature or humidity at a selected time and replays the overnight floor plan alongside the timeline. Backgrounding or dragging pauses replay. The map uses the saved sensor placement.

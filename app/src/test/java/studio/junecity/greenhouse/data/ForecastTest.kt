@@ -26,6 +26,20 @@ class ForecastTest {
         assertEquals(day.date.plusDays(6), reading.days.last().date)
     }
 
+    @Test fun pastOutdoorHoursDoNotDisplaceTheSevenDayForecast() {
+        val today = LocalDate.of(2026, 11, 1)
+        val dates = (-7..6).map { today.plusDays(it.toLong()).toString() }
+        val daily = JSONObject().put("time", dates)
+        val hourly = JSONObject().put("time", listOf("2026-10-31T23:00", "2026-11-01T01:00", "2026-11-01T02:00"))
+            .put("temperature_2m", listOf(48, 46, 44))
+        val json = JSONObject().put("timezone", "America/New_York").put("daily", daily).put("hourly", hourly)
+            .put("current", JSONObject().put("time", "2026-11-01T02:15"))
+        val reading = LiveWeatherProvider().parse("06382", "Local", JSONObject(json.toString()))
+        assertEquals((0..6).map { today.plusDays(it.toLong()) }, reading.days.map { it.date })
+        assertEquals(mapOf(Instant.parse("2026-11-01T03:00:00Z").toEpochMilli() to 48.0,
+            Instant.parse("2026-11-01T07:00:00Z").toEpochMilli() to 44.0), reading.hourlyOutdoorF)
+    }
+
     @Test fun thresholdsAreOptInAndIncludeTheBoundary() {
         assertTrue(ForecastRules().matches(day).isEmpty())
         val both = ForecastRules(cold = true, heat = true)

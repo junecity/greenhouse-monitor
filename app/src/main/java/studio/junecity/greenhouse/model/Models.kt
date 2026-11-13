@@ -10,7 +10,7 @@ enum class HistoryRange { Day, Week, Month }
 enum class CameraMode { CameraServer, ViewerClient }
 enum class CameraStreamQuality { DataSaver, Balanced, High }
 enum class GreenhouseShape { Rectangle, TShape, Drawn, LShape, Circle }
-data class SensorPosition(val xFeet:Double,val yFeet:Double,val heightFeet:Double=0.0){fun normalized(g:GreenhouseConfig)=NormalizedPosition((xFeet/g.planLengthFeet).coerceIn(0.0,1.0),(yFeet/g.planWidthFeet).coerceIn(0.0,1.0))}
+data class SensorPosition(val xFeet:Double,val yFeet:Double,val heightFeet:Double?=null){fun normalized(g:GreenhouseConfig)=NormalizedPosition((xFeet/g.planLengthFeet).coerceIn(0.0,1.0),(yFeet/g.planWidthFeet).coerceIn(0.0,1.0))}
 data class NormalizedPosition(val x:Double,val y:Double)
 data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap(),val shape:GreenhouseShape=GreenhouseShape.Rectangle,val attachedLengthFeet:Double=16.0,val attachedWidthFeet:Double=8.0,val refreshMinutes:Int=1,val vertices:List<NormalizedPosition> = emptyList()){
     val hasStem get() = shape == GreenhouseShape.TShape || shape == GreenhouseShape.LShape
@@ -89,7 +89,8 @@ data class ForecastDay(
 data class WeatherReading(
     val zipCode: String, val location: String, val temperatureF: Double?, val condition: String,
     val updatedAtEpochMs: Long = 0, val stale: Boolean = false,
-    val days: List<ForecastDay> = emptyList(), val zone: java.time.ZoneId = java.time.ZoneId.systemDefault()
+    val days: List<ForecastDay> = emptyList(), val zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    val hourlyOutdoorF: Map<Long, Double> = emptyMap()
 )
 data class DeviceStatus(val batteryPercent:Int,val charging:Boolean,val wifiConnected:Boolean)
 data class HistoryReading(val sensorId:String,val sensorName:String,val temperatureF:Double,val humidityPercent:Double,val timestampEpochMs:Long)

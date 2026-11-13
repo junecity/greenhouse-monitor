@@ -18,7 +18,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
         val notifications=JSONObject().put("master",n.masterEnabled).put("popups",n.popupsEnabled).put("sound",n.soundEnabled).put("vibration",n.vibrationEnabled).put("repeat",n.repeatedAlerts).put("repeatMinutes",n.repeatMinutes).put("snooze",n.snoozedUntilEpochMs).put("temp",n.temperatureAlerts).put("humidity",n.humidityAlerts).put("offline",n.offlineAlerts).put("connection",n.connectionAlerts).put("lowT",n.lowTemperatureF).put("highT",n.highTemperatureF).put("lowH",n.lowHumidity).put("highH",n.highHumidity).put("recoveryMargin",n.recoveryMargin)
         val greenhouses=JSONArray()
         p.greenhouses.forEach{g->
-            val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet))}
+            val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet).put("floorMount",pos.heightFeet == 0.0))}
             val preset = g.shape.takeIf { it == GreenhouseShape.Circle || it == GreenhouseShape.LShape }
             greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",if(preset!=null) g.planLengthFeet else g.lengthFeet).put("width",if(preset!=null) g.planWidthFeet else g.widthFeet).put("height",g.heightFeet).put("positions",positions).put("shape",if(preset!=null) GreenhouseShape.Drawn.name else g.shape.name).put("preset",preset?.name).put("sectionLength",if(preset!=null) g.lengthFeet else null).put("sectionWidth",if(preset!=null) g.widthFeet else null).put("vertices",JSONArray().also{points->(if(preset!=null) g.outline() else g.vertices).forEach{points.put(JSONArray().put(it.x).put(it.y))}}).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
         }
@@ -38,7 +38,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
                 val px = p.optDouble("x")
                 val py = p.optDouble("y")
                 if (px.isFinite() && py.isFinite()) {
-                    positions[id] = SensorPosition(px, py, p.optDouble("z").takeIf { it.isFinite() } ?: 0.0)
+                    positions[id] = SensorPosition(px, py, p.optDouble("z").takeIf { it in 0.0..480.0 && (it > 0 || p.optBoolean("floorMount")) })
                 }
             }
             val points=x.optJSONArray("vertices")?.let{list->(0 until list.length().coerceAtMost(49)).mapNotNull{index->
@@ -51,7 +51,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
                 else -> null
             }?.takeIf { shape == GreenhouseShape.Drawn }
             val legacyRefresh=DataSyncIntervals.normalize(o.optInt("refresh",1))
-            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.dimension("sectionLength",16.0) else x.dimension("length",16.0),if(preset!=null) x.dimension("sectionWidth",8.0) else x.dimension("width",8.0),x.optDouble("height").takeUnless{it.isNaN()},positions,preset ?: shape,x.dimension("attachedLength",16.0),x.dimension("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points)
+            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.dimension("sectionLength",16.0) else x.dimension("length",16.0),if(preset!=null) x.dimension("sectionWidth",8.0) else x.dimension("width",8.0),x.optDouble("height").takeIf{it in 0.1..480.0},positions,preset ?: shape,x.dimension("attachedLength",16.0),x.dimension("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points)
         }
         if(greenhouses.isEmpty())greenhouses+=GreenhouseConfig()
         val n=o.optJSONObject("notifications")?:JSONObject()

@@ -129,10 +129,13 @@ class MainActivity : ComponentActivity() {
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
 
+            val volume by viewModel.volumeVisible.collectAsStateWithLifecycle()
+            val showingVolume = volume && state.screen == AppScreen.Zones
             CloudOnboardingGate(
                 configuration = cloudConfiguration.getOrNull(),
                 configurationError = cloudConfiguration.exceptionOrNull()?.message,
                 portraitMonitoringScreen = state.screen == AppScreen.Settings,
+                rotateMonitoringScreen = showingVolume,
                 onEnrolled = { role ->
                     viewModel.completeCloudEnrollment(role)
                     if (role == CloudDeviceRole.GreenhouseServer && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -169,7 +172,10 @@ class MainActivity : ComponentActivity() {
                     refresh = { viewModel.refreshWeather() }, dismiss = { forecastOpen = false; intent.action = null })
                 var openSensors by remember { mutableStateOf(false) }
                 val navigate: (AppScreen) -> Unit = { openSensors = false; viewModel.navigate(it) }
-                Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->
+                if (showingVolume) {
+                    androidx.activity.compose.BackHandler { viewModel.setVolumeOpen(false) }
+                    studio.junecity.greenhouse.ui.ZoneVolumeScreen(state, viewModel::updatePreferences) { viewModel.setVolumeOpen(false) }
+                } else Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->
                     if (screen == AppScreen.Dashboard) {
                         DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
                             onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
@@ -179,7 +185,7 @@ class MainActivity : ComponentActivity() {
                             state.copy(screen = screen), status, now, navigate, viewModel::selectMetric,
                             viewModel::refreshSensors, viewModel::saveApiKey, viewModel::moveSensor, viewModel::assignZone,
                             viewModel::saveZip, viewModel::refreshWeather, viewModel::updateGreenhouse,
-                            viewModel::updatePreferences, Modifier.fillMaxSize(), openSensors, viewModel::reloadAfterRestore
+                            viewModel::updatePreferences, Modifier.fillMaxSize(), openSensors, viewModel::reloadAfterRestore, onVolume = { viewModel.setVolumeOpen(true) }
                         )
                     }
                 }

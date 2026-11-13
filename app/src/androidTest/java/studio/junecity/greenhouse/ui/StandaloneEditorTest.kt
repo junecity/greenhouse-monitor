@@ -672,6 +672,72 @@ class StandaloneEditorTest {
         } finally { context.deleteDatabase("greenhouse_history$suffix.db") }
     }
 
+    @Test fun volumeGesturesHumidityMountingAndLegacyBackup() {
+        val store = AppPreferencesStore(instrumentation.targetContext,"_volume_fixture")
+        try {
+            val plan = GreenhouseConfig(heightFeet=9.0,shape=GreenhouseShape.TShape,sensorPositions=mapOf(
+                "floor" to SensorPosition(4.0,2.0,0.0), "roof" to SensorPosition(4.0,2.0,7.0)))
+            val prefs=AppPreferences(greenhouses=listOf(plan))
+            store.save(prefs)
+            assertEquals(plan,store.load().activeGreenhouse)
+            val legacy=store.exportJson()
+            legacy.getJSONArray("greenhouses").getJSONObject(0).getJSONObject("positions").getJSONObject("floor").remove("floorMount")
+            assertNull(store.decode(legacy).activeGreenhouse.sensorPositions["floor"]!!.heightFeet)
+            val now=System.currentTimeMillis()
+            val low=GoveeSensor("floor","H5179","Floor",64.0,90.0,true,now)
+            val high=low.copy(id="roof",name="Rafter",temperatureF=76.0,humidityPercent=69.0)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { a ->
+                    a.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    a.setContent {
+                        val settings = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(prefs) }
+                        ZoneVolumeScreen(GreenhouseUiState(standalone=true,sensors=listOf(low,high),preferences=settings.value),
+                            { change -> settings.value=change(settings.value);store.save(settings.value) },
+                            { error("Rendering the greenhouse must not dismiss it") })
+                    }
+                }
+                find("Floor ▾  ·  64°F  ·  0 ft")
+                val canvas=Rect().also { find("3D greenhouse. Drag to rotate; pinch to zoom and pan.").getBoundsInScreen(it) }
+                gesture(canvas,listOf(.25f to .6f,.5f to .4f))
+                val view = "3D greenhouse. Drag to rotate; pinch to zoom and pan."
+                pinchAndPan(canvas)
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    assertNotEquals("Zoom 100%", find(view).stateDescription)
+                }
+                click("Fit")
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    val deadline = SystemClock.uptimeMillis() + 3000
+                    while (find(view).stateDescription?.toString() != "Zoom 100%" && SystemClock.uptimeMillis() < deadline) {
+                        SystemClock.sleep(50)
+                    }
+                    assertEquals("Zoom 100%", find(view).stateDescription?.toString())
+                }
+                click("Humidity")
+                find("Floor ▾  ·  90%  ·  0 ft")
+                click("Floor ▾  ·  90%  ·  0 ft")
+                click("Rafter")
+                find("Rafter ▾  ·  69%  ·  7 ft")
+                click("Set height")
+                val input = find("7")
+                check(input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "6.5")
+                }))
+                find("6.5")
+                instrumentation.waitForIdleSync()
+                click("Save")
+                find("Rafter ▾  ·  69%  ·  6.5 ft")
+                assertEquals(6.5,store.load().activeGreenhouse.sensorPositions["roof"]!!.heightFeet!!,.001)
+                click("Temperature")
+                find("Rafter ▾  ·  76°F  ·  6.5 ft")
+                SystemClock.sleep(550)
+                screenshot("volume")
+                scenario.onActivity{it.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT}
+                find("Rafter ▾  ·  76°F  ·  6.5 ft")
+                screenshot("volume-portrait")
+            }
+        } finally { store.clear() }
+    }
+
     @Test fun openComparisonReplayAndOvernightReport() {
         val now = System.currentTimeMillis()
         val night = studio.junecity.greenhouse.data.NightWindow.at(now)
@@ -829,6 +895,31 @@ class StandaloneEditorTest {
         check(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK)==true)
         instrumentation.waitForIdleSync()
     }
+    private fun pinchAndPan(bounds: Rect) {
+        val start = SystemClock.uptimeMillis()
+        val fingers = Array(2) { i -> MotionEvent.PointerProperties().apply {
+            id = i
+            toolType = MotionEvent.TOOL_TYPE_FINGER
+        } }
+        fun send(action: Int, count: Int, fraction: Float) {
+            val coords = Array(count) { i -> MotionEvent.PointerCoords().apply {
+                x = bounds.centerX() + bounds.width() * ((if (i == 0) -1 else 1) * (.08f + .10f * fraction) + .06f * fraction)
+                y = bounds.centerY() + bounds.height() * .12f * fraction
+                pressure = 1f
+                size = .1f
+            } }
+            val e = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, count, fingers, coords,
+                0, 0, 1f, 1f, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0)
+            try { check(ui.injectInputEvent(e,true)) } finally { e.recycle() }
+        }
+        send(MotionEvent.ACTION_DOWN, 1, 0f)
+        send(MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2, 0f)
+        for (i in 1..8) send(MotionEvent.ACTION_MOVE, 2, i / 8f)
+        send(MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2, 1f)
+        send(MotionEvent.ACTION_UP, 1, 1f)
+        instrumentation.waitForIdleSync()
+    }
+
     private fun gesture(bounds:Rect,points:List<Pair<Float,Float>>) {
         val start=SystemClock.uptimeMillis()
         fun send(action:Int,p:Pair<Float,Float>){
