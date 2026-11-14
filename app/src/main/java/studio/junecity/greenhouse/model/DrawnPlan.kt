@@ -65,6 +65,16 @@ object DrawnPlan {
         if (raw.size < 2) return null
         val corners = simplify(raw,tolerance).toMutableList()
         if (distance(corners.first(),corners.last()) <= tolerance*2) corners.removeAt(corners.lastIndex)
+        // A trace can begin on a wall and finish at the preceding corner. The open-path
+        // simplifier keeps both endpoints; drop an endpoint lying on the closing wall.
+        if (corners.size > 3 && distance(corners.first(),
+                project(corners.first(), corners.last(), corners[1])) <= tolerance) {
+            corners.removeAt(0)
+        }
+        if (corners.size > 3 && distance(corners.last(),
+                project(corners.last(), corners[corners.lastIndex - 1], corners.first())) <= tolerance) {
+            corners.removeAt(corners.lastIndex)
+        }
         if (corners.size < 2 || corners.size > 48) return null
         if (corners.size == 2) {
             val (a,b) = corners
@@ -99,7 +109,7 @@ object DrawnPlan {
         val plan = original.copy(shape=GreenhouseShape.Drawn, lengthFeet=width, widthFeet=height, vertices=points)
         // Moving a wall must not stretch or translate sensors in the physical greenhouse.
         return plan.copy(sensorPositions=original.sensorPositions.mapValues { (_, sensor) ->
-            plan.coercePoint(sensor.xFeet-left, sensor.yFeet-top).copy(heightFeet=sensor.heightFeet)
+            plan.coercePoint(sensor.xFeet-left, sensor.yFeet-top).copy(heightFeet=sensor.heightFeet, level=sensor.level)
         })
     }
 

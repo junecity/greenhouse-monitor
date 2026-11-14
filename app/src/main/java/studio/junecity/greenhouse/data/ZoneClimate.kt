@@ -14,9 +14,12 @@ internal object ZoneClimate {
             it.temperatureF?.isFinite() == true && it.humidityPercent?.isFinite() == true }
             .mapNotNull { sensor ->
                 house.sensorPositions[sensor.id]?.takeIf { house.containsPoint(it.xFeet,it.yFeet) }
-                    ?.let { ZoneProbe(sensor,it) }
+                    ?.let { pos -> ZoneProbe(sensor, pos.copy(heightFeet = mountingHeight(house, pos))) }
             }
     }
+
+    fun mountingHeight(g: GreenhouseConfig, pos: SensorPosition) =
+        pos.heightFeet ?: pos.level?.let { sectionHeight(g, pos.yFeet) * it.fraction }
 
     fun mainHeight(g: GreenhouseConfig) = g.heightFeet ?: max(8.0,
         g.sensorPositions.values.filter { !g.hasStem || it.yFeet <= g.widthFeet || g.attachedHeightFeet == null }

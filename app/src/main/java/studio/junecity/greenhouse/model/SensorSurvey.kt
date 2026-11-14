@@ -34,3 +34,21 @@ internal fun GreenhouseConfig.floorCorners() = outline().map {
 }
 
 internal fun SensorPosition.floorDistance(other: SensorPosition) = hypot(xFeet-other.xFeet, yFeet-other.yFeet)
+
+/** The drop supplies the bearing; the optional floor measurement supplies the radius. */
+internal fun GreenhouseConfig.placementReference(drop: SensorPosition): SensorPosition? =
+    if (shape == GreenhouseShape.Circle) SensorPosition(lengthFeet / 2, lengthFeet / 2)
+    else floorCorners().minByOrNull { drop.floorDistance(it) }
+
+internal fun GreenhouseConfig.refineDrop(drop: SensorPosition, reference: SensorPosition, feet: Double): SensorPosition? {
+    if (!feet.isFinite() || feet < 0) return null
+    if (feet == 0.0) return reference
+    val distance = drop.floorDistance(reference)
+    if (distance < 1e-8) return null
+    val point = SensorPosition(reference.xFeet + (drop.xFeet - reference.xFeet) * feet / distance,
+        reference.yFeet + (drop.yFeet - reference.yFeet) * feet / distance)
+    if (!containsPoint(point.xFeet, point.yFeet)) return null
+    // Keep the highlighted corner consistent with the grower's measurement, including ties.
+    if (shape != GreenhouseShape.Circle && floorCorners().any { point.floorDistance(it) + 1e-7 < feet }) return null
+    return point
+}

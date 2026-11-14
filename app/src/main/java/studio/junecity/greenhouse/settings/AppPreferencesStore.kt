@@ -18,7 +18,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
         val notifications=JSONObject().put("master",n.masterEnabled).put("popups",n.popupsEnabled).put("sound",n.soundEnabled).put("vibration",n.vibrationEnabled).put("repeat",n.repeatedAlerts).put("repeatMinutes",n.repeatMinutes).put("snooze",n.snoozedUntilEpochMs).put("temp",n.temperatureAlerts).put("humidity",n.humidityAlerts).put("offline",n.offlineAlerts).put("connection",n.connectionAlerts).put("lowT",n.lowTemperatureF).put("highT",n.highTemperatureF).put("lowH",n.lowHumidity).put("highH",n.highHumidity).put("recoveryMargin",n.recoveryMargin)
         val greenhouses=JSONArray()
         p.greenhouses.forEach{g->
-            val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet).put("floorMount",pos.heightFeet == 0.0))}
+            val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet).put("mountLevel",pos.level?.name).put("floorMount",pos.heightFeet == 0.0))}
             val preset = g.shape.takeIf { it == GreenhouseShape.Circle || it == GreenhouseShape.LShape }
             greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",if(preset!=null) g.planLengthFeet else g.lengthFeet).put("width",if(preset!=null) g.planWidthFeet else g.widthFeet).put("height",g.heightFeet).put("attachedHeight",g.attachedHeightFeet).put("positions",positions).put("shape",if(preset!=null) GreenhouseShape.Drawn.name else g.shape.name).put("preset",preset?.name).put("sectionLength",if(preset!=null) g.lengthFeet else null).put("sectionWidth",if(preset!=null) g.widthFeet else null).put("vertices",JSONArray().also{points->(if(preset!=null) g.outline() else g.vertices).forEach{points.put(JSONArray().put(it.x).put(it.y))}}).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
         }
@@ -38,7 +38,9 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
                 val px = p.optDouble("x")
                 val py = p.optDouble("y")
                 if (px.isFinite() && py.isFinite()) {
-                    positions[id] = SensorPosition(px, py, p.optDouble("z").takeIf { it in 0.0..480.0 && (it > 0 || p.optBoolean("floorMount")) })
+                    val measured = p.optDouble("z").takeIf { it in 0.0..480.0 && (it > 0 || p.optBoolean("floorMount")) }
+                    val level = MountLevel.entries.find { it.name == p.optString("mountLevel") }
+                    positions[id] = SensorPosition(px, py, measured, level.takeIf { measured == null })
                 }
             }
             val points=x.optJSONArray("vertices")?.let{list->(0 until list.length().coerceAtMost(49)).mapNotNull{index->

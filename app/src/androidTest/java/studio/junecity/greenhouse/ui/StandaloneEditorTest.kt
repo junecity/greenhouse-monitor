@@ -575,13 +575,17 @@ class StandaloneEditorTest {
             click("Bench sensor")
             gesture(bounds,listOf(.5f to .6f))
             gesture(bounds,listOf(.5f to .6f,.50f to .47f))
+            click("Lower")
+            find("About 2 ft above the floor")
+            click("Save position")
             click("Save layout")
             instrumentation.waitForIdleSync()
             val result=requireNotNull(saved.get())
             assertEquals(GreenhouseShape.Drawn,result.shape)
-            assertEquals(3,result.vertices.size)
+            assertEquals("Traced vertices: ${result.vertices}",3,result.vertices.size)
             val position=requireNotNull(result.sensorPositions["sensor1"])
             assertTrue(result.containsPoint(position.xFeet,position.yFeet))
+            assertEquals(MountLevel.Lower, position.level)
             assertTrue("Dragging must move the sensor above the footprint center", position.yFeet < result.widthFeet / 2)
 
         }
@@ -918,6 +922,47 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun dragChooseUpperAndRefineWithOneDistance() {
+        val store = AppPreferencesStore(instrumentation.targetContext, "_drag_mount_fixture")
+        val sensor = GoveeSensor("fixture", "H5179", "Stem probe")
+        val house = GreenhouseConfig(shape=GreenhouseShape.TShape, heightFeet=8.0, attachedHeightFeet=12.0,
+            sensorPositions=mapOf(sensor.id to SensorPosition(8.0, 4.0, 3.5)))
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    activity.setContent {
+                        SensorPositionDialog(house, sensor, { error("Dismissed") }) { pos ->
+                            store.save(AppPreferences(greenhouses=listOf(house.copy(sensorPositions=mapOf(sensor.id to pos)))))
+                        }
+                    }
+                }
+                find("Measured height · 3.5 ft")
+                val map = Rect().also { find("Sensor placement map").getBoundsInScreen(it) }
+                gesture(map, listOf(.5f to .31f, .5f to .77f))
+                click("Upper")
+                fun input(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+                    if (node.isEditable) return node
+                    for (index in 0 until node.childCount) node.getChild(index)?.let { input(it) }?.let { return it }
+                    return null
+                }
+                val field = requireNotNull(input(ui.rootInActiveWindow))
+                check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "2.5")
+                }))
+                find("2.5")
+                click("Save position")
+                val restored = store.decode(store.exportJson()).activeGreenhouse
+                val pos = restored.sensorPositions.getValue(sensor.id)
+                assertTrue(pos.yFeet > 8.0)
+                assertEquals(2.5, pos.floorDistance(requireNotNull(restored.placementReference(pos))), .001)
+                assertEquals(MountLevel.Upper, pos.level)
+                assertNull(pos.heightFeet)
+                assertEquals(9.0, studio.junecity.greenhouse.data.ZoneClimate.mountingHeight(restored, pos)!!, .001)
+            }
+        } finally { store.clear() }
+    }
+
     @Test fun sectionMeasurementsSurviveEditingAndSnapshotDecode() {
         val store = AppPreferencesStore(instrumentation.targetContext, "_section_heights_fixture")
         val sensor = GoveeSensor("probe", "H5179", "Bench sensor")
@@ -953,6 +998,7 @@ class StandaloneEditorTest {
                 edit("10.0", "12.5")
                 click("Save")
                 find("Bench sensor")
+                click("Exact measurements")
                 edit("2", "4.5")
                 click("Show all corner distances")
                 find("Numbered greenhouse corners, viewed from above. The sensor is marked in blue.")

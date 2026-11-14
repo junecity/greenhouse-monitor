@@ -269,7 +269,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     fun moveSensor(id:String,nx:Double,ny:Double){
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
-        val p=_state.value.preferences;val g=p.activeGreenhouse;val projected=g.coercePoint(nx.coerceIn(.03,.97)*g.planLengthFeet,ny.coerceIn(.05,.95)*g.planWidthFeet);val pos=projected.copy(heightFeet=g.sensorPositions[id]?.heightFeet);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
+        val p=_state.value.preferences;val g=p.activeGreenhouse;val projected=g.coercePoint(nx.coerceIn(.03,.97)*g.planLengthFeet,ny.coerceIn(.05,.95)*g.planWidthFeet);val pos=projected.copy(heightFeet=g.sensorPositions[id]?.heightFeet, level=g.sensorPositions[id]?.level);savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=it.sensorPositions+(id to pos)) else it}))}
     fun assignZone(sensorId: String, zone: String) {
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return

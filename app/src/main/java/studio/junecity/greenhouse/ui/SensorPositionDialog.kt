@@ -26,7 +26,7 @@ import studio.junecity.greenhouse.model.*
         colors=darkFieldColors())
 }
 
-@Composable internal fun SensorPositionDialog(house: GreenhouseConfig, sensor: GoveeSensor, close: ()->Unit,
+@Composable internal fun ExactPositionDialog(house: GreenhouseConfig, sensor: GoveeSensor, close: ()->Unit,
                                              save: (SensorPosition)->Unit) {
     val initial = house.sensorPositions[sensor.id] ?: house.coercePoint(house.planLengthFeet/2,house.planWidthFeet/2)
     var stem by remember { mutableStateOf(house.hasStem && initial.yFeet > house.widthFeet) }
@@ -87,7 +87,7 @@ import studio.junecity.greenhouse.model.*
                 }
             }
         }
-    },confirmButton={TextButton(enabled=valid,onClick={save(requireNotNull(point).copy(heightFeet=z))}){Text("Save position",color=DashboardTokens.Amber)}},
+    },confirmButton={TextButton(enabled=valid,onClick={save(requireNotNull(point).copy(heightFeet=z,level=initial.level.takeIf { z==null }))}){Text("Save position",color=DashboardTokens.Amber)}},
         dismissButton={TextButton(onClick=close){Text("Cancel",color=DashboardTokens.Muted)}})
 }
 

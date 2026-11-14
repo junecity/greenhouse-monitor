@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.23.0 (56)
+- Devices → Position and FloorPlanEditor open DragSensorPosition. The drop supplies direction from the nearest true corner. One optional horizontal floor distance refines it. Circles use their center. Exact measurements remain available.
+- SensorPosition stores an optional Upper/Lower band separately from a measured height. ZoneClimate resolves it at 75%/25% of that section’s peak. Preserve the band through movement, preference storage, backups and snapshots. No database migration or cloud deployment.
+- 137 JVM tests, four API 35 instrumentation cases and lint (zero errors) passed. On the enrolled Moto G7 the new Position screen opened on the existing T plan. Live second-phone transfer is pending. See CHANGELOG for release checks.
+
 ## 2026-11-14 · Greenhouse Studio 2.22.0 (55)
 - Settings → Devices → Position records measured floor coordinates and height on the collector. SensorSurvey and SensorPositionDialog support two-corner measurement for rectangular sections, numbered perimeter corners and optional mounting heights. FloorPlanEditor also exposes sensor placement and roof heights.
 - GreenhouseConfig and AppPreferencesStore carry a nullable attachedHeight for T/L presets through the existing backup and server snapshot. Missing attached height inherits the main height. ZoneVolumeScreen and ZoneClimate use the two peaks. NightHeating estimates volumes separately and deducts the shared wall up to the lower eave. Keep completed-night cost records frozen.

@@ -42,7 +42,7 @@ private fun GreenhouseConfig.wallPoints() = outline()
 private fun midpoint(a: NormalizedPosition, b: NormalizedPosition) =
     NormalizedPosition((a.x + b.x) / 2, (a.y + b.y) / 2)
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>, onSave: (GreenhouseConfig)->Unit) {
     var draft by remember(saved.id) { mutableStateOf(saved) }
@@ -62,6 +62,7 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
     var stroke by remember { mutableStateOf(emptyList<NormalizedPosition>()) }
     var feedback by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<String?>(null) }
+    var lastPlaced by remember(saved.id) { mutableStateOf<String?>(null) }
     var snap by remember { mutableStateOf(true) }
     var movingWalls by remember(saved.id) { mutableStateOf<List<NormalizedPosition>?>(null) }
     var preview by remember(saved.id) { mutableStateOf<GreenhouseConfig?>(null) }
@@ -76,7 +77,7 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
     fun position(id: String) = draft.sensorPositions[id] ?: draft.coercePoint(draft.planLengthFeet/2,draft.planWidthFeet/2)
     fun place(id: String,at: Offset) {
         val p = feet(at)
-        draft = draft.copy(sensorPositions=draft.sensorPositions+(id to draft.coercePoint(p.x,p.y).copy(heightFeet=position(id).heightFeet)))
+        draft = draft.copy(sensorPositions=draft.sensorPositions+(id to draft.coercePoint(p.x,p.y).copy(heightFeet=position(id).heightFeet, level=position(id).level)))
     }
     val teal = DashboardTokens.Blue
     Column(Modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -91,7 +92,7 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                 colors=FilterChipDefaults.filterChipColors(labelColor=Color.White,
                     selectedLabelColor=DashboardTokens.Background, selectedContainerColor=DashboardTokens.Amber))
         }
-        Text(if(drawing) "Trace the walls, or drag diagonally for a rectangle." else if (draft.shape == GreenhouseShape.Circle) "Drag the rim to resize the circle." else
+        Text(if(drawing) "Trace the walls, or drag diagonally for a rectangle." else if (selected != null) "Drag the selected sensor to its spot." else if (draft.shape == GreenhouseShape.Circle) "Drag the rim to resize the circle." else
             "Drag a corner to reshape. Drag a wall’s midpoint to add a corner.", color=DashboardTokens.Muted)
         Canvas(Modifier.fillMaxWidth().height(220.dp).background(DashboardTokens.Background,RoundedCornerShape(12.dp))
             .onSizeChanged { size=it }.semantics { contentDescription="Greenhouse floor plan" }
@@ -162,7 +163,11 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                                 feedback=if(valid==null) "Walls must form one closed outline without crossing." else ""
                                 if (!finger.pressed && valid!=null) draft=valid
                             } else if (drawing) {
-                                if(stroke.size<1024 && stroke.lastOrNull()!=point) stroke=stroke+point
+                                // Android can batch several touch samples into one frame, including a turn at a corner.
+                                if (stroke.size < 1024) {
+                                    val samples = finger.historical.map { feet(it.position) } + point
+                                    stroke = stroke + samples.distinct().filter { it != stroke.lastOrNull() }.take(1024 - stroke.size)
+                                }
                                 if(!finger.pressed){
                                     val plan=DrawnPlan.fromStroke(stroke,draft,(8.dp.toPx()/scale).coerceAtLeast(.25),snap)
                                     if(plan==null) feedback="Draw a larger outline without crossing walls."
@@ -170,7 +175,13 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                                 }
                             } else if (!editWall && target!=null) {
                                 place(target,finger.position)
-                                if(!finger.pressed) selected=null
+                                if (!finger.pressed) {
+                                    lastPlaced = target
+                                    selected = null
+                                    if ((finger.position - down.position).getDistance() >= viewConfiguration.touchSlop) {
+                                        survey = sensors.find { it.id == target }
+                                    }
+                                }
                             }
                         } while(finger.pressed)
                     } finally {
@@ -259,8 +270,8 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
         if(!drawing && sensors.isNotEmpty()) FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             sensors.forEach { s -> FilterChip(selected=selected==s.id,onClick={selected=if(selected==s.id) null else s.id},label={Text(s.name)},colors=FilterChipDefaults.filterChipColors(labelColor=Color.White,selectedContainerColor=DashboardTokens.Amber)) }
         }
-        sensors.find { it.id == selected }?.let { sensor ->
-            EditorAction("Sensor position") { survey=sensor }
+        sensors.find { it.id == (selected ?: lastPlaced) }?.let { sensor ->
+            EditorAction("Set height & distance") { survey=sensor }
         }
         Button(onClick={onSave(draft.copy(name=draft.name.ifBlank{saved.name}))},enabled=!drawing,colors=ButtonDefaults.buttonColors(containerColor=DashboardTokens.Amber,contentColor=DashboardTokens.Background)){Text("Save layout")}
     }

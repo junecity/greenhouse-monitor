@@ -73,7 +73,7 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
         update { prefs -> prefs.copy(greenhouses=prefs.greenhouses.map { house ->
             if(house.id!=g.id) house else {
                 val pos=house.sensorPositions[sensor?.id]
-                val positions=if(sensor!=null && pos!=null) house.sensorPositions+(sensor.id to pos.copy(heightFeet=mount)) else house.sensorPositions
+                val positions=if(sensor!=null && pos!=null) house.sensorPositions+(sensor.id to pos.copy(heightFeet=mount, level=pos.level.takeIf { mount == null })) else house.sensorPositions
                 house.copy(heightFeet=roof,attachedHeightFeet=stemRoof,sensorPositions=positions)
             }
         }) }
@@ -238,9 +238,10 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
             Box(Modifier.weight(1f)) {
                 TextButton(onClick={menu=true},enabled=sensors.isNotEmpty()) {
                     Text(sensor?.let { s ->
-                        val mount=g.sensorPositions[s.id]?.heightFeet
+                        val position=g.sensorPositions[s.id]
+                        val mount=position?.heightFeet
                         val value=probes.find{it.sensor.id==s.id}?.sensor?.let{if(metric==Metric.Temperature)it.temperatureF else it.humidityPercent}
-                        "${s.name} ▾  ·  ${formatMetric(value,metric)}  ·  ${mount?.let{planNumber(it)+" ft"} ?: "Height unset"}" + (s.lightLevel?.let { "  ·  Light: $it" } ?: "")
+                        "${s.name} ▾  ·  ${formatMetric(value,metric)}  ·  ${mount?.let{planNumber(it)+" ft"} ?: position?.level?.name ?: "Height unset"}" + (s.lightLevel?.let { "  ·  Light: $it" } ?: "")
                     } ?: "No sensors",color=Color.White)
                 }
                 DropdownMenu(expanded=menu,onDismissRequest={menu=false}){sensors.forEach{s->
