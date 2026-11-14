@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-13 · Android 2.18.0 (50)
+- HistoryStore schema 3 retains 180 UTC dates of collector readings and indexes the last actual reading per sensor per day. History offers 30/90/180 days with a daily chart and raw day drilldown. Existing seven-day queries for other screens remain bounded. Monthly ranges summarize daily closing observations.
+- GreenhouseBackupStore includes compact daily observations beside the bounded raw snapshot. GreenhouseViewModel merges authorized viewer history into a separate SQLite file per enrollment/greenhouse. Raw viewer coverage depends on sync frequency and payload size. Old backups can restore data that was previously removed. See CHANGELOG for release verification.
+- Passed 121 JVM and 11 API 35 instrumented tests; lint 0 errors. Enrolled Moto retained its readings through the in-place schema upgrade. A live second-phone sync and six elapsed months of operation remain unverified.
+
 ## 2026-11-13 · Android 2.17.1 (49)
 - Energy is a bottom tab following Dashboard. Both use the current house’s nighttime sensor history, matching weather and saved billing unit/rate. NightHeating learns typical indoor temperature from steady quarter-hour samples; it withholds estimates during cold start. No manual target input.
 - CloudOnboardingGate presents QuickStartScreen following new enrollment, skips previously enrolled phones and replacement servers with a restored snapshot. Single-phone setup uses the encrypted standalone Govee path. Energy and Quick Start use the same scoped HeatingStore.

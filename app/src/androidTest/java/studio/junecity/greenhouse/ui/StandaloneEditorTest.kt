@@ -659,6 +659,54 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun monthHistoryMigratesAndSurvivesBoundedViewerSyncAndRestart() {
+        val context = instrumentation.targetContext
+        val collector = "_history_month_source"
+        val viewer = "_history_month_viewer"
+        val dbName = "greenhouse_history$collector.db"
+        val now = System.currentTimeMillis()
+        val oldDay = now / DAY_MS - 145
+        val early = HistoryReading("bench", "Bench", 55.0, 81.0, oldDay * DAY_MS + 2000)
+        val late = early.copy(temperatureF = 62.0, timestampEpochMs = early.timestampEpochMs + 60_000)
+        try {
+            context.deleteDatabase(dbName)
+            context.deleteDatabase("greenhouse_history$viewer.db")
+            // Start with the exact old schema and an already-recorded day.
+            context.openOrCreateDatabase(dbName, 0, null).use { db ->
+                db.execSQL("CREATE TABLE readings(id INTEGER PRIMARY KEY AUTOINCREMENT,sensor_id TEXT NOT NULL,sensor_name TEXT NOT NULL,temperature REAL NOT NULL,humidity REAL NOT NULL,recorded_at INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX readings_time ON readings(recorded_at DESC)")
+                db.execSQL("CREATE UNIQUE INDEX readings_sensor_time ON readings(sensor_id,recorded_at)")
+                db.execSQL("INSERT INTO readings VALUES(NULL,?,?,?,?,?)", arrayOf<Any>(early.sensorId, early.sensorName, early.temperatureF, early.humidityPercent, early.timestampEpochMs))
+                db.version = 2
+            }
+            studio.junecity.greenhouse.data.HistoryStore(context, collector).use { db ->
+                assertEquals(listOf(early), db.dailyReadings())
+                val recent = (0..1600).map { early.copy(timestampEpochMs = now - it) }
+                db.importReadings(recent + late + early.copy(timestampEpochMs = now - 181 * DAY_MS), merge = true)
+                db.insert(GoveeSensor("now","H5179","Current",65.0,80.0,true,now))
+                assertEquals(listOf(late,early), db.dayReadings(oldDay))
+                assertTrue(db.dayReadings(now / DAY_MS - 181).isEmpty())
+                assertFalse(early in db.weekReadings())
+                assertTrue(late in db.dailyReadings())
+            }
+            val payload = studio.junecity.greenhouse.cloud.GreenhouseBackupStore(context, collector).snapshot()
+            assertEquals(1500, payload.getJSONArray("history").length())
+            val destination = studio.junecity.greenhouse.cloud.GreenhouseBackupStore(context, viewer)
+            val historyOnly = org.json.JSONObject().put("schema",2).put("history",payload.getJSONArray("history"))
+                .put("dailyLast",payload.getJSONArray("dailyLast"))
+            destination.restore(historyOnly)
+            destination.restore(historyOnly)
+            destination.restore(org.json.JSONObject().put("schema",2).put("history",org.json.JSONArray()))
+            studio.junecity.greenhouse.data.HistoryStore(context, viewer).use { db ->
+                assertEquals(listOf(late),db.dayReadings(oldDay))
+                assertTrue(late in db.dailyReadings())
+            }
+        } finally {
+            context.deleteDatabase(dbName)
+            context.deleteDatabase("greenhouse_history$viewer.db")
+        }
+    }
+
     @Test fun historyWeekIncludesOlderReadingsBeyondDashboardLimit() {
         val context = instrumentation.targetContext
         val suffix = "_week_chart_fixture"
@@ -835,7 +883,7 @@ class StandaloneEditorTest {
                     activity.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                     activity.setContent {
                         StageScreen(GreenhouseUiState(screen=screen,standalone=true,sensors=sensors,history=history,
-                            preferences=AppPreferences(greenhouses=listOf(g))),DeviceStatus(80,true,true),
+                            dailyHistory=history.map { it.copy(timestampEpochMs = now - 80 * DAY_MS) },preferences=AppPreferences(greenhouses=listOf(g))),DeviceStatus(80,true,true),
                             java.time.LocalDateTime.now(),{},{},{},{},{_,_,_->},{_,_->},{},{},{_,_,_->},{},Modifier.fillMaxSize())
                     }
                 }
@@ -868,12 +916,23 @@ class StandaloneEditorTest {
             screenshot("replay")
             click("Close")
             show(AppScreen.History)
+            click("24h ▾")
             click("7d")
             scrub("Temperature trend", .5f)
             find("—")
+            click("7d ▾")
             click("6h")
             find("Latest readings")
             screenshot("history")
+            for (range in listOf("30d", "90d", "180d")) {
+                click(when (range) { "30d" -> "6h ▾"; "90d" -> "30d ▾"; else -> "90d ▾" })
+                click(range)
+                find("Daily closing readings · UTC")
+                if (range == "30d") find("No readings in this period") else find("Temperature trend")
+            }
+            scrub("Temperature trend", .55f)
+            click("View day")
+            find("No readings in this period")
             click("Overnight report")
             find("Overnight report")
             screenshot("overnight")

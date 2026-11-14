@@ -68,7 +68,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
-@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={}){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric);AppScreen.Cameras->CameraContent(state,d,stageText);AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored);else->Unit}}}
+@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={},onHistoryDay:suspend (Long)->List<HistoryReading> = { emptyList() }){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric,onHistoryDay);AppScreen.Cameras->CameraContent(state,d,stageText);AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored);else->Unit}}}
 
 @Composable private fun MetricControls(active:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){val labels=listOf(Triple(Metric.Temperature,"Temperature",DashboardIcon.Thermometer),Triple(Metric.Humidity,"Humidity",DashboardIcon.Droplet),Triple(Metric.Vpd,"VPD",DashboardIcon.Gauge),Triple(Metric.DewPoint,"Dew Point",DashboardIcon.Droplet));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){labels.forEach{(m,label,icon)->val selected=m==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onMetric(m)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else if(m==Metric.Humidity||m==Metric.DewPoint)DashboardTokens.Blue else Color.White,Modifier.size(d(26f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
@@ -173,20 +173,32 @@ import kotlin.math.roundToInt
 }
 
 @Composable private fun HistoryContent(state: GreenhouseUiState, d: (Float)->androidx.compose.ui.unit.Dp,
-    t: (Float)->androidx.compose.ui.unit.TextUnit, onMetric: (Metric)->Unit) {
+    t: (Float)->androidx.compose.ui.unit.TextUnit, onMetric: (Metric)->Unit,
+    onHistoryDay: suspend (Long) -> List<HistoryReading>) {
     var overnight by remember { mutableStateOf(false) }
     if (overnight) InsightsDialog(Insight.Overnight,state,d,t){ overnight = false }
     var hours by remember { mutableIntStateOf(24) }
-    val end = remember(state.history) { System.currentTimeMillis() }
-    val start = end - hours * 3_600_000L
-    val series = remember(state.history, start) {
-        state.history.filter { it.timestampEpochMs in start..end }.groupBy { it.sensorId }.toSortedMap()
+    var inspectDay by remember(hours, state.preferences.activeGreenhouseId) { mutableStateOf<Long?>(null) }
+    val detail by produceState(emptyList<HistoryReading>(), inspectDay, state.history, state.dailyHistory) {
+        value = emptyList()
+        inspectDay?.let { value = onHistoryDay(it) }
+    }
+    val daily = hours > 168 && inspectDay == null
+    val source = if (inspectDay != null) detail else if (daily) state.dailyHistory else state.history
+    val end = inspectDay?.let { (it + 1) * DAY_MS - 1 } ?: remember(source) { System.currentTimeMillis() }
+    val start = if (inspectDay != null) inspectDay!! * DAY_MS else if (daily) (end / DAY_MS - hours / 24 + 1) * DAY_MS else end - hours * 3_600_000L
+    val series = remember(source, start, state.preferences, state.sensors) {
+        val house = state.preferences.activeGreenhouseId
+        val inventory = state.sensors.associate { it.id to it.greenhouseId }
+        source.filter { row ->
+            (inventory[row.sensorId] ?: state.preferences.sensorGreenhouseIds[row.sensorId] ?: "main") == house
+        }.filter { it.timestampEpochMs in start..end }.groupBy { it.sensorId }.toSortedMap()
             .entries.mapIndexed { i, (id, rows) ->
                 val timeline = studio.junecity.greenhouse.data.SensorTimeline(rows)
                 TrendSensor(id, rows.maxBy { it.timestampEpochMs }.sensorName, timeline, trendPalette[i % trendPalette.size])
             }
     }
-    var cursor by remember(hours, state.metric) { mutableStateOf<Long?>(null) }
+    var cursor by remember(hours, state.metric, inspectDay) { mutableStateOf<Long?>(null) }
     val metric = state.metric
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.height(d(72f)),horizontalArrangement=Arrangement.spacedBy(d(18f))) {
@@ -204,27 +216,37 @@ import kotlin.math.roundToInt
                 Column(Modifier.fillMaxSize().padding(horizontal=12.dp, vertical=6.dp)) {
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text(metric.displayName(), color=Color.White, fontSize=18.sp, fontWeight=FontWeight.Bold, modifier=Modifier.weight(1f))
-                        for ((value, label) in listOf(6 to "6h",24 to "24h",168 to "7d")) {
-                            TextButton({ hours=value }, colors=ButtonDefaults.textButtonColors(contentColor=if(hours==value) DashboardTokens.Amber else DashboardTokens.Muted),
-                                contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(label) }
+                        var choose by remember { mutableStateOf(false) }
+                        val ranges = listOf(6 to "6h", 24 to "24h", 168 to "7d", 720 to "30d", 2160 to "90d", HISTORY_DAYS * 24 to "180d")
+                        if (inspectDay != null) InsightButton("‹ " + utcDay(start)) { inspectDay = null }
+                        Box {
+                            TextButton({ choose = true }) {
+                                Text(ranges.first { it.first == hours }.second + " ▾", color = DashboardTokens.Amber)
+                            }
+                            DropdownMenu(expanded = choose, onDismissRequest = { choose = false }) {
+                                ranges.forEach { (value, label) ->
+                                    DropdownMenuItem(text = { Text(label) }, onClick = { hours = value; inspectDay = null; choose = false })
+                                }
+                            }
                         }
                     }
                     key(hours) {
-                        SensorTrendChart(series,metric,start,end,cursor,{ cursor=it },Modifier.fillMaxWidth().weight(1f))
+                        SensorTrendChart(series,metric,start,end,cursor,{ cursor=it },Modifier.fillMaxWidth().weight(1f), daily = daily)
                     }
                 }
             }
             NeonPanel(Modifier.weight(.30f).fillMaxHeight()) {
                 Column(Modifier.fillMaxSize().padding(9.dp)) {
                     Row(verticalAlignment=Alignment.CenterVertically) {
-                        Text(cursor?.let { chartTime(it,"MMM d, h:mm a") } ?: "Latest readings", color=DashboardTokens.Muted,
+                        Text(cursor?.let { if (daily) utcDay(it) else chartTime(it,"MMM d, h:mm a") } ?: if (daily) "Daily closing readings · UTC" else "Latest readings", color=DashboardTokens.Muted,
                             fontSize=13.sp, modifier=Modifier.weight(1f))
-                        if (cursor != null) InsightButton("Latest"){ cursor=null }
+                        if (daily && cursor != null) InsightButton("View day") { inspectDay = cursor!! / DAY_MS }
+                        if (cursor != null && !daily) InsightButton("Latest"){ cursor=null }
                     }
                     LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)) {
                         items(series,key={it.id}) { sensor ->
                             val stats = remember(sensor,metric) { sensor.timeline.rows.map { historyMetric(it,metric) }.filter { it.isFinite() } }
-                            val row = cursor?.let { sensor.timeline.at(it) } ?: if(cursor==null) sensor.timeline.rows.lastOrNull() else null
+                            val row = cursor?.let { sensor.timeline.chartReading(it, daily) } ?: if(cursor==null) sensor.timeline.rows.lastOrNull() else null
                             Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(10.dp)).padding(8.dp)) {
                                 Text(sensor.name,color=sensor.color,fontWeight=FontWeight.Bold,fontSize=14.sp)
                                 Text(formatMetric(row?.let { historyMetric(it,metric) },metric),color=Color.White,fontSize=19.sp,fontWeight=FontWeight.Bold)

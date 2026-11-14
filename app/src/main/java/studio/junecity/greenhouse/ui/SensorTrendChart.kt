@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import studio.junecity.greenhouse.data.READING_LIFETIME
 import studio.junecity.greenhouse.data.SensorTimeline
+import studio.junecity.greenhouse.model.DAY_MS
 import studio.junecity.greenhouse.model.Metric
 import java.time.Instant
 import java.time.ZoneId
@@ -49,10 +50,17 @@ private fun Metric.unit() = when (this) {
 internal fun chartTime(time: Long, pattern: String): String =
     DateTimeFormatter.ofPattern(pattern).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(time))
 
+internal fun utcDay(time: Long) = DateTimeFormatter.ofPattern("MMM d").withZone(java.time.ZoneOffset.UTC)
+    .format(Instant.ofEpochMilli(time))
+
+internal fun SensorTimeline.chartReading(time: Long, daily: Boolean) =
+    if (daily) rows.binarySearchBy(time / DAY_MS) { it.timestampEpochMs / DAY_MS }.let { rows.getOrNull(it) }
+    else at(time)
+
 // Round to a readable interval and keep constant readings visible.
 private fun axis(values: List<List<Sample>>, metric: Metric): List<Double> {
-    val low = values.minOfOrNull { s -> s.minOfOrNull { it.value } ?: Double.POSITIVE_INFINITY } ?: 0.0
-    val high = values.maxOfOrNull { s -> s.maxOfOrNull { it.value } ?: Double.NEGATIVE_INFINITY } ?: 0.0
+    val low = values.minOfOrNull { s -> s.minOfOrNull { it.value } ?: Double.POSITIVE_INFINITY } ?: return emptyList()
+    val high = values.maxOfOrNull { s -> s.maxOfOrNull { it.value } ?: Double.NEGATIVE_INFINITY } ?: return emptyList()
     if (!low.isFinite() || !high.isFinite()) return emptyList()
     val minimum = if (metric == Metric.Vpd) .1 else 1.0
     val raw = max((high - low) / 3.0, minimum)
@@ -65,11 +73,11 @@ private fun axis(values: List<List<Sample>>, metric: Metric): List<Double> {
 
 @Composable internal fun SensorTrendChart(
     series: List<TrendSensor>, metric: Metric, start: Long, end: Long,
-    selected: Long?, onSelect: (Long) -> Unit, modifier: Modifier
+    selected: Long?, onSelect: (Long) -> Unit, modifier: Modifier, daily: Boolean = false
 ) {
-    val lines = remember(series, metric, start, end) {
+    val lines = remember(series, metric, start, end, daily) {
         series.map { sensor -> sensor.timeline.rows.asSequence().filter { it.timestampEpochMs in start..end }
-            .map { Sample(it.timestampEpochMs, historyMetric(it, metric)) }.filter { it.value.isFinite() }.toList() }
+            .map { Sample(if (daily) it.timestampEpochMs / DAY_MS * DAY_MS else it.timestampEpochMs, historyMetric(it, metric)) }.filter { it.value.isFinite() }.toList() }
     }
     val ticks = remember(lines, metric) { axis(lines, metric) }
     if (ticks.isEmpty()) {
@@ -89,21 +97,22 @@ private fun axis(values: List<List<Sample>>, metric: Metric): List<Double> {
     }
     val labelWidth = if (metric == Metric.Vpd) 55.dp else 43.dp
     val number = remember { java.text.DecimalFormat("0.##") }
-    val plot = remember(lines, series, ticks, start, span, reveal) {
+    val plot = remember(lines, series, ticks, start, span, reveal, daily) {
         Modifier.drawWithCache {
             fun x(time: Long) = ((time - start).toDouble() / span * size.width).toFloat()
             fun y(value: Double) = ((ticks.last() - value) / (ticks.last() - ticks.first()) * size.height).toFloat()
             val paths = ArrayList<Path>()
             val singletons = ArrayList<List<Offset>>()
+            val gap = if (daily) DAY_MS else READING_LIFETIME
             for (samples in lines) {
                 val path = Path()
                 val dots = ArrayList<Offset>()
                 samples.forEachIndexed { i, sample ->
-                    val first = i == 0 || sample.time - samples[i - 1].time > READING_LIFETIME
+                    val first = i == 0 || sample.time - samples[i - 1].time > gap
                     val point = Offset(x(sample.time), y(sample.value))
                     if (first) {
                         path.moveTo(point.x, point.y)
-                        if (i == samples.lastIndex || samples[i+1].time - sample.time > READING_LIFETIME) dots.add(point)
+                        if (i == samples.lastIndex || samples[i+1].time - sample.time > gap) dots.add(point)
                     } else path.lineTo(point.x, point.y)
                 }
                 paths.add(path)
@@ -157,7 +166,7 @@ private fun axis(values: List<List<Sample>>, metric: Metric): List<Double> {
                     val xx = size.width * selectedFraction.coerceIn(0f,1f)
                     drawLine(Color.White.copy(alpha=.72f),Offset(xx,0f),Offset(xx,size.height),1.dp.toPx())
                     for (sensor in series) {
-                        val row = sensor.timeline.at(selected) ?: continue
+                        val row = sensor.timeline.chartReading(selected, daily) ?: continue
                         val yy = ((ticks.last() - historyMetric(row,metric)) / (ticks.last() - ticks.first()) * size.height).toFloat()
                         if (yy in 0f..size.height) {
                             drawCircle(DashboardTokens.Background, 4.dp.toPx(), Offset(xx,yy))
@@ -173,7 +182,7 @@ private fun axis(values: List<List<Sample>>, metric: Metric): List<Double> {
                 span >= 24 * 3_600_000L -> "EEE h a"
                 else -> "h:mm a"
             }
-            listOf(start, start + span/2, end).forEach { Text(chartTime(it,pattern), color=DashboardTokens.Muted, fontSize=11.sp) }
+            listOf(start, start + span/2, end).forEach { Text(if (daily) utcDay(it) else chartTime(it,pattern), color=DashboardTokens.Muted, fontSize=11.sp) }
         }
     }
 }

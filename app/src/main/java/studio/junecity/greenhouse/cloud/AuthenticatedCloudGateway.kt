@@ -338,7 +338,12 @@ internal suspend fun uploadSensorSnapshot(backup: JSONObject, send: suspend (JSO
             return
         } catch (error: CloudApiException) {
             val history = payload.optJSONArray("history")
-            if (error.statusCode != 413 || history == null || history.length() == 0) throw error
+            if (error.statusCode != 413 || history == null) throw error
+            if (payload.has("dailyLast") && history.length() <= 128) {
+                payload = JSONObject(payload.toString()).apply { remove("dailyLast") }
+                continue
+            }
+            if (history.length() == 0) throw error
             val recent = org.json.JSONArray()
             for (index in (history.length() + 1) / 2 until history.length()) recent.put(history.get(index))
             payload = JSONObject().apply {

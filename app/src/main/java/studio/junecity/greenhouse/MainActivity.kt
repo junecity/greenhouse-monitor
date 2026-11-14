@@ -223,7 +223,7 @@ class MainActivity : ComponentActivity() {
                             state.copy(screen = screen), status, now, navigate, viewModel::selectMetric,
                             viewModel::refreshSensors, viewModel::saveApiKey, viewModel::moveSensor, viewModel::assignZone,
                             viewModel::saveZip, viewModel::refreshWeather, viewModel::updateGreenhouse,
-                            viewModel::updatePreferences, Modifier.fillMaxSize(), openSensors, viewModel::reloadAfterRestore, onVolume = { viewModel.setVolumeOpen(true) }
+                            viewModel::updatePreferences, Modifier.fillMaxSize(), openSensors, viewModel::reloadAfterRestore, onVolume = { viewModel.setVolumeOpen(true) }, onHistoryDay = viewModel::historyDay
                         )
                     }
                 }
