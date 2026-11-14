@@ -8,6 +8,12 @@ import studio.junecity.greenhouse.data.ZoneClimate
 class ShellySensorsTest {
     private fun bytes(vararg values: Int) = ByteArray(values.size) { values[it].toByte() }
 
+    @Test fun manualAddressesMatchRadioIdentity() {
+        assertEquals("shelly:AA:01:02:03:04:FF", shellyAddressId(" aa-01-02-03-04-ff "))
+        assertEquals(shellyAddressId("AA:01:02:03:04:FF"), shellyAddressId("aa01020304ff"))
+        listOf("", "AA:01", "0011223344ZZ", "000000000000").forEach { assertNull(shellyAddressId(it)) }
+    }
+
     @Test fun bothShellyModelsAreIdentifiedByManufacturerOrName() {
         assertEquals(ShellyModel.Display, ShellyModel.identify(null, bytes(1,0,0,11,12,0), null))
         assertEquals(ShellyModel.HT, ShellyModel.identify("SBHT-203C", null, null))

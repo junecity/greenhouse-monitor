@@ -78,6 +78,26 @@ class CustomerBackupTest {
         assertEquals(AppPreferences(), AppPreferencesStore(context).load())
     }
 
+    @Test fun removedSensorsAndLabelsSurviveRestoreAndRediscovery() {
+        seed()
+        val other = sensor.copy(id = "other")
+        current.enroll(other)
+        current.rename(sensor.id, "Canopy")
+        current.rename(other.id, "Bench floor")
+        current.remove(other.id)
+        val backup = CustomerBackup(context, enrollment)
+        val output = ByteArrayOutputStream()
+        backup.write(output, scope)
+        current.clear()
+        backup.restore(output.toByteArray().inputStream(), charArrayOf(), scope)
+        val fromCloud = listOf(sensor, other)
+        assertEquals(listOf("Canopy"), current.allowedReadings(fromCloud).map { it.name })
+        assertEquals("Bench floor", current.removed().single().name)
+        current.addBack(other.id)
+        assertFalse(current.load().single { it.id == other.id }.isFresh())
+        assertEquals(listOf("Canopy", "Bench floor"), current.allowedReadings(fromCloud).map { it.name })
+    }
+
     @Test fun damagedTruncatedWrongPasswordAndForeignFilesLeaveDestinationIntact() {
         val (file,_) = seed()
         prefs.clear()

@@ -60,6 +60,7 @@ import studio.junecity.greenhouse.camera.CameraStreamServer
 import studio.junecity.greenhouse.cloud.CloudDeviceManagementPanel
 import studio.junecity.greenhouse.cloud.CloudServerPairingPanel
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
+import studio.junecity.greenhouse.settings.CurrentSensorStore
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.data.SpatialInterpolator
 import studio.junecity.greenhouse.model.*
@@ -578,19 +579,37 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 }
 
 @Composable private fun AlertSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onPrefs:((AppPreferences)->AppPreferences)->Unit){val n=state.preferences.notifications;var delivery by remember{mutableStateOf(false)};LazyColumn(Modifier.fillMaxSize().padding(d(22f)),verticalArrangement=Arrangement.spacedBy(d(8f))){item{Text("Alerts & Notifications",color=Color.White,fontSize=t(25f),fontWeight=FontWeight.Bold);Text("Monitoring and history continue when notifications are off. Defaults are quiet and non-repeating.",color=DashboardTokens.Muted,fontSize=t(14f))};item{ToggleRow("Master notifications",n.masterEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(masterEnabled=!it.notifications.masterEnabled))}}};item{ToggleRow("Temperature alerts",n.temperatureAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(temperatureAlerts=!it.notifications.temperatureAlerts))}}};item{ToggleRow("Humidity alerts",n.humidityAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(humidityAlerts=!it.notifications.humidityAlerts))}}};item{ToggleRow("Sensor offline alerts",n.offlineAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(offlineAlerts=!it.notifications.offlineAlerts))}}};item{TextButton(onClick={delivery=!delivery}){Text(if(delivery)"Hide delivery options" else "Alert delivery",color=DashboardTokens.Amber)}};if(delivery)item{ToggleRow("On-screen pop-ups",n.popupsEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(popupsEnabled=!it.notifications.popupsEnabled))}}};if(delivery)item{ToggleRow("Sound",n.soundEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(soundEnabled=!it.notifications.soundEnabled))}}};if(delivery)item{ToggleRow("Vibration",n.vibrationEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(vibrationEnabled=!it.notifications.vibrationEnabled))}}};if(delivery)item{ToggleRow("Repeated alerts (${n.repeatMinutes} min)",n.repeatedAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(repeatedAlerts=!it.notifications.repeatedAlerts))}}};item{SettingsRow("Temperature range"){StepButton("−",d,t){onPrefs{it.copy(notifications=it.notifications.copy(lowTemperatureF=it.notifications.lowTemperatureF-1))}};Text("${n.lowTemperatureF.roundToInt()}–${n.highTemperatureF.roundToInt()}°F",color=Color.White,fontSize=t(16f));StepButton("+",d,t){onPrefs{it.copy(notifications=it.notifications.copy(highTemperatureF=it.notifications.highTemperatureF+1))}}}};item{SettingsRow("Humidity range"){StepButton("−",d,t){onPrefs{it.copy(notifications=it.notifications.copy(lowHumidity=(it.notifications.lowHumidity-1).coerceAtLeast(0.0)))}};Text("${n.lowHumidity.roundToInt()}–${n.highHumidity.roundToInt()}%",color=Color.White,fontSize=t(16f));StepButton("+",d,t){onPrefs{it.copy(notifications=it.notifications.copy(highHumidity=(it.notifications.highHumidity+1).coerceAtMost(100.0)))}}}};item{Row(horizontalArrangement=Arrangement.spacedBy(d(10f))){ActionButton("Snooze 1 hour",d,t){onPrefs{it.copy(notifications=it.notifications.copy(snoozedUntilEpochMs=System.currentTimeMillis()+60*60_000L))}};ActionButton("Clear snooze",d,t){onPrefs{it.copy(notifications=it.notifications.copy(snoozedUntilEpochMs=0))}}}}}}
-@Composable private fun DevicesSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onAssign:(String,String)->Unit,onRefresh:()->Unit,onSave:(String)->Unit,onSensorsChanged:()->Unit){
+@Composable internal fun DevicesSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onAssign:(String,String)->Unit,onRefresh:()->Unit,onSave:(String)->Unit,onSensorsChanged:()->Unit){
     val context=LocalContext.current
-    val viewer=remember(state.standalone){SecureSettingsStore(context).cloudEnrollment()?.role==CloudDeviceRole.ViewerClient}
+    val secure = remember(context) { SecureSettingsStore(context) }
+    val owner = secure.cloudEnrollment()
+    val viewer = owner?.role == CloudDeviceRole.ViewerClient
     val local=state.standalone || !viewer
     var editKey by remember(local){mutableStateOf(local && !state.goveeConnected && state.sensors.isEmpty())}
     var expanded by remember{mutableStateOf<String?>(null)}
+    val store = remember(state.standalone, owner) { CurrentSensorStore(context, if (state.standalone) "_standalone" else "") }
+    var removed by remember(store) { mutableStateOf(store.removed()) }
+    var showRemoved by remember(store) { mutableStateOf(false) }
+    var editing by remember(store) { mutableStateOf<GoveeSensor?>(null) }
+    fun change(action: () -> Unit) {
+        if (local && secure.cloudEnrollment() == owner) {
+            action()
+            removed = store.removed()
+            onSensorsChanged()
+        }
+    }
+    editing?.let { sensor ->
+        SensorLabelDialog(sensor.name, onClose = { editing = null },
+            onSave = { label -> change { store.rename(sensor.id, label) }; editing = null },
+            onRemove = { change { store.remove(sensor.id) }; expanded = null; editing = null })
+    }
     var managePhones by remember{mutableStateOf(false)}
     var key by remember{mutableStateOf("")}
     LazyColumn(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{Text("Sensors",color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold)}
         if(local)item{
             Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-                ShellyConnections(state.preferences.activeGreenhouse.id, state.preferences.activeGreenhouse.name, onSensorsChanged)
+                ShellyConnections(state.preferences.activeGreenhouse.id, state.preferences.activeGreenhouse.name, { removed = store.removed(); onSensorsChanged() })
                 if(editKey){
                     Text("Connect your Govee H5179 sensors",color=Color.White)
                     OutlinedTextField(key,{key=it},label={Text("Govee API key")},singleLine=true,visualTransformation=PasswordVisualTransformation(),colors=darkFieldColors(),modifier=Modifier.fillMaxWidth())
@@ -600,7 +619,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                     }
                 }else{
                     ActionButton(if(state.goveeConnected)"Manage Govee" else "Add Govee sensors",d,t){editKey=true}
-                    if(state.goveeConnected) TextButton(onClick=onRefresh){Text("Refresh readings",color=DashboardTokens.Amber)}
+                    if(state.goveeConnected) TextButton(onClick=onRefresh){Text("Find Govee sensors",color=DashboardTokens.Amber)}
                 }
                 state.message?.let{Text(it,color=DashboardTokens.Muted)}
             }
@@ -608,16 +627,30 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         if(!local && state.sensors.isEmpty())item{Text("No sensors reported by the greenhouse server yet.",color=DashboardTokens.Muted)}
         items(state.sensors,key={it.id}){sensor->
             Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(12.dp)).clickable(enabled=local){expanded=if(expanded==sensor.id)null else sensor.id}.padding(14.dp)){
-                Text(sensor.name,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(sensor.name,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                    if (local) TextButton(onClick = { editing = sensor }) { Text("Edit", color = DashboardTokens.Amber) }
+                }
                 sensor.lightLevel?.let { Text("Ambient light · $it" + if (sensor.isFresh()) "" else " (last reading)", color=DashboardTokens.Muted) }
                 val assigned = state.preferences.greenhouses.firstOrNull { it.id == sensor.greenhouseId }
-                Text(listOfNotNull(assigned?.name ?: "Choose a greenhouse", sensor.zone.takeIf { assigned != null }, if(sensor.isFresh()) "Online" else "Offline").joinToString(" · "), color=DashboardTokens.Muted)
+                Text(listOfNotNull(assigned?.name ?: "Choose a greenhouse", sensor.zone.takeIf { assigned != null }, if(sensor.isFresh()) "Online" else if (sensor.updatedAtEpochMs == 0L && sensor.id.startsWith("shelly:")) "Waiting for first reading" else "Offline").joinToString(" · "), color=DashboardTokens.Muted)
                 if(local && expanded==sensor.id && sensor.greenhouseId!=state.preferences.activeGreenhouse.id) {
                     ActionButton("Assign to ${state.preferences.activeGreenhouse.name}",d,t){onAssign(sensor.id,if (assigned == null) "Unassigned" else sensor.zone);expanded=null}
                 }
                 if(local && expanded==sensor.id)FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)){(1..4).forEach{z->
                     ActionButton("Zone $z",d,t){onAssign(sensor.id,"Zone $z");expanded=null}
                 }}
+            }
+        }
+        if (local && removed.isNotEmpty()) {
+            item { TextButton(onClick = { showRemoved = !showRemoved }) {
+                Text(if (showRemoved) "Hide removed sensors" else "Add a removed sensor (${removed.size})", color = DashboardTokens.Amber)
+            } }
+            if (showRemoved) items(removed, key = { "removed-${it.id}" }) { sensor ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(sensor.name, Modifier.weight(1f), color = Color.White)
+                    TextButton(onClick = { change { store.addBack(sensor.id) } }) { Text("Add back", color = DashboardTokens.Amber) }
+                }
             }
         }
         if(viewer)item{TextButton(onClick={managePhones=!managePhones}){Text(if(managePhones)"Hide phones" else "Manage phones",color=DashboardTokens.Amber)}}
@@ -632,6 +665,27 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         }
     }
 }
+@Composable internal fun SensorLabelDialog(name: String, onClose: () -> Unit, onSave: (String) -> Unit, onRemove: () -> Unit) {
+    var label by remember(name) { mutableStateOf(name) }
+    var confirming by remember { mutableStateOf(false) }
+    AlertDialog(onDismissRequest = onClose, containerColor = DashboardTokens.PanelRaised,
+        title = { Text(if (confirming) "Remove $name?" else "Edit sensor", color = Color.White) },
+        text = {
+            if (confirming) Text("Saved history is kept. You can add this sensor back in Devices.", color = DashboardTokens.Muted)
+            else Column {
+                OutlinedTextField(label, { label = it.take(64) }, singleLine = true, colors = darkFieldColors(),
+                    label = { Text("Sensor label") }, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = { confirming = true }) { Text("Remove sensor", color = DashboardTokens.Danger) }
+            }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("Cancel", color = DashboardTokens.Muted) } },
+        confirmButton = {
+            TextButton(enabled = confirming || label.isNotBlank(), onClick = { if (confirming) onRemove() else onSave(label.trim()) }) {
+                Text(if (confirming) "Remove" else "Save label", color = if (confirming) DashboardTokens.Danger else DashboardTokens.Amber)
+            }
+        })
+}
+
 @Composable private fun DisplaySettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onPrefs:((AppPreferences)->AppPreferences)->Unit){Column(Modifier.padding(d(22f))){Text("Display",color=Color.White,fontSize=t(25f),fontWeight=FontWeight.Bold);ToggleRow("Keep Screen On",state.preferences.keepScreenOn,d,t){onPrefs{it.copy(keepScreenOn=!it.keepScreenOn)}};ToggleRow("Auto Start (Run at Boot)",state.preferences.autoStart,d,t){onPrefs{it.copy(autoStart=!it.autoStart)}}}}
 @Composable private fun SettingsRow(label:String,modifier:Modifier=Modifier,content:@Composable ()->Unit){BoxWithConstraints(modifier.fillMaxWidth().background(Color(0x55082A2E),RoundedCornerShape(16.dp)).border(1.dp,Color(0xFF397A82),RoundedCornerShape(16.dp)).padding(14.dp)){if(maxWidth<520.dp)Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)){Text(label,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.ExtraBold);FlowRow(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){content()}}else Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(label,color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(.7f));FlowRow(Modifier.weight(1.3f),verticalArrangement=Arrangement.spacedBy(8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){content()}}}}
 

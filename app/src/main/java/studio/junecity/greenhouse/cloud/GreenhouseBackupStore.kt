@@ -32,7 +32,10 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
             daily.put(JSONObject().put("id", id).put("name", rows.last().sensorName).put("samples", samples))
         }
         return JSONObject().put("dailyLast", daily).put("schema", 2).put("preferences", preferences.exportJson()).put("zones", zoneValues)
-            .put("sensors", CurrentSensorCodec.encode(currentSensors.load().inSavedHouses(preferences.load()))).put("history", readings)
+            .put("history", readings).also { meta ->
+                val prefs = preferences.load()
+                currentSensors.writeBackup(meta) { it.inSavedHouses(prefs) }
+            }
     }
 
     fun restore(value: JSONObject, localCameraMode: CameraMode? = null) {
@@ -46,6 +49,7 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
         val assignments = value.optJSONObject("zones")?.let { json ->
             json.keys().asSequence().associateWith { json.optString(it, "Unassigned") }
         }
+        CurrentSensorCodec.validateManagement(value)
         val inventory = value.optJSONArray("sensors")?.let { CurrentSensorCodec.decode(it).inSavedHouses(effective) }
         val readings = value.optJSONArray("history")?.let { array ->
             (0 until array.length()).map { index ->
@@ -72,6 +76,6 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
         }
         if (savedPreferences != null || localCameraMode != null) preferences.save(effective)
         if (assignments != null) zones.replaceAssignments(assignments)
-        if (inventory != null) currentSensors.save(inventory)
+        if (inventory != null) currentSensors.restore(inventory, value.optJSONArray("removedSensors"), value.optJSONObject("sensorLabels"))
     }
 }

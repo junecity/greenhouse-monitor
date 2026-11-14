@@ -22,8 +22,57 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).apply()
     }
 
-    internal fun restore(sensors: List<GoveeSensor>) {
-        check(preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).commit())
+    fun removed(): List<GoveeSensor> = CurrentSensorCodec.decode(JSONArray(preferences.getString("removed", "[]")))
+
+    private fun labels() = JSONObject(preferences.getString("labels", "{}"))
+
+    fun rename(id: String, label: String) = synchronized(lock) {
+        val name = label.trim()
+        val rows = load()
+        if (name.isEmpty() || name.length > 64 || rows.none { it.id == id }) return@synchronized
+        preferences.edit().putString("labels", labels().put(id, name).toString())
+            .putString("sensors", CurrentSensorCodec.encode(rows.map { if (it.id == id) it.copy(name = name) else it }).toString()).apply()
+    }
+
+    fun remove(id: String) = synchronized(lock) {
+        val rows = load()
+        val sensor = rows.find { it.id == id } ?: return@synchronized
+        writeMembership(rows.filterNot { it.id == id }, removed().filterNot { it.id == id } + sensor)
+    }
+
+    fun enroll(sensor: GoveeSensor) = synchronized(lock) {
+        val rows = load()
+        if (rows.any { it.id == sensor.id }) return@synchronized
+        val archived = removed()
+        val label = labels().optString(sensor.id, sensor.name)
+        writeMembership(rows + sensor.copy(name = label), archived.filterNot { it.id == sensor.id })
+    }
+
+    fun addBack(id: String) = synchronized(lock) {
+        val sensor = removed().find { it.id == id } ?: return@synchronized
+        enroll(sensor.copy(online = false))
+    }
+
+    private fun writeMembership(active: List<GoveeSensor>, archived: List<GoveeSensor>) {
+        preferences.edit().putString("sensors", CurrentSensorCodec.encode(active).toString())
+            .putString("removed", CurrentSensorCodec.encode(archived).toString()).apply()
+    }
+
+    internal fun allowedReadings(readings: List<GoveeSensor>): List<GoveeSensor> {
+        val excluded = removed().mapTo(hashSetOf()) { it.id }
+        val labels = labels()
+        return readings.filterNot { it.id in excluded }.map { it.copy(name = labels.optString(it.id, it.name)) }
+    }
+
+    internal fun writeBackup(meta: JSONObject, inventory: (List<GoveeSensor>) -> List<GoveeSensor> = { it }) = synchronized(lock) {
+        meta.put("sensors", CurrentSensorCodec.encode(inventory(load()))).put("removedSensors", CurrentSensorCodec.encode(removed()))
+            .put("sensorLabels", labels())
+    }
+
+    internal fun restore(sensors: List<GoveeSensor>, removed: JSONArray?, labels: JSONObject?) = synchronized(lock) {
+        check(preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString())
+            .putString("removed", (removed ?: JSONArray()).toString())
+            .putString("labels", (labels ?: JSONObject()).toString()).commit())
     }
 
     fun load(): List<GoveeSensor> = runCatching {
@@ -34,6 +83,13 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
 }
 
 object CurrentSensorCodec {
+    fun validateManagement(meta: JSONObject) {
+        meta.optJSONArray("removedSensors")?.let { decode(it) }
+        meta.optJSONObject("sensorLabels")?.let { labels ->
+            require(labels.keys().asSequence().all { labels.get(it) is String && labels.getString(it).length in 1..64 })
+        }
+    }
+
     fun encode(sensors: List<GoveeSensor>) = JSONArray().also { array ->
         sensors.forEach { sensor ->
             array.put(

@@ -10,10 +10,11 @@ internal suspend fun SensorProvider.collectReadings(
     credential: SensorProviderCredential,
     preferences: AppPreferences,
     previous: List<GoveeSensor>,
+    excluded: Set<String> = emptySet(),
     zoneFor: (String) -> String
 ): List<GoveeSensor> {
     val cached = previous.associateBy { it.id }
-    return discover(credential).distinctBy { it.deviceId }.map { device ->
+    return discover(credential).distinctBy { it.deviceId }.filterNot { it.deviceId in excluded }.map { device ->
         val old = cached[device.deviceId]
         val house = preferences.sensorGreenhouseIds[device.deviceId] ?: old?.greenhouseId ?: preferences.activeGreenhouse.id
         val zone = zoneFor(device.deviceId).takeUnless { it == "Unassigned" } ?: old?.zone ?: "Unassigned"

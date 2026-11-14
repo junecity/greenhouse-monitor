@@ -411,17 +411,85 @@ class StandaloneEditorTest {
                 find("Add to West house")
                 click("Add sensor")
                 find("Added")
+                click("Enter address")
+                var field: AccessibilityNodeInfo? = find("Bluetooth address")
+                while (field != null && !field.isEditable) field = field.parent
+                check(field?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "f00000000002")
+                }) == true)
+                find("f00000000002")
+                instrumentation.waitForIdleSync()
+                click("Save sensor")
+                find("Sensor saved. Waiting for its first reading.")
                 click("Done")
                 assertTrue(changed.get())
                 assertTrue(secure.cloudEnrollment()!!.localSensors)
-                val sensor = store.load().single()
-                assertEquals(id, sensor.id)
+                val sensor = store.load().first { it.id == id }
                 assertEquals("bench", sensor.greenhouseId)
                 assertEquals("Bright", sensor.lightLevel)
+                val pending = store.load().single { it.id != id }
+                assertEquals("shelly:F0:00:00:00:00:02", pending.id)
+                assertEquals(ShellyModel.Display.sku, pending.sku)
+                assertFalse(pending.isFresh())
+                val packet = ShellyAdvertisement(pending.id, ShellyModel.Display,
+                    ShellyBeacon(66.0, 78.0, "Twilight", null, false), System.currentTimeMillis())
+                store.applyShellyPackets(mapOf(pending.id to packet)) {}
+                assertEquals("Twilight", store.load().single { it.id == pending.id }.lightLevel)
             }
         } finally {
             secure.clearCloudEnrollment()
             store.save(previous)
+        }
+    }
+
+    @Test fun editRemoveAndAddBackFromDevices() {
+        val context = instrumentation.targetContext
+        val secure = SecureSettingsStore(context)
+        assumeTrue("Isolated emulator only", android.os.Build.MODEL.contains("sdk", true) && secure.cloudEnrollment() == null)
+        val owner = CloudEnrollment("fixture-edit", "", CloudDeviceRole.ViewerClient, localSensors = true)
+        val store = CurrentSensorStore(context, "_standalone")
+        val original = org.json.JSONObject().also { store.writeBackup(it) }
+        val sensor = GoveeSensor("shelly:test", ShellyModel.Display.sku, "Shelly display", greenhouseId = "main")
+        try {
+            secure.saveCloudEnrollment(owner)
+            store.clear()
+            store.enroll(sensor)
+            val state = androidx.compose.runtime.mutableStateOf(GreenhouseUiState(standalone = true, goveeConnected = true, sensors = store.load()))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    activity.setContent {
+                        DevicesSettings(state.value, { it.dp }, { it.sp }, { _, _ -> }, {}, {},
+                            { state.value = state.value.copy(sensors = store.load()) })
+                    }
+                }
+                click("Edit")
+                var field: AccessibilityNodeInfo? = find("Sensor label")
+                while (field != null && !field.isEditable) field = field.parent
+                check(field?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "Lower bench")
+                }) == true)
+                find("Lower bench")
+                click("Save label")
+                find("Lower bench")
+                click("Edit")
+                click("Remove sensor")
+                find("Remove Lower bench?")
+                click("Cancel")
+                assertEquals("Lower bench", store.load().single().name)
+                click("Edit")
+                click("Remove sensor")
+                click("Remove")
+                click("Add a removed sensor (1)")
+                click("Add back")
+                find("Edit")
+                assertEquals(sensor.copy(name = "Lower bench"), store.load().single())
+                assertTrue(store.removed().isEmpty())
+            }
+        } finally {
+            secure.clearCloudEnrollment()
+            store.restore(CurrentSensorCodec.decode(original.getJSONArray("sensors")),
+                original.getJSONArray("removedSensors"), original.getJSONObject("sensorLabels"))
         }
     }
 

@@ -50,8 +50,9 @@ internal class CustomerBackup(private val context: Context, private val enrollme
             .put("forecast", JSONObject().put("cold",rules.cold).put("low",rules.lowF).put("heat",rules.heat)
                 .put("high",rules.highF).put("reminder",rules.reminder).put("minute",rules.minuteOfDay))
         if (scope.kind != "viewer") {
-            meta.put("preferences", preferences.exportJson()).put("sensors", CurrentSensorCodec.encode(sensors.load()))
+            meta.put("preferences", preferences.exportJson())
                 .put("zones", JSONObject(zones.exportAssignments()))
+            sensors.writeBackup(meta)
         }
         val bytes = meta.toString().toByteArray(Charsets.UTF_8)
         require(bytes.size in 1..MAX_META)
@@ -147,6 +148,7 @@ internal class CustomerBackup(private val context: Context, private val enrollme
         require(settings.getJSONArray("greenhouses").length() > 0)
         preferences.decode(settings)
         CurrentSensorCodec.decode(meta.getJSONArray("sensors"))
+        CurrentSensorCodec.validateManagement(meta)
         val assignments = meta.getJSONObject("zones")
         assignments.keys().forEach { require(assignments.get(it) is String) }
     }
@@ -160,8 +162,8 @@ internal class CustomerBackup(private val context: Context, private val enrollme
             preferences.restore(prefs)
             zones.replaceAssignments(assignments.keys().asSequence().associateWith(assignments::getString))
             sensors.restore(saved.map { old ->
-                current[old.id]?.takeIf { it.updatedAtEpochMs > old.updatedAtEpochMs }?.copy(greenhouseId = old.greenhouseId, zone = old.zone) ?: old
-            }.inSavedHouses(prefs))
+                current[old.id]?.takeIf { it.updatedAtEpochMs > old.updatedAtEpochMs }?.copy(name = old.name, greenhouseId = old.greenhouseId, zone = old.zone) ?: old
+            }.inSavedHouses(prefs), meta.optJSONArray("removedSensors"), meta.optJSONObject("sensorLabels"))
         }
         forecast.save(rules(meta), durable = true)
     }

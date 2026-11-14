@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.21.1 (54)
+- Settings → Devices supports manual Shelly enrollment by Bluetooth address, user labels, confirmed removal and Add back for Shelly and Govee. Make changes on the collector. CurrentSensorStore keeps scoped labels and removed records together with active membership. CollectReadings skips removed Govees, and replaceGovee rechecks at write time. Removal retains history, floor position and zone configuration.
+- CustomerBackup and GreenhouseBackupStore include the optional sensor management metadata. CloudHeartbeatService observes inventory labels and new registrations when deciding when to publish. No database migration or cloud deployment.
+- 132 JVM and 12 API 35 instrumentation tests passed, including manual entry, Edit/Remove/Cancel/Add back, mixed inventory, backups and virtual radios. The physical Moto received H&T readings and opened the Display address form. Actual Display enrollment was left to the owner. Live propagation to a second phone is pending.
+
 ## 2026-11-14 · Greenhouse Studio 2.21.0 (53)
 - Settings → Devices enrolls individual Shelly BLU H&T ZB and BLU H&T Display ZB broadcasts on the collecting phone. Keep Govee's API flow and scope intact. ShellyBluetooth, ShellyBeacon, ShellyCollection and ShellyConnections feed temperature/humidity into the existing inventory, history, alerts and maps. Display light is a discrete Dark/Twilight/Bright reading. Encrypted broadcasts are identified but cannot be decoded.
 - The registered server listens in its monitoring service. Standalone listens while visible. The viewer uses the existing server snapshot. SensorPlacement gives each new sensor a distinct starting point; the grower supplies actual position and mounting height. No new AWS resources or database migration.

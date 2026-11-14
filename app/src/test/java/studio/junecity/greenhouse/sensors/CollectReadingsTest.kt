@@ -33,6 +33,16 @@ class CollectReadingsTest {
         assertNull(SpatialInterpolator.greenhouseAverage(sensors,house.copy(id="old"),Metric.Temperature,now))
     }
 
+    @Test fun removedDevicesAreSkippedBeforeReading() = runBlocking {
+        val requested = mutableListOf<String>()
+        val active = provider {
+            requested.add(it.deviceId)
+            SensorMeasurement(it, 68.0, 45.0, connected=true, recordedAtEpochMs=now)
+        }.collectReadings(key, AppPreferences(), emptyList(), setOf(door.deviceId)) { "Unassigned" }
+        assertEquals(listOf("bench"), requested)
+        assertEquals(requested, active.map { it.id })
+    }
+
     @Test(expected=CancellationException::class) fun cancellationEndsTheBatch() {
         runBlocking {
             provider { throw CancellationException() }.collectReadings(key, AppPreferences(), emptyList()) { "Unassigned" }

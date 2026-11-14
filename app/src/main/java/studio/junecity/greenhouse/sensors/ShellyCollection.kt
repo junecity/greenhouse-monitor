@@ -11,7 +11,7 @@ import studio.junecity.greenhouse.model.GoveeSensor
 import studio.junecity.greenhouse.settings.*
 
 internal fun CurrentSensorStore.replaceGovee(readings: List<GoveeSensor>) =
-    update { existing -> readings + existing.filter { it.isShelly() } }
+    update { existing -> allowedReadings(readings) + existing.filter { it.isShelly() } }
 
 internal fun CurrentSensorStore.applyShellyPackets(
     packets: Map<String, ShellyAdvertisement>, onUpdated: (GoveeSensor) -> Unit
