@@ -17,12 +17,11 @@ internal class HeatingStore(context: Context, owner: CloudEnrollment?, greenhous
         owner.isStandaloneClient(), greenhouse).joinToString("|")
     private val prefs = context.getSharedPreferences("night_heating", Context.MODE_PRIVATE)
     fun settings(): HeatingSettings = HeatingSettings(
-        if (prefs.getString("$namespace.unit", "") == "Therm") EnergyUnit.Therm else EnergyUnit.Kwh,
-        prefs.getString("$namespace.price", null)?.toDoubleOrNull())
+        EnergyUnit.entries.find { it.name == prefs.getString("$namespace.unit", null) } ?: EnergyUnit.Kwh)
     fun save(value: HeatingSettings) {
         prefs.edit()
             .putString("$namespace.unit", value.unit.name)
-            .putString("$namespace.price", value.price?.toString()).apply()
+            .remove("$namespace.price").apply()
     }
 
     fun history(zip: String): List<ThermalPoint> {
@@ -62,7 +61,7 @@ class NightHeatingWorker(context: Context, params: WorkerParameters) : Coroutine
         try {
             val readings = HistoryStore(applicationContext, suffix).use { it.weekReadings() }
             if (readings.isEmpty()) return@withContext Result.success()
-            val weather = LiveWeatherProvider().current(prefs.zipCode)
+            val weather = StationWeather(applicationContext).update(LiveWeatherProvider().current(prefs.zipCode))
             if (secure.cloudEnrollment() != owner || preferences.load() != prefs) return@withContext Result.success()
             val now = System.currentTimeMillis()
             for (g in prefs.greenhouses) {

@@ -3,7 +3,6 @@ package studio.junecity.greenhouse.ui
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,7 +12,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +55,18 @@ internal fun heatingPoints(state: GreenhouseUiState, store: HeatingStore): List<
 }
 
 @Composable
+internal fun energyPrice(state: GreenhouseUiState, unit: EnergyUnit): FuelPrice? {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val provider = remember(context) { FuelPrices(context) }
+    val area = state.weather.takeIf { it.zipCode == state.preferences.zipCode }?.stateCode
+    var quote by remember(provider, unit, area) { mutableStateOf(provider.cached(unit, area)) }
+    LaunchedEffect(provider, unit, area, state.weather.updatedAtEpochMs) {
+        quote = provider.refresh(unit, area)
+    }
+    return quote
+}
+
+@Composable
 internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, refresh: () -> Unit, points: List<ThermalPoint> = heatingPoints(state, store)) {
     val house = state.preferences.activeGreenhouse
     val zip = state.preferences.zipCode
@@ -70,7 +80,8 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
     var index by remember(store, nights.firstOrNull()?.date) { mutableIntStateOf(0) }
     val night = nights.getOrNull(index)
     val coefficient = remember(house, settings.unit) { heatingCoefficient(house, settings.unit) }
-    val rate = settings.price
+    val quote = energyPrice(state, settings.unit)
+    val rate = quote?.dollars
     val costPerDegree = rate?.times(coefficient.nominal)
     val validWeather = weather.zipCode == zip && weather.updatedAtEpochMs > 0
     val behavior = remember(points, learned) { learned?.let { nightBehavior(points, it.fahrenheit) } }
@@ -95,13 +106,27 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
                 Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth().padding(vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (editing) {
-                        HeatingInputs(settings, { editing = false }) { store.save(it); settings = it; editing = false }
+                        Column {
+                            Text("Heating fuel", fontWeight = FontWeight.Bold)
+                            for (pair in EnergyUnit.entries.chunked(2)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    pair.forEach { unit -> FilterChip(selected = unit == settings.unit, onClick = {
+                                        settings = HeatingSettings(unit)
+                                        store.save(settings)
+                                        editing = false
+                                    }, label = { Text(unit.fuel) }) }
+                                }
+                            }
+                        }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text((learned?.let { "${number(it.fahrenheit)}°F learned from ${it.nights} " + if (it.nights == 1) "night" else "nights" } ?: "Learning overnight temperature") + "   ·   " +
-                                (rate?.let { "${priceLabel(it)} / ${settings.unit.label}" } ?: "Energy price needed"),
-                                Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                            TextButton(onClick = { editing = true }) { Text(if (rate == null) "Set price" else "Edit", color = DashboardTokens.Amber) }
+                            Column(Modifier.weight(1f)) {
+                                Text(learned?.let { "${number(it.fahrenheit)}°F learned from ${it.nights} " + if (it.nights == 1) "night" else "nights" }
+                                    ?: "Learning overnight temperature", fontWeight = FontWeight.SemiBold)
+                                Text(quote?.let { "${settings.unit.fuel}  ·  ${priceLabel(it.dollars)} / ${settings.unit.label}  ·  ${if (it.area == "US") "U.S. average" else it.area + " average"}  ·  EIA ${it.period}" }
+                                    ?: "Published price unavailable", color = DashboardTokens.Muted, fontSize = 14.sp)
+                            }
+                            TextButton(onClick = { editing = true }) { Text("Change fuel", color = DashboardTokens.Amber) }
                         }
                         if (validWeather && weather.solarDays.isNotEmpty() && night == null) {
                             Text("The first estimate appears after an hour of steady indoor readings on a cooler night.")
@@ -127,6 +152,9 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
                                 HeatingStat("First 8 hours · est.", money(night.eightDegreeHours?.let { costPerDegree?.times(it) }), Modifier.weight(1f))
                                 HeatingStat("Outdoor mean", night.outdoorMean?.let { "${number(it)}°F" } ?: "—", Modifier.weight(1f))
                             }
+                            val measuredHours = night.hours.filter { it.observed }.sumOf { it.hours }
+                            if (measuredHours > 0) Text("${number(measuredHours)} hours updated with station weather · ${weather.stationId.orEmpty()}",
+                                color = DashboardTokens.Blue)
                             if (degrees != null) {
                                 Text("${number(degrees)} °F·h" + (rate?.let {
                                     "   ·   Estimated range ${money(degrees * it * coefficient.low)} – ${money(degrees * it * coefficient.high)}"
@@ -145,6 +173,16 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
                             TextButton(onClick = refresh) { Text("Refresh weather", color = DashboardTokens.Amber) }
                         }
                         HorizontalDivider(color = DashboardTokens.Divider)
+                        if (validWeather && learned != null && nights.isNotEmpty()) {
+                            val previous = NightHeating.night(weather, learned.fahrenheit, nights.first().date.minusDays(1), now)
+                            val cost = previous.degreeHours?.let { costPerDegree?.times(it) }
+                            if (cost != null) {
+                                val observed = previous.hours.filter { it.observed }.sumOf { it.hours }
+                                Text("Last completed night · ${money(cost)} estimated", fontWeight = FontWeight.Bold)
+                                Text("${previous.date} · ${number(observed)} of ${number(previous.hours.sumOf { it.hours })} hours from station observations; remaining hours use local weather-model data.",
+                                    color = DashboardTokens.Muted)
+                            }
+                        }
                         Text("Nighttime behavior", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         if (behavior == null) Text("Waiting for an hour of paired indoor and outdoor readings after sunset.",
                             color = DashboardTokens.Muted)
@@ -155,9 +193,11 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
                         TextButton(onClick = { detail = !detail }) { Text(if (detail) "Hide assumptions" else "How the estimate works", color = DashboardTokens.Amber) }
                         if (detail) {
                             Text("Each forecast hour adds heat demand only when outdoors is below the learned overnight temperature. The eight-hour window starts at sunset. The full-night estimate includes the entire night, even if it is already underway.")
+                            Text("Prices are published residential averages. Wood is priced by heat content because cords vary by species and moisture.")
                             Text("The model uses your floor plan and ${house.heightFeet?.let { "${number(it)} ft height" } ?: "an assumed 8 ft height"}. It approximates wall height at 80% of peak, roof area at 110% of floor area, plastic cover loss at 0.7–1.2 Btu/h·ft²·°F, and 0.5–2 air changes/hour.")
                             Text("Energy coefficient: ${number(coefficient.nominal * 1000)} ${settings.unit.label} per 1,000 °F·h. Assumes " +
-                                (if (settings.unit == EnergyUnit.Kwh) "resistance-equivalent electricity." else "80% useful heat from billed gas (range 70–95%).") +
+                                (if (settings.unit == EnergyUnit.Kwh) "resistance-equivalent electricity."
+                                else "${number(settings.unit.delivery * 100)}% useful heat from ${settings.unit.fuel.lowercase()} (range ${number(settings.unit.lowEfficiency * 100)}–${number(settings.unit.highEfficiency * 100)}%).") +
                                 " The range illustrates these assumptions. Wind, construction and heating efficiency can change actual bills. Sensor temperatures describe retention and cannot measure energy use.")
                         }
                     }
@@ -215,26 +255,5 @@ private fun HeatingChart(night: HeatingNight, costPerDegree: Double?, zone: Zone
         listOf(hours.first().start, hours[hours.size/2].start, hours.last().end).forEach {
             Text(clock(it, zone), color = DashboardTokens.Muted, fontSize = 13.sp)
         }
-    }
-}
-
-@Composable
-private fun HeatingInputs(initial: HeatingSettings, cancel: () -> Unit, save: (HeatingSettings) -> Unit) {
-    var unit by remember { mutableStateOf(initial.unit) }
-    var price by remember { mutableStateOf(initial.price?.toString().orEmpty()) }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        EnergyUnit.entries.forEach { u -> FilterChip(selected = unit == u, onClick = {
-            if (u != unit) { unit = u; price = if (u == initial.unit) initial.price?.toString().orEmpty() else "" }
-        }, label = { Text(u.label) }) }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(price, { price = it }, label = { Text("Price ($ / ${unit.label})") },
-            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.weight(1f))
-    }
-    val p = price.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Button(enabled = p != null, onClick = { if (p != null) save(HeatingSettings(unit, p)) }) { Text("Save") }
-        TextButton(onClick = cancel) { Text("Cancel") }
     }
 }

@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-13 · Android 2.19.0 (51)
+- Energy and Quick Start store only the per-greenhouse fuel. FuelPrices maps the weather ZIP to an EIA state residential average with a U.S. fallback, cached data and a dated bundled snapshot. Wood uses dollars per million Btu. Existing therm and kWh selections still work.
+- StationWeather retains up to seven days of nearby NWS hourly observations. LiveWeatherProvider supplies ZIP state/coordinates and hourly forecasts. NightHeating and HeatingStore use station temperatures as available, preserve modeled temperatures for gaps and forecasts, and keep absolute cost tied to the assumed heat-loss and delivery coefficients. No meter, database migration or cloud deployment.
+- Passed 125 JVM tests, lint with zero errors and three API 35 instrumented tests including live four-fuel state/U.S. pricing, ZIP-based station weather and seven nights of estimates. The signed upgrade installed on the Moto G7. Actual fuel consumption and utility-bill accuracy remain unverified.
+
 ## 2026-11-13 · Android 2.18.0 (50)
 - HistoryStore schema 3 retains 180 UTC dates of collector readings and indexes the last actual reading per sensor per day. History offers 30/90/180 days with a daily chart and raw day drilldown. Existing seven-day queries for other screens remain bounded. Monthly ranges summarize daily closing observations.
 - GreenhouseBackupStore includes compact daily observations beside the bounded raw snapshot. GreenhouseViewModel merges authorized viewer history into a separate SQLite file per enrollment/greenhouse. Raw viewer coverage depends on sync frequency and payload size. Old backups can restore data that was previously removed. See CHANGELOG for release verification.

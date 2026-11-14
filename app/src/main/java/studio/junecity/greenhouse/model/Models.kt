@@ -88,12 +88,15 @@ data class ForecastDay(
 
 data class SolarDay(val sunriseMs: Long?, val sunsetMs: Long?)
 
+data class StationHour(val temperatureF: Double, val lastReportMs: Long)
 data class WeatherReading(
     val zipCode: String, val location: String, val temperatureF: Double?, val condition: String,
     val updatedAtEpochMs: Long = 0, val stale: Boolean = false,
     val days: List<ForecastDay> = emptyList(), val zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
     val hourlyOutdoorF: Map<Long, Double> = emptyMap(),
-    val solarDays: Map<java.time.LocalDate, SolarDay> = emptyMap()
+    val solarDays: Map<java.time.LocalDate, SolarDay> = emptyMap(),
+    val stateCode: String? = null, val latitude: Double? = null, val longitude: Double? = null,
+    val stationHours: Map<Long, StationHour> = emptyMap(), val stationId: String? = null
 )
 data class DeviceStatus(val batteryPercent:Int,val charging:Boolean,val wifiConnected:Boolean)
 const val HISTORY_DAYS = 180

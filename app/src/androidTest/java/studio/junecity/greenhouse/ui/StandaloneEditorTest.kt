@@ -337,7 +337,7 @@ class StandaloneEditorTest {
                 assertEquals(CameraMode.ViewerClient,first.state.value.preferences.cameraMode)
                 assertTrue(first.state.value.sensors.isEmpty())
                 first.applyQuickStart(studio.junecity.greenhouse.cloud.QuickStartData("06382", 18.0, 9.0, 7.5,
-                    studio.junecity.greenhouse.data.EnergyUnit.Kwh, .24, "example-test-key"))
+                    studio.junecity.greenhouse.data.EnergyUnit.Kwh, "example-test-key"))
             }
             repeat(50){if(first.state.value.sensors.isEmpty())SystemClock.sleep(80)}
             assertEquals(72.0,first.state.value.sensors.single().temperatureF!!,0.0)

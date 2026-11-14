@@ -135,7 +135,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             prefs.copy(greenhouses = prefs.greenhouses.map { if (it.id == house.id) it.copy(heightFeet = setup.height) else it })
         }
         saveZip(setup.zip)
-        HeatingStore(getApplication(), active, house.id).save(HeatingSettings(setup.unit, setup.price))
+        HeatingStore(getApplication(), active, house.id).save(HeatingSettings(setup.unit))
         if (setup.key.isNotBlank()) saveApiKey(setup.key)
     }
 
@@ -297,6 +297,9 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 if (_state.value.preferences.zipCode != zip) return@launch
                 _state.value = _state.value.copy(weather = reading)
                 ForecastAlerts(getApplication()).evaluate(reading)
+                val revised = StationWeather(getApplication()).update(reading)
+                if (_state.value.weather == reading && _state.value.preferences.zipCode == zip)
+                    _state.value = _state.value.copy(weather = revised)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

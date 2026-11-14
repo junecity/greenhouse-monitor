@@ -177,13 +177,15 @@ class MainActivity : ComponentActivity() {
                 }
                 val heatingPoints = if (state.screen == AppScreen.Dashboard || state.screen == AppScreen.Energy) studio.junecity.greenhouse.ui.heatingPoints(state, heatingStore) else emptyList()
                 val learned = remember(heatingPoints) { studio.junecity.greenhouse.data.learnedTemperature(heatingPoints) }
-                val heatingSummary = remember(learned, heatingStore, state.weather, state.preferences.activeGreenhouse, state.screen, now.toLocalDate(), now.hour) {
-                    val settings = heatingStore.settings()
-                    if (learned == null || state.weather.zipCode != state.preferences.zipCode || state.weather.stale || settings.price == null) null else {
+                val dashboardFuel = remember(heatingStore, state.screen) { heatingStore.settings().unit }
+                val dashboardPrice = if (state.screen == AppScreen.Dashboard)
+                    studio.junecity.greenhouse.ui.energyPrice(state, dashboardFuel)?.dollars else null
+                val heatingSummary = remember(learned, dashboardFuel, dashboardPrice, state.weather, state.preferences.activeGreenhouse, state.screen, now.toLocalDate(), now.hour) {
+                    if (learned == null || state.weather.zipCode != state.preferences.zipCode || state.weather.stale || dashboardPrice == null) null else {
                         val forecast = studio.junecity.greenhouse.data.NightHeating.forecast(state.weather, learned.fahrenheit, System.currentTimeMillis())
                         forecast.first().degreeHours?.let {
-                            val coefficient = studio.junecity.greenhouse.data.heatingCoefficient(state.preferences.activeGreenhouse, settings.unit)
-                            studio.junecity.greenhouse.ui.money(it * coefficient.nominal * settings.price)
+                            val coefficient = studio.junecity.greenhouse.data.heatingCoefficient(state.preferences.activeGreenhouse, dashboardFuel)
+                            studio.junecity.greenhouse.ui.money(it * coefficient.nominal * dashboardPrice)
                         }
                     }
                 }

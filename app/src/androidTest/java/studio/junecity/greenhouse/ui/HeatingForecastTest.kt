@@ -16,6 +16,26 @@ class HeatingForecastTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    @Test fun liveFuelAndWeatherFeeds() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("liveEnergy") == "true")
+        for (fuel in EnergyUnit.entries) {
+            val prices = parsePrices(fuel, publicEnergyData(fuel.priceUrl()))
+            for (area in listOf("CT", "US")) {
+                val price = requireNotNull(prices[area]) { "Missing ${fuel.fuel} quote for $area" }
+                check(price.dollars > 0 && price.period.isNotBlank())
+            }
+        }
+        val weather = kotlinx.coroutines.runBlocking {
+            StationWeather(instrumentation.targetContext).update(LiveWeatherProvider().current("06382"))
+        }
+        assertEquals("CT", weather.stateCode)
+        check(weather.stationId != null && weather.stationHours.isNotEmpty())
+        val now = System.currentTimeMillis()
+        val nights = NightHeating.forecast(weather, 60.0, now)
+        check(nights.size == 7 && nights.all { it.degreeHours != null })
+        check(weather.stationHours.keys.any { it in (now - 24 * HEATING_HOUR)..now })
+    }
+
     @Test fun firstRunSinglePhoneGuideValidatesAndReturnsInputs() {
         assumeTrue(android.os.Build.MODEL.contains("sdk", ignoreCase = true))
         var result: studio.junecity.greenhouse.cloud.QuickStartData? = null
@@ -34,12 +54,10 @@ class HeatingForecastTest {
         node("Length (ft)").performTextInput("16")
         node("Width (ft)").performTextInput("8")
         node("Continue").performScrollTo().performClick()
-        node("therm").performScrollTo().performClick()
-        node("Price per therm in dollars (optional)").performTextInput("1.25")
+        node("Natural gas").performScrollTo().performClick()
         node("Finish setup").performScrollTo().performClick()
         compose.runOnIdle {
             assertEquals("06382", result!!.zip)
-            assertEquals(1.25, result!!.price!!, .0001)
             assertEquals(EnergyUnit.Therm, result!!.unit)
             assertEquals(16.0, result!!.length, .0001)
         }
@@ -63,7 +81,7 @@ class HeatingForecastTest {
         val sensor = GoveeSensor("a", "H5179", "Test sensor", greenhouseId = g.id)
         val history = (0..4).map { HistoryReading("a", "Test sensor", 63.0, 60.0, previousNight + it*h/4) }
         val state = GreenhouseUiState(weather = weather, sensors = listOf(sensor), history = history, preferences = AppPreferences(greenhouses = listOf(g), activeGreenhouseId = g.id))
-        val rate = HeatingSettings(price=.20)
+        val rate = HeatingSettings()
         try {
             store.save(rate)
             compose.activityRule.scenario.onActivity { a ->
@@ -71,21 +89,17 @@ class HeatingForecastTest {
                 val reopened = HeatingStore(a, null, g.id)
                 a.setContent { NightHeatingContent(state, reopened, {}) }
             }
-            val k = heatingCoefficient(g, rate.unit)
             fun label(text: String) = compose.onNodeWithText(text)
             compose.waitUntil(8000) { compose.onAllNodesWithText("First 8 hours · est.").fetchSemanticsNodes().isNotEmpty() }
             label("First 8 hours · est.").assertExists()
-            label(money(184*k.nominal*.20)).assertExists()
             label(if (java.time.LocalTime.now(zone).hour < 6) "Next night" else "Tomorrow").performClick()
-            label("Edit").performClick()
-            label("therm").performClick()
-            label("Price ($ / therm)").assertExists()
-            label("Cancel").performClick()
-            label("Edit").performClick()
-            label("Price ($ / kWh)").performTextReplacement("0.30")
-            label("Save").performClick()
-            label(money(184*k.nominal*.30)).assertExists()
-            assertEquals(rate.copy(price=.30), HeatingStore(context,null,g.id).settings())
+            label("Change fuel").performClick()
+            label("Propane").performClick()
+            assertEquals(HeatingSettings(EnergyUnit.Propane), HeatingStore(context,null,g.id).settings())
+            compose.onNodeWithText("Propane  ·", substring=true).assertExists()
+            label("Change fuel").performClick()
+            label("Wood").performClick()
+            compose.onNodeWithText("million Btu",substring=true).assertExists()
             val screenshot = instrumentation.uiAutomation.takeScreenshot()
             try {
                 java.io.File(context.cacheDir, "qa-heating-estimate.png").outputStream().use {
