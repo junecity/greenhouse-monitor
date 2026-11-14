@@ -203,6 +203,7 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                     if(mounted)drawLine(color.copy(alpha=.5f),camera.point(p.xFeet,p.yFeet,0.0),pt,1.dp.toPx())
                     drawCircle(DashboardTokens.Background,7.dp.toPx(),pt);drawCircle(color,4.dp.toPx(),pt)
                     if(probe.sensor.id==sensor?.id)drawCircle(activeColor,9.dp.toPx(),pt,style=androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
+                    if (positions.size > 8 && probe.sensor.id != sensor?.id) continue
                     drawContext.canvas.nativeCanvas.apply {
                         val paint=android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                             textSize=12.sp.toPx();typeface=android.graphics.Typeface.DEFAULT_BOLD
@@ -231,7 +232,7 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                     Text(sensor?.let { s ->
                         val mount=g.sensorPositions[s.id]?.heightFeet
                         val value=probes.find{it.sensor.id==s.id}?.sensor?.let{if(metric==Metric.Temperature)it.temperatureF else it.humidityPercent}
-                        "${s.name} ▾  ·  ${formatMetric(value,metric)}  ·  ${mount?.let{planNumber(it)+" ft"} ?: "Height unset"}"
+                        "${s.name} ▾  ·  ${formatMetric(value,metric)}  ·  ${mount?.let{planNumber(it)+" ft"} ?: "Height unset"}" + (s.lightLevel?.let { "  ·  Light: $it" } ?: "")
                     } ?: "No sensors",color=Color.White)
                 }
                 DropdownMenu(expanded=menu,onDismissRequest={menu=false}){sensors.forEach{s->

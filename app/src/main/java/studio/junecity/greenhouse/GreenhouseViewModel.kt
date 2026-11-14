@@ -12,10 +12,7 @@ import kotlinx.coroutines.withContext
 import studio.junecity.greenhouse.data.*
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.*
-import studio.junecity.greenhouse.sensors.withCurrentAssignments
-import studio.junecity.greenhouse.sensors.collectReadings
-import studio.junecity.greenhouse.sensors.GoveeSensorProvider
-import studio.junecity.greenhouse.sensors.SensorProviderCredential
+import studio.junecity.greenhouse.sensors.*
 import studio.junecity.greenhouse.cloud.*
 
 class GreenhouseViewModel internal constructor(app:Application, private val govee:studio.junecity.greenhouse.sensors.SensorProvider):AndroidViewModel(app){
@@ -163,12 +160,11 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 val collected = govee.collectReadings(credential, prefs, storage.sensors.load(), storage.zones::zone)
                 if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return@launch
                 val latest = _state.value.preferences
-                val sensors = collected.withCurrentAssignments(latest, storage.zones::zone)
-                storage.sensors.save(sensors)
+                val sensors = storage.sensors.replaceGovee(collected.withCurrentAssignments(latest, storage.zones::zone))
                 ensurePositions(sensors)
                 _state.value = _state.value.copy(sensors = sensors, goveeConnected = true, message = "Updated ${sensors.size} sensors")
                 withContext(Dispatchers.IO) {
-                    sensors.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
+                    sensors.filterNot { it.isShelly() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
                     if (!owner.isStandaloneClient()) HeartbeatHealthStore(getApplication()).save(sensors,
                         prefs.notifications.lowTemperatureF, prefs.notifications.highTemperatureF)
                 }
@@ -183,6 +179,15 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         val owner = secure.cloudEnrollment()
         if (owner?.role != CloudDeviceRole.ViewerClient || owner.localSensors) {
             refreshSensors(true)
+            kotlinx.coroutines.coroutineScope {
+                if (owner?.role != CloudDeviceRole.GreenhouseServer) launch {
+                    collectShelly(getApplication(), owner, if (owner.isStandaloneClient()) "_standalone" else "")
+                }
+                while (secure.cloudEnrollment() == owner) {
+                    reloadLocalSensors()
+                    delay(4_000)
+                }
+            }
             return
         }
         selectStores()
@@ -243,7 +248,24 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             if (!silent) _state.value = _state.value.copy(refreshing = false)
         }
     }
-    private fun ensurePositions(sensors:List<GoveeSensor>){val p=_state.value.preferences;val g=p.activeGreenhouse;var positions=g.sensorPositions;sensors.filter{it.greenhouseId==g.id&&it.id !in positions}.forEachIndexed{i,s->val defaults=listOf(.2 to .18,.8 to .18,.4 to .62,.6 to .82);val n=defaults[i%defaults.size];positions=positions+(s.id to g.coercePoint(n.first*g.planLengthFeet,n.second*g.planWidthFeet))};if(positions!=g.sensorPositions)savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==g.id)it.copy(sensorPositions=positions)else it}))}
+    private fun ensurePositions(sensors: List<GoveeSensor>) {
+        val prefs = _state.value.preferences
+        val houses = prefs.greenhouses.map { house ->
+            house.withNewSensorPositions(sensors.filter { it.greenhouseId == house.id }.map { it.id })
+        }
+        if (houses != prefs.greenhouses) savePreferences(prefs.copy(greenhouses = houses))
+    }
+
+    internal fun reloadLocalSensors() {
+        selectStores()
+        val owner = secure.cloudEnrollment()
+        if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
+        val sensors = currentSensors.load().inSavedHouses(preferences.load())
+        if (_state.value.sensors == sensors) return
+        _state.value = _state.value.copy(sensors = sensors)
+        ensurePositions(sensors)
+        if (_state.value.screen == AppScreen.History) loadHistory()
+    }
     fun moveSensor(id:String,nx:Double,ny:Double){
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
@@ -255,8 +277,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         val house = prefs.activeGreenhouse
         legacyZones.assign(sensorId, zone)
         savePreferences(prefs.copy(sensorGreenhouseIds = prefs.sensorGreenhouseIds + (sensorId to house.id)))
-        val updated = _state.value.sensors.map { if (it.id == sensorId) it.copy(zone = zone, greenhouseId = house.id) else it }
-        currentSensors.save(updated)
+        val updated = currentSensors.update { rows -> rows.map { if (it.id == sensorId) it.copy(zone = zone, greenhouseId = house.id) else it } }
         _state.value = _state.value.copy(sensors = updated)
         ensurePositions(updated)
     }

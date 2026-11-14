@@ -90,7 +90,7 @@ private val ProEdge=DashboardTokens.PanelEdge
                     otherHouses.isNotEmpty() -> "Sensors assigned to " + otherHouses.joinToString { it.name }
                     state.sensors.any { it.greenhouseId.isEmpty() } -> "Choose a greenhouse for your sensors in Devices"
                     state.goveeConnected -> "No H5179 sensors discovered"
-                    else -> "Connect your Govee H5179 sensors"
+                    else -> "Add Govee or Shelly sensors in Devices"
                 }
                 SensorCard(assigned, emptyText, if (viewer) "Sync from server" else "Manage sensors",
                     if (viewer) onRefresh else onManageSensors, d, t, Modifier.weight(.44f).fillMaxWidth())

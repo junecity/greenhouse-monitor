@@ -68,7 +68,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
-@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={},onHistoryDay:suspend (Long)->List<HistoryReading> = { emptyList() }){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric,onHistoryDay);AppScreen.Cameras->CameraContent(state,d,stageText);AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored);else->Unit}}}
+@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={},onHistoryDay:suspend (Long)->List<HistoryReading> = { emptyList() },onSensorsChanged:()->Unit={}){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric,onHistoryDay);AppScreen.Cameras->CameraContent(state,d,stageText);AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored,onSensorsChanged);else->Unit}}}
 
 @Composable private fun MetricControls(active:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){val labels=listOf(Triple(Metric.Temperature,"Temperature",DashboardIcon.Thermometer),Triple(Metric.Humidity,"Humidity",DashboardIcon.Droplet),Triple(Metric.Vpd,"VPD",DashboardIcon.Gauge),Triple(Metric.DewPoint,"Dew Point",DashboardIcon.Droplet));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){labels.forEach{(m,label,icon)->val selected=m==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onMetric(m)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else if(m==Metric.Humidity||m==Metric.DewPoint)DashboardTokens.Blue else Color.White,Modifier.size(d(26f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
@@ -314,14 +314,14 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     }
 }
 
-@Composable private fun SettingsContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,openSensors:Boolean=false,onRestored:()->Unit){
+@Composable private fun SettingsContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,openSensors:Boolean=false,onRestored:()->Unit,onSensorsChanged:()->Unit){
     var category by androidx.compose.runtime.saveable.rememberSaveable{mutableStateOf(if(openSensors || (state.standalone && state.sensors.isEmpty())) SettingsCategory.Devices else SettingsCategory.General)}
     BoxWithConstraints(Modifier.fillMaxSize()){
         val portrait=maxHeight>maxWidth
         if(portrait){
             Column(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(d(10f))){
                 SettingsMenuBar(category,visibleCategories(state),d,t){category=it}
-                NeonPanel(Modifier.fillMaxWidth().weight(1f)){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences,onRestored)}
+                NeonPanel(Modifier.fillMaxWidth().weight(1f)){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences,onRestored,onSensorsChanged)}
             }
         }else{
             Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.spacedBy(d(18f))){
@@ -330,7 +330,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                         visibleCategories(state).forEach{c->SettingsCategoryButton(c,c==category,false,d,t,Modifier.fillMaxWidth().weight(1f)){category=c}}
                     }
                 }
-                NeonPanel(Modifier.weight(.77f).fillMaxHeight()){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences,onRestored)}
+                NeonPanel(Modifier.weight(.77f).fillMaxHeight()){SettingsDetail(category,state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onWeather,onUpdateGreenhouse,onUpdatePreferences,onRestored,onSensorsChanged)}
             }
         }
     }
@@ -392,7 +392,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     }
 }
 
-@Composable private fun SettingsDetail(category:SettingsCategory,state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,onRestored:()->Unit){
+@Composable private fun SettingsDetail(category:SettingsCategory,state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,onRestored:()->Unit,onSensorsChanged:()->Unit){
     when(category){
         SettingsCategory.General -> Column(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -409,7 +409,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         SettingsCategory.Connectivity->ConnectivitySettings(state,d,t,onRefresh,onSaveKey)
         SettingsCategory.Camera->CameraRoleSettings(state,d,t,onUpdatePreferences)
         SettingsCategory.Alerts->AlertSettings(state,d,t,onUpdatePreferences)
-        SettingsCategory.Devices->DevicesSettings(state,d,t,onAssignZone,onRefresh,onSaveKey)
+        SettingsCategory.Devices->DevicesSettings(state,d,t,onAssignZone,onRefresh,onSaveKey,onSensorsChanged)
         SettingsCategory.Energy -> EnergySettings(state)
         SettingsCategory.Backup -> BackupPanel(onRestored)
         SettingsCategory.Display->DisplaySettings(state,d,t,onUpdatePreferences)
@@ -578,7 +578,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 }
 
 @Composable private fun AlertSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onPrefs:((AppPreferences)->AppPreferences)->Unit){val n=state.preferences.notifications;var delivery by remember{mutableStateOf(false)};LazyColumn(Modifier.fillMaxSize().padding(d(22f)),verticalArrangement=Arrangement.spacedBy(d(8f))){item{Text("Alerts & Notifications",color=Color.White,fontSize=t(25f),fontWeight=FontWeight.Bold);Text("Monitoring and history continue when notifications are off. Defaults are quiet and non-repeating.",color=DashboardTokens.Muted,fontSize=t(14f))};item{ToggleRow("Master notifications",n.masterEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(masterEnabled=!it.notifications.masterEnabled))}}};item{ToggleRow("Temperature alerts",n.temperatureAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(temperatureAlerts=!it.notifications.temperatureAlerts))}}};item{ToggleRow("Humidity alerts",n.humidityAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(humidityAlerts=!it.notifications.humidityAlerts))}}};item{ToggleRow("Sensor offline alerts",n.offlineAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(offlineAlerts=!it.notifications.offlineAlerts))}}};item{TextButton(onClick={delivery=!delivery}){Text(if(delivery)"Hide delivery options" else "Alert delivery",color=DashboardTokens.Amber)}};if(delivery)item{ToggleRow("On-screen pop-ups",n.popupsEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(popupsEnabled=!it.notifications.popupsEnabled))}}};if(delivery)item{ToggleRow("Sound",n.soundEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(soundEnabled=!it.notifications.soundEnabled))}}};if(delivery)item{ToggleRow("Vibration",n.vibrationEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(vibrationEnabled=!it.notifications.vibrationEnabled))}}};if(delivery)item{ToggleRow("Repeated alerts (${n.repeatMinutes} min)",n.repeatedAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(repeatedAlerts=!it.notifications.repeatedAlerts))}}};item{SettingsRow("Temperature range"){StepButton("−",d,t){onPrefs{it.copy(notifications=it.notifications.copy(lowTemperatureF=it.notifications.lowTemperatureF-1))}};Text("${n.lowTemperatureF.roundToInt()}–${n.highTemperatureF.roundToInt()}°F",color=Color.White,fontSize=t(16f));StepButton("+",d,t){onPrefs{it.copy(notifications=it.notifications.copy(highTemperatureF=it.notifications.highTemperatureF+1))}}}};item{SettingsRow("Humidity range"){StepButton("−",d,t){onPrefs{it.copy(notifications=it.notifications.copy(lowHumidity=(it.notifications.lowHumidity-1).coerceAtLeast(0.0)))}};Text("${n.lowHumidity.roundToInt()}–${n.highHumidity.roundToInt()}%",color=Color.White,fontSize=t(16f));StepButton("+",d,t){onPrefs{it.copy(notifications=it.notifications.copy(highHumidity=(it.notifications.highHumidity+1).coerceAtMost(100.0)))}}}};item{Row(horizontalArrangement=Arrangement.spacedBy(d(10f))){ActionButton("Snooze 1 hour",d,t){onPrefs{it.copy(notifications=it.notifications.copy(snoozedUntilEpochMs=System.currentTimeMillis()+60*60_000L))}};ActionButton("Clear snooze",d,t){onPrefs{it.copy(notifications=it.notifications.copy(snoozedUntilEpochMs=0))}}}}}}
-@Composable private fun DevicesSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onAssign:(String,String)->Unit,onRefresh:()->Unit,onSave:(String)->Unit){
+@Composable private fun DevicesSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onAssign:(String,String)->Unit,onRefresh:()->Unit,onSave:(String)->Unit,onSensorsChanged:()->Unit){
     val context=LocalContext.current
     val viewer=remember(state.standalone){SecureSettingsStore(context).cloudEnrollment()?.role==CloudDeviceRole.ViewerClient}
     val local=state.standalone || !viewer
@@ -590,6 +590,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         item{Text("Sensors",color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold)}
         if(local)item{
             Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                ShellyConnections(state.preferences.activeGreenhouse.id, state.preferences.activeGreenhouse.name, onSensorsChanged)
                 if(editKey){
                     Text("Connect your Govee H5179 sensors",color=Color.White)
                     OutlinedTextField(key,{key=it},label={Text("Govee API key")},singleLine=true,visualTransformation=PasswordVisualTransformation(),colors=darkFieldColors(),modifier=Modifier.fillMaxWidth())
@@ -598,7 +599,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                         TextButton(onClick={key="";editKey=false}){Text("Cancel",color=DashboardTokens.Muted)}
                     }
                 }else{
-                    ActionButton(if(state.goveeConnected)"Change sensor key" else "Add sensors",d,t){editKey=true}
+                    ActionButton(if(state.goveeConnected)"Manage Govee" else "Add Govee sensors",d,t){editKey=true}
                     if(state.goveeConnected) TextButton(onClick=onRefresh){Text("Refresh readings",color=DashboardTokens.Amber)}
                 }
                 state.message?.let{Text(it,color=DashboardTokens.Muted)}
@@ -608,6 +609,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         items(state.sensors,key={it.id}){sensor->
             Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(12.dp)).clickable(enabled=local){expanded=if(expanded==sensor.id)null else sensor.id}.padding(14.dp)){
                 Text(sensor.name,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold)
+                sensor.lightLevel?.let { Text("Ambient light · $it" + if (sensor.isFresh()) "" else " (last reading)", color=DashboardTokens.Muted) }
                 val assigned = state.preferences.greenhouses.firstOrNull { it.id == sensor.greenhouseId }
                 Text(listOfNotNull(assigned?.name ?: "Choose a greenhouse", sensor.zone.takeIf { assigned != null }, if(sensor.isFresh()) "Online" else "Offline").joinToString(" · "), color=DashboardTokens.Muted)
                 if(local && expanded==sensor.id && sensor.greenhouseId!=state.preferences.activeGreenhouse.id) {

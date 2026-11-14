@@ -385,6 +385,46 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun addShellyDisplayFromDevicesAndRetainTheLightReading() {
+        val context = instrumentation.targetContext
+        val secure = SecureSettingsStore(context)
+        assumeTrue("Isolated emulator only", android.os.Build.MODEL.contains("sdk", true) && secure.cloudEnrollment() == null)
+        val store = CurrentSensorStore(context, "_standalone")
+        val previous = store.load()
+        val id = "shelly:F0:00:00:00:00:01"
+        try {
+            secure.saveCloudEnrollment(CloudEnrollment("test-shelly", "", CloudDeviceRole.ViewerClient))
+            store.clear()
+            val changed = java.util.concurrent.atomic.AtomicBoolean()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.setContent {
+                        Column {
+                            ShellyConnections("bench", "West house", { changed.set(true) }) {
+                                kotlinx.coroutines.flow.flowOf(ShellyAdvertisement(id, ShellyModel.Display,
+                                    ShellyBeacon(65.0, 82.0, "Bright", null, false), System.currentTimeMillis()))
+                            }
+                        }
+                    }
+                }
+                click("Add Shelly Bluetooth sensors")
+                find("Add to West house")
+                click("Add sensor")
+                find("Added")
+                click("Done")
+                assertTrue(changed.get())
+                assertTrue(secure.cloudEnrollment()!!.localSensors)
+                val sensor = store.load().single()
+                assertEquals(id, sensor.id)
+                assertEquals("bench", sensor.greenhouseId)
+                assertEquals("Bright", sensor.lightLevel)
+            }
+        } finally {
+            secure.clearCloudEnrollment()
+            store.save(previous)
+        }
+    }
+
     @Test fun repeatedZoneDragsPersistAfterReopen() {
         val context = instrumentation.targetContext
         assumeTrue("Requires isolated emulator", android.os.Build.MODEL.contains("sdk", true) &&

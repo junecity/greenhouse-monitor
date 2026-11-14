@@ -9,6 +9,15 @@ import studio.junecity.greenhouse.model.GoveeSensor
 class CurrentSensorStore(context: Context, private val suffix: String = "") {
     private val preferences = context.getSharedPreferences("greenhouse_current_sensors$suffix", Context.MODE_PRIVATE)
 
+    companion object { private val lock = Any() }
+
+    internal fun update(transform: (List<GoveeSensor>) -> List<GoveeSensor>): List<GoveeSensor> = synchronized(lock) {
+        val previous = load()
+        val changed = transform(previous)
+        if (changed != previous) save(changed)
+        changed
+    }
+
     fun save(sensors: List<GoveeSensor>) {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).apply()
     }
@@ -38,6 +47,7 @@ object CurrentSensorCodec {
                     .put("updatedAtEpochMs", sensor.updatedAtEpochMs)
                     .put("greenhouseId", sensor.greenhouseId)
                     .put("zone", sensor.zone)
+                    .put("lightLevel", sensor.lightLevel)
             )
         }
     }
@@ -53,7 +63,8 @@ object CurrentSensorCodec {
                 online = sensor.optBoolean("online"),
                 updatedAtEpochMs = sensor.optLong("updatedAtEpochMs"),
                 greenhouseId = sensor.optString("greenhouseId", "main"),
-                zone = sensor.optString("zone", "Unassigned")
+                zone = sensor.optString("zone", "Unassigned"),
+                lightLevel = sensor.optString("lightLevel").takeIf { it in setOf("Dark", "Twilight", "Bright") }
             )
         }
     }

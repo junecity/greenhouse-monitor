@@ -7,6 +7,7 @@ import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.settings.ZoneAssignmentStore
 import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.CurrentSensorStore
+import studio.junecity.greenhouse.sensors.replaceGovee
 import studio.junecity.greenhouse.sensors.withCurrentAssignments
 import studio.junecity.greenhouse.sensors.collectReadings
 import studio.junecity.greenhouse.sensors.GoveeSensorProvider
@@ -25,7 +26,7 @@ class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(
             val collected = provider.collectReadings(credential, prefs.load(), store.load(), zones::zone)
             if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return Result.success()
             val sensors = collected.withCurrentAssignments(prefs.load(), zones::zone)
-            store.save(sensors)
+            store.replaceGovee(sensors)
             sensors.filter{it.online}.forEach{history.insert(it);notifier.evaluate(it)}
             Result.success()
         }.getOrElse{Result.retry()}

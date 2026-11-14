@@ -91,6 +91,7 @@ class CloudHeartbeatService : Service() {
             stopSelf(); return@coroutineScope
         }
         val gateway = runCatching { gatewayForEnrollment(this@CloudHeartbeatService, configuration, enrollment) }.getOrElse { stopSelf(); return@coroutineScope }
+        launch { studio.junecity.greenhouse.sensors.collectShelly(this@CloudHeartbeatService, enrollment, "") }
         var failures = 0
         val lastUpload = AtomicLong(0L)
         var backup: Job? = null
@@ -99,14 +100,19 @@ class CloudHeartbeatService : Service() {
         while (isActive) {
             val result = runCatching {
                 val context = this@CloudHeartbeatService
-                val health = HeartbeatHealthStore(context).load()
                 val sensors = CurrentSensorStore(context).load()
+                val healthStore = HeartbeatHealthStore(context)
+                if (sensors.any { it.id.startsWith("shelly:") }) {
+                    val limits = AppPreferencesStore(context).load().notifications
+                    healthStore.save(sensors.filter { it.isFresh() }, limits.lowTemperatureF, limits.highTemperatureF)
+                }
+                val health = healthStore.load()
                 val device = AndroidDeviceStatusProvider(context).current()
                 HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature,
                     batteryPercent=device.batteryPercent, charging=device.charging,
                     networkType=if(device.wifiConnected)"WIFI" else "CELLULAR_OR_OTHER",
-                    sensorCount=sensors.size, sensorProvider=if(secure.goveeApiKey()!=null)"GOVEE" else null,
+                    sensorCount=sensors.size, sensorProvider=listOfNotNull("GOVEE".takeIf { secure.goveeApiKey()!=null }, "SHELLY".takeIf { sensors.any { s -> s.id.startsWith("shelly:") } }).joinToString(", ").ifBlank { null },
                     cameraStatus=if(packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))"AVAILABLE" else "UNAVAILABLE",
                     lastSensorSyncEpochMs=sensors.maxOfOrNull(GoveeSensor::updatedAtEpochMs),
                     lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME

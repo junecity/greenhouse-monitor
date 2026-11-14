@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.21.0 (53)
+- Settings → Devices enrolls individual Shelly BLU H&T ZB and BLU H&T Display ZB broadcasts on the collecting phone. Keep Govee's API flow and scope intact. ShellyBluetooth, ShellyBeacon, ShellyCollection and ShellyConnections feed temperature/humidity into the existing inventory, history, alerts and maps. Display light is a discrete Dark/Twilight/Bright reading. Encrypted broadcasts are identified but cannot be decoded.
+- The registered server listens in its monitoring service. Standalone listens while visible. The viewer uses the existing server snapshot. SensorPlacement gives each new sensor a distinct starting point; the grower supplies actual position and mounting height. No new AWS resources or database migration.
+- Passed 130 JVM and six API 35 instrumented tests including two virtual Bluetooth peripherals, mixed 50-Shelly inventory, and 3D mounting/gestures. The Moto accepted the signed upgrade and opened History's 180-day range. See CHANGELOG for hardware limits, test fixture and artifact details.
+
 ## 2026-11-13 · Android 2.20.0 (52)
 - Settings hamburger now includes Energy with monthly estimated costs, expandable nightly forecast/revised cost comparison, training coverage and explanation. EnergySettings uses the existing dark/amber controls and portrait scrolling.
 - EnergyArchive creates heating_costs.db with one transactional record per enrollment/greenhouse/ZIP/local sunset date. Preserve first forecast, update latest, freeze completed-night price/coefficient and retain the archive independently of raw-reading expiry. Greater station coverage can revise finished nights. Missing nights remain absent. Foreground and NightHeatingWorker save costs; viewer worker reads the existing isolated server-history archive.
