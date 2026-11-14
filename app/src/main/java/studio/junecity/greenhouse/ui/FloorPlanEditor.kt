@@ -46,6 +46,16 @@ private fun midpoint(a: NormalizedPosition, b: NormalizedPosition) =
 @Composable
 internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>, onSave: (GreenhouseConfig)->Unit) {
     var draft by remember(saved.id) { mutableStateOf(saved) }
+    var heights by remember { mutableStateOf(false) }
+    var survey by remember { mutableStateOf<GoveeSensor?>(null) }
+    if(heights) HeightDialog(draft,null,{heights=false}) { main,stem,_ ->
+        draft=draft.copy(heightFeet=main,attachedHeightFeet=stem)
+        heights=false
+    }
+    survey?.let { sensor -> SensorPositionDialog(draft,sensor,{survey=null}) { point ->
+        draft=draft.copy(sensorPositions=draft.sensorPositions+(sensor.id to point))
+        survey=null
+    } }
     var drawing by remember { mutableStateOf(false) }
     var dimensions by remember { mutableStateOf(false) }
     var size by remember { mutableStateOf(IntSize.Zero) }
@@ -227,6 +237,7 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
                 }
             }
             EditorAction(if(drawing)"Cancel drawing" else "Draw outline") { drawing=!drawing;stroke=emptyList() }
+            EditorAction("Roof heights") { heights=true }
             EditorAction("Dimensions") { dimensions=!dimensions }
         }
         if(dimensions) key(draft.shape) {
@@ -247,6 +258,9 @@ internal fun FloorPlanEditor(saved: GreenhouseConfig, sensors: List<GoveeSensor>
         }
         if(!drawing && sensors.isNotEmpty()) FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             sensors.forEach { s -> FilterChip(selected=selected==s.id,onClick={selected=if(selected==s.id) null else s.id},label={Text(s.name)},colors=FilterChipDefaults.filterChipColors(labelColor=Color.White,selectedContainerColor=DashboardTokens.Amber)) }
+        }
+        sensors.find { it.id == selected }?.let { sensor ->
+            EditorAction("Sensor position") { survey=sensor }
         }
         Button(onClick={onSave(draft.copy(name=draft.name.ifBlank{saved.name}))},enabled=!drawing,colors=ButtonDefaults.buttonColors(containerColor=DashboardTokens.Amber,contentColor=DashboardTokens.Background)){Text("Save layout")}
     }

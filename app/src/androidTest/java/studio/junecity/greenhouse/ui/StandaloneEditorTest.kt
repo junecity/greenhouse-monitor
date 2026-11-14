@@ -524,10 +524,21 @@ class StandaloneEditorTest {
                         if (launch == 0) {
                             var previous = initial
                             repeat(2) {
-                                val start = marker()
+                                var start = marker()
+                                val layoutDeadline = SystemClock.elapsedRealtime() + 3000
+                                while (SystemClock.elapsedRealtime() < layoutDeadline) {
+                                    SystemClock.sleep(120)
+                                    val next = marker()
+                                    if (next == start && !next.isEmpty && context.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) break
+                                    start = next
+                                }
                                 val distance = 3 * start.width()
                                 val path = Rect(start.centerX(), start.centerY(), start.centerX() + distance, start.centerY() + 1)
                                 gesture(path, listOf(0f to 0f, 1f to 0f))
+                                val writeDeadline = SystemClock.elapsedRealtime() + 3000
+                                while (position().xFeet <= previous.xFeet + .1 && SystemClock.elapsedRealtime() < writeDeadline) {
+                                    SystemClock.sleep(50)
+                                }
                                 assertTrue("Each drag advances the stored position", position().xFeet > previous.xFeet + .1)
                                 previous = position()
                                 val deadline = SystemClock.elapsedRealtime() + 3000
@@ -907,6 +918,58 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun sectionMeasurementsSurviveEditingAndSnapshotDecode() {
+        val store = AppPreferencesStore(instrumentation.targetContext, "_section_heights_fixture")
+        val sensor = GoveeSensor("probe", "H5179", "Bench sensor")
+        val house = GreenhouseConfig(shape=GreenhouseShape.TShape, heightFeet=8.0, attachedHeightFeet=10.0,
+            sensorPositions=mapOf(sensor.id to SensorPosition(7.0, 12.0, 2.0)))
+        fun edit(old: String, value: String) {
+            check(find(old).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
+            }))
+            find(value)
+        }
+        try {
+            store.save(AppPreferences(greenhouses=listOf(house)))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { a ->
+                    a.requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    a.setContent {
+                        val stage=androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+                        val g=store.load().activeGreenhouse
+                        when(stage.intValue) {
+                            0 -> HeightDialog(g,null,{error("Dismissed")}) { main, stem, _ ->
+                                store.save(AppPreferences(greenhouses=listOf(g.copy(heightFeet=main, attachedHeightFeet=stem))))
+                                stage.intValue=1
+                            }
+                            1 -> SensorPositionDialog(g,sensor,{error("Dismissed")}) { point ->
+                                store.save(AppPreferences(greenhouses=listOf(g.copy(sensorPositions=mapOf(sensor.id to point)))))
+                                stage.intValue=2
+                            }
+                            else -> androidx.compose.material3.Text("Measurements saved")
+                        }
+                    }
+                }
+                edit("10.0", "12.5")
+                click("Save")
+                find("Bench sensor")
+                edit("2", "4.5")
+                click("Show all corner distances")
+                find("Numbered greenhouse corners, viewed from above. The sensor is marked in blue.")
+                click("Use two corner distances")
+                click("Save position")
+                find("Measurements saved")
+                val restored = store.decode(store.exportJson()).activeGreenhouse
+                assertEquals(8.0, restored.heightFeet!!, .00001)
+                assertEquals(12.5, restored.attachedHeightFeet!!, .00001)
+                val pos=restored.sensorPositions.getValue(sensor.id)
+                assertEquals(7.0,pos.xFeet,.00001)
+                assertEquals(12.0,pos.yFeet,.00001)
+                assertEquals(4.5,pos.heightFeet!!,.00001)
+            }
+        } finally { store.clear() }
+    }
+
     @Test fun volumeGesturesHumidityMountingAndLegacyBackup() {
         val store = AppPreferencesStore(instrumentation.targetContext,"_volume_fixture")
         try {
@@ -1140,10 +1203,17 @@ class StandaloneEditorTest {
 
     }
     private fun click(label:String){
-        var node:AccessibilityNodeInfo?=find(label)
-        while(node!=null && !node.isClickable)node=node.parent
-        check(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK)==true)
-        instrumentation.waitForIdleSync()
+        // Rotation or opening a popup can replace a node between lookup and interaction.
+        repeat(5) {
+            var node: AccessibilityNodeInfo? = find(label)
+            while (node != null && !node.isClickable) node = node.parent
+            if (node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
+                instrumentation.waitForIdleSync()
+                return
+            }
+            SystemClock.sleep(100)
+        }
+        error("Could not click $label")
     }
     private fun pinchAndPan(bounds: Rect) {
         val start = SystemClock.uptimeMillis()

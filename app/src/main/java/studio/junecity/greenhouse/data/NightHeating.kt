@@ -30,8 +30,17 @@ internal fun heatingCoefficient(house: GreenhouseConfig, unit: EnergyUnit): Heat
             hypot((a.x - b.x) * house.planLengthFeet, (a.y - b.y) * house.planWidthFeet)
         }
     val height = house.heightFeet ?: 8.0
-    val cover = perimeter * height * .8 + house.areaSquareFeet * 1.1
-    val volume = height * .9 * house.areaSquareFeet
+    val stemHeight = house.attachedHeightFeet ?: height
+    val shared = min(house.lengthFeet, house.attachedWidthFeet)
+    // The connected portion of the wall is internal up to the lower section's eave.
+    val exteriorWalls = if (house.hasStem) .8 * (
+        2 * (house.lengthFeet + house.widthFeet) * height +
+        2 * (house.attachedLengthFeet + house.attachedWidthFeet) * stemHeight -
+        2 * shared * min(height, stemHeight)
+    ) else perimeter * height * .8
+    val cover = exteriorWalls + house.areaSquareFeet * 1.1
+    val volume = .9 * (height * house.areaSquareFeet + if (house.hasStem)
+        (stemHeight - height) * house.attachedLengthFeet * house.attachedWidthFeet else 0.0)
     // Cover transmission plus sensible infiltration, in Btu per hour per Fahrenheit degree.
     fun units(u: Double, changes: Double, efficiency: Double) =
         (cover * u + .018 * volume * changes) / (unit.btu * efficiency)

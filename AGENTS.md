@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.22.0 (55)
+- Settings → Devices → Position records measured floor coordinates and height on the collector. SensorSurvey and SensorPositionDialog support two-corner measurement for rectangular sections, numbered perimeter corners and optional mounting heights. FloorPlanEditor also exposes sensor placement and roof heights.
+- GreenhouseConfig and AppPreferencesStore carry a nullable attachedHeight for T/L presets through the existing backup and server snapshot. Missing attached height inherits the main height. ZoneVolumeScreen and ZoneClimate use the two peaks. NightHeating estimates volumes separately and deducts the shared wall up to the lower eave. Keep completed-night cost records frozen.
+- 134 JVM tests, five API 35 instrumentation cases and lint (zero errors) passed. Physical Moto opened both measurement screens on its T-shaped plan. No owner measurements entered. Live transfer to another phone and comparison against metered heat use remain unverified. See CHANGELOG for artifact and test details.
+
 ## 2026-11-14 · Greenhouse Studio 2.21.1 (54)
 - Settings → Devices supports manual Shelly enrollment by Bluetooth address, user labels, confirmed removal and Add back for Shelly and Govee. Make changes on the collector. CurrentSensorStore keeps scoped labels and removed records together with active membership. CollectReadings skips removed Govees, and replaceGovee rechecks at write time. Removal retains history, floor position and zone configuration.
 - CustomerBackup and GreenhouseBackupStore include the optional sensor management metadata. CloudHeartbeatService observes inventory labels and new registrations when deciding when to publish. No database migration or cloud deployment.

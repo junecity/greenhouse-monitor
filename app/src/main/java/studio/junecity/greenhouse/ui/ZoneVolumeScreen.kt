@@ -69,12 +69,12 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
     val layerPaint = remember { android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG) }
     val editable=state.standalone || state.preferences.cameraMode!=CameraMode.ViewerClient
     var editing by remember {mutableStateOf(false)}
-    if(editing) HeightDialog(g,sensor,{editing=false}) {roof,mount ->
+    if(editing) HeightDialog(g,sensor,{editing=false}) {roof,stemRoof,mount ->
         update { prefs -> prefs.copy(greenhouses=prefs.greenhouses.map { house ->
             if(house.id!=g.id) house else {
                 val pos=house.sensorPositions[sensor?.id]
                 val positions=if(sensor!=null && pos!=null) house.sensorPositions+(sensor.id to pos.copy(heightFeet=mount)) else house.sensorPositions
-                house.copy(heightFeet=roof,sensorPositions=positions)
+                house.copy(heightFeet=roof,attachedHeightFeet=stemRoof,sensorPositions=positions)
             }
         }) }
         editing=false
@@ -150,7 +150,7 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                     drawLine(color,camera.point(x,y,z),camera.point(ex,ey,ez),1.dp.toPx())
                 val floor=polygon(0.0)
                 val pitched=g.hasStem || g.shape==GreenhouseShape.Rectangle
-                val eaves=if(pitched) h*.76 else h
+                val eaves=if(pitched) ZoneClimate.mainHeight(g)*.8 else h
                 drawPath(floor,zoneFloorColor)
                 if (planLayer != null) {
                     val origin = camera.point(0.0, 0.0, 0.0)
@@ -166,17 +166,25 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                 val rim=Color(0xff9daeb4).copy(alpha=.65f)
                 val strut=rim.copy(alpha=.38f)
                 androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()).let {
-                    drawPath(floor,rim,style=it);drawPath(polygon(eaves),rim,style=it)
+                    drawPath(floor,rim,style=it); if (!g.hasStem) drawPath(polygon(eaves),rim,style=it)
                 }
                 val step=maxOf(g.planLengthFeet/25,g.planWidthFeet/25,h/13,.3)
                 for((cell,color) in cells)drawCircle(color.copy(alpha=color.alpha*reveal.value),(step*camera.scale*.68).toFloat(),camera.point(cell.x,cell.y,cell.z))
                 outline.forEachIndexed {i,a->
-                    if(g.shape!=GreenhouseShape.Circle || i%6==0)rail(a.x*g.planLengthFeet,a.y*g.planWidthFeet,0.0,a.x*g.planLengthFeet,a.y*g.planWidthFeet,eaves,strut)
+                    if(!g.hasStem && (g.shape!=GreenhouseShape.Circle || i%6==0))rail(a.x*g.planLengthFeet,a.y*g.planWidthFeet,0.0,a.x*g.planLengthFeet,a.y*g.planWidthFeet,eaves,strut)
                 }
-                fun roof(x:Double,y:Double,length:Double,width:Double,alongX:Boolean) {
+                fun roof(x:Double,y:Double,length:Double,width:Double,alongX:Boolean,h:Double) {
+                    val eaves=h*.8
                     val span=if(alongX) length else width
                     val across=if(alongX) width else length
                     fun at(u:Double,v:Double,z:Double)=camera.point(x+if(alongX) u else v,y+if(alongX) v else u,z)
+                    if (g.hasStem) {
+                        for (u in listOf(0.0,span)) {
+                            drawLine(rim,at(u,0.0,eaves),at(u,across,eaves),1.dp.toPx())
+                            for (v in listOf(0.0,across)) drawLine(strut,at(u,v,0.0),at(u,v,eaves),1.dp.toPx())
+                        }
+                        for (v in listOf(0.0,across)) drawLine(rim,at(0.0,v,eaves),at(span,v,eaves),1.dp.toPx())
+                    }
                     drawLine(rim,at(0.0,across/2,h),at(span,across/2,h),1.dp.toPx())
                     val ribs=ceil(span/4).toInt().coerceIn(1,12)
                     for(i in 0..ribs) {
@@ -186,8 +194,8 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                     }
                 }
                 if(pitched) {
-                    roof(g.crossbarLeftFeet,0.0,g.lengthFeet,g.widthFeet,g.lengthFeet>=g.widthFeet)
-                    if(g.hasStem) roof(g.stemLeftFeet,g.widthFeet,g.attachedWidthFeet,g.attachedLengthFeet,false)
+                    roof(g.crossbarLeftFeet,0.0,g.lengthFeet,g.widthFeet,g.lengthFeet>=g.widthFeet,ZoneClimate.mainHeight(g))
+                    if(g.hasStem) roof(g.stemLeftFeet,g.widthFeet,g.attachedWidthFeet,g.attachedLengthFeet,false,g.attachedHeightFeet ?: ZoneClimate.mainHeight(g))
                 }
                 // Grid on the physical floor only; a concave or circular plan clips it to its walls.
                 clipPath(floor) {
@@ -245,18 +253,27 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
     }
 }
 
-@Composable private fun HeightDialog(g:GreenhouseConfig,s:GoveeSensor?,close:()->Unit,save:(Double,Double?)->Unit){
+@Composable internal fun HeightDialog(g:GreenhouseConfig,s:GoveeSensor?,close:()->Unit,save:(Double?,Double?,Double?)->Unit){
     val pos=g.sensorPositions[s?.id]
-    var roof by remember(g.id){mutableStateOf(planNumber(ZoneClimate.height(g)))}
+    var roof by remember(g.id){mutableStateOf(g.heightFeet?.toString().orEmpty())}
+    var stem by remember(g.id){mutableStateOf(g.attachedHeightFeet?.toString().orEmpty())}
     var mount by remember(s?.id){mutableStateOf(pos?.heightFeet?.let(::planNumber).orEmpty())}
-    val maxOther=g.sensorPositions.filterKeys{it!=s?.id}.values.maxOfOrNull{it.heightFeet ?: 0.0} ?: 0.0
-    val h=roof.toDoubleOrNull();val z=mount.toDoubleOrNull()
-    val valid=h!=null && h in .1..480.0 && h>=maxOther && (pos==null || mount.isBlank() || z!=null && z in 0.0..h)
-    AlertDialog(onDismissRequest=close,title={Text("Mounting height")},text={
+    val h=roof.toDoubleOrNull(); val sh=stem.toDoubleOrNull(); val z=mount.replace(',','.').toDoubleOrNull()
+    val proposed=g.copy(heightFeet=h, attachedHeightFeet=if(g.hasStem) sh else g.attachedHeightFeet)
+    val valid=(roof.isBlank() || h!=null && h in .1..480.0) &&
+        (!g.hasStem || stem.isBlank() || sh!=null && sh in .1..480.0) &&
+        (pos==null || mount.isBlank() || z!=null && z in 0.0..ZoneClimate.sectionHeight(proposed,pos.yFeet)) &&
+        g.sensorPositions.all { (id,p) -> id==s?.id || p.heightFeet==null || p.heightFeet <= ZoneClimate.sectionHeight(proposed,p.yFeet) }
+    AlertDialog(onDismissRequest=close,containerColor=DashboardTokens.PanelRaised,
+        title={Text(if(s==null) "Greenhouse heights" else "Mounting height",color=Color.White)},text={
         Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            OutlinedTextField(roof,{roof=it},label={Text("Greenhouse height (ft)")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal))
-            if(s!=null && pos!=null)OutlinedTextField(mount,{mount=it},label={Text("${s.name} · ft above floor")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal))
-            if(!valid)Text("Enter a greenhouse height that includes all mounted sensors.",color=DashboardTokens.Amber)
+            if(s!=null && pos!=null) MeasurementField("${s.name} · ft above floor",mount){mount=it}
+            MeasurementField(if(g.hasStem) "Crossbar peak height (ft)" else "Greenhouse peak height (ft)",roof){roof=it}
+            if(g.hasStem) MeasurementField("Stem peak height (ft)",stem){stem=it}
+            Text(if(g.hasStem) "Measure from the floor to each roof peak. Leave the stem blank to use the crossbar height."
+                else "Measure from the floor to the highest point of the roof.",color=DashboardTokens.Muted)
+            if(!valid)Text("Check the heights. Each roof must include the sensors in that section.",color=DashboardTokens.Amber)
         }
-    },confirmButton={TextButton(enabled=valid,onClick={save(requireNotNull(h),z)}){Text("Save")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
+    },confirmButton={TextButton(enabled=valid,onClick={save(h,proposed.attachedHeightFeet,z)}){Text("Save",color=DashboardTokens.Amber)}},
+        dismissButton={TextButton(onClick=close){Text("Cancel",color=DashboardTokens.Muted)}})
 }

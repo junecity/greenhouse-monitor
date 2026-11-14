@@ -18,7 +18,12 @@ internal object ZoneClimate {
             }
     }
 
-    fun height(g: GreenhouseConfig) = g.heightFeet ?: max(8.0, g.sensorPositions.values.maxOfOrNull { it.heightFeet ?: 0.0 } ?: 0.0)
+    fun mainHeight(g: GreenhouseConfig) = g.heightFeet ?: max(8.0,
+        g.sensorPositions.values.filter { !g.hasStem || it.yFeet <= g.widthFeet || g.attachedHeightFeet == null }
+            .maxOfOrNull { it.heightFeet ?: 0.0 } ?: 0.0)
+    fun height(g: GreenhouseConfig) = max(mainHeight(g), if (g.hasStem) g.attachedHeightFeet ?: 0.0 else 0.0)
+    fun sectionHeight(g: GreenhouseConfig, y: Double) =
+        if (g.hasStem && y > g.widthFeet) g.attachedHeightFeet ?: mainHeight(g) else mainHeight(g)
     private fun radius(g: GreenhouseConfig) = (min(g.planLengthFeet,g.planWidthFeet)*.42).coerceIn(2.0,7.0)
     private fun distance(x: Double,y: Double,z: Double,p: SensorPosition): Double {
         val h = p.heightFeet ?: return Double.POSITIVE_INFINITY
@@ -33,12 +38,15 @@ internal object ZoneClimate {
         val step = maxOf(g.planLengthFeet/25,g.planWidthFeet/25,h/13,.3)
         val range = radius(g).pow(2)
         return buildList {
+            val mainPeak = mainHeight(g)
+            val stemPeak = g.attachedHeightFeet ?: mainPeak
             for (i in 0 until ceil(g.planLengthFeet/step).toInt()) for (j in 0 until ceil(g.planWidthFeet/step).toInt()) {
                 val x=(i+.5)*step; val y=(j+.5)*step
                 if (!g.containsPoint(x,y)) continue
-                for (k in 0 until ceil(h/step).toInt()) {
+                val sectionTop = if (g.hasStem && y > g.widthFeet) stemPeak else mainPeak
+                for (k in 0 until ceil(sectionTop/step).toInt()) {
                     val z=(k+.5)*step
-                    if (z>h) continue
+                    if (z>sectionTop) continue
                     var nearest=range; var sum=0.0; var weights=0.0
                     for ((s,p) in placed) {
                         val d=distance(x,y,z,p)
@@ -95,12 +103,12 @@ internal object ZoneClimate {
         if(warm-temp>=3) return "${cold.name} is ${(warm-temp).roundToInt()}°F cooler than the warmest sensor. Monitor this spot."
         val mounted=probes.filter { it.position.heightFeet!=null }
         if(mounted.isEmpty()) return "Set sensor heights to see how conditions vary from floor to roof."
-        val h=height(g)
         // Find a real, inside-the-footprint sample location furthest from a mounted, reporting sensor.
         var gap=0.0;var location=""
         for(i in 0 until 6) for(j in 0 until 6) {
             val x=g.planLengthFeet*(i+.5)/6; val y=g.planWidthFeet*(j+.5)/6
             if(!g.containsPoint(x,y)) continue
+            val h=sectionHeight(g,y)
             for(z in listOf(h*.15,h*.8)){
                 val nearest=mounted.minOf { distance(x,y,z,it.position) }
                 if(nearest>gap){gap=nearest;location="${if(z>h/2)"upper" else "lower"} ${if(j<3)"back" else "front"}-${if(i<3)"left" else "right"} area (floor plan)"}

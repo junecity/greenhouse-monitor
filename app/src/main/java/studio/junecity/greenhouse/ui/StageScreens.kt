@@ -410,7 +410,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         SettingsCategory.Connectivity->ConnectivitySettings(state,d,t,onRefresh,onSaveKey)
         SettingsCategory.Camera->CameraRoleSettings(state,d,t,onUpdatePreferences)
         SettingsCategory.Alerts->AlertSettings(state,d,t,onUpdatePreferences)
-        SettingsCategory.Devices->DevicesSettings(state,d,t,onAssignZone,onRefresh,onSaveKey,onSensorsChanged)
+        SettingsCategory.Devices->DevicesSettings(state,d,t,onAssignZone,onRefresh,onSaveKey,onSensorsChanged,onUpdatePreferences)
         SettingsCategory.Energy -> EnergySettings(state)
         SettingsCategory.Backup -> BackupPanel(onRestored)
         SettingsCategory.Display->DisplaySettings(state,d,t,onUpdatePreferences)
@@ -579,7 +579,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 }
 
 @Composable private fun AlertSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onPrefs:((AppPreferences)->AppPreferences)->Unit){val n=state.preferences.notifications;var delivery by remember{mutableStateOf(false)};LazyColumn(Modifier.fillMaxSize().padding(d(22f)),verticalArrangement=Arrangement.spacedBy(d(8f))){item{Text("Alerts & Notifications",color=Color.White,fontSize=t(25f),fontWeight=FontWeight.Bold);Text("Monitoring and history continue when notifications are off. Defaults are quiet and non-repeating.",color=DashboardTokens.Muted,fontSize=t(14f))};item{ToggleRow("Master notifications",n.masterEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(masterEnabled=!it.notifications.masterEnabled))}}};item{ToggleRow("Temperature alerts",n.temperatureAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(temperatureAlerts=!it.notifications.temperatureAlerts))}}};item{ToggleRow("Humidity alerts",n.humidityAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(humidityAlerts=!it.notifications.humidityAlerts))}}};item{ToggleRow("Sensor offline alerts",n.offlineAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(offlineAlerts=!it.notifications.offlineAlerts))}}};item{TextButton(onClick={delivery=!delivery}){Text(if(delivery)"Hide delivery options" else "Alert delivery",color=DashboardTokens.Amber)}};if(delivery)item{ToggleRow("On-screen pop-ups",n.popupsEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(popupsEnabled=!it.notifications.popupsEnabled))}}};if(delivery)item{ToggleRow("Sound",n.soundEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(soundEnabled=!it.notifications.soundEnabled))}}};if(delivery)item{ToggleRow("Vibration",n.vibrationEnabled,d,t){onPrefs{it.copy(notifications=it.notifications.copy(vibrationEnabled=!it.notifications.vibrationEnabled))}}};if(delivery)item{ToggleRow("Repeated alerts (${n.repeatMinutes} min)",n.repeatedAlerts,d,t){onPrefs{it.copy(notifications=it.notifications.copy(repeatedAlerts=!it.notifications.repeatedAlerts))}}};item{SettingsRow("Temperature range"){StepButton("−",d,t){onPrefs{it.copy(notifications=it.notifications.copy(lowTemperatureF=it.notifications.lowTemperatureF-1))}};Text("${n.lowTemperatureF.roundToInt()}–${n.highTemperatureF.roundToInt()}°F",color=Color.White,fontSize=t(16f));StepButton("+",d,t){onPrefs{it.copy(notifications=it.notifications.copy(highTemperatureF=it.notifications.highTemperatureF+1))}}}};item{SettingsRow("Humidity range"){StepButton("−",d,t){onPrefs{it.copy(notifications=it.notifications.copy(lowHumidity=(it.notifications.lowHumidity-1).coerceAtLeast(0.0)))}};Text("${n.lowHumidity.roundToInt()}–${n.highHumidity.roundToInt()}%",color=Color.White,fontSize=t(16f));StepButton("+",d,t){onPrefs{it.copy(notifications=it.notifications.copy(highHumidity=(it.notifications.highHumidity+1).coerceAtMost(100.0)))}}}};item{Row(horizontalArrangement=Arrangement.spacedBy(d(10f))){ActionButton("Snooze 1 hour",d,t){onPrefs{it.copy(notifications=it.notifications.copy(snoozedUntilEpochMs=System.currentTimeMillis()+60*60_000L))}};ActionButton("Clear snooze",d,t){onPrefs{it.copy(notifications=it.notifications.copy(snoozedUntilEpochMs=0))}}}}}}
-@Composable internal fun DevicesSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onAssign:(String,String)->Unit,onRefresh:()->Unit,onSave:(String)->Unit,onSensorsChanged:()->Unit){
+@Composable internal fun DevicesSettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onAssign:(String,String)->Unit,onRefresh:()->Unit,onSave:(String)->Unit,onSensorsChanged:()->Unit,onPrefs:(((AppPreferences)->AppPreferences)->Unit)?=null){
     val context=LocalContext.current
     val secure = remember(context) { SecureSettingsStore(context) }
     val owner = secure.cloudEnrollment()
@@ -591,6 +591,19 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     var removed by remember(store) { mutableStateOf(store.removed()) }
     var showRemoved by remember(store) { mutableStateOf(false) }
     var editing by remember(store) { mutableStateOf<GoveeSensor?>(null) }
+    var positioning by remember(store) { mutableStateOf<GoveeSensor?>(null) }
+    positioning?.let { sensor ->
+        state.preferences.greenhouses.find { it.id==sensor.greenhouseId }?.let { house ->
+            SensorPositionDialog(house,sensor,{positioning=null}) { point ->
+                if(local && secure.cloudEnrollment()==owner) onPrefs?.invoke { prefs ->
+                    prefs.copy(greenhouses=prefs.greenhouses.map {
+                        if(it.id==house.id) it.copy(sensorPositions=it.sensorPositions+(sensor.id to point)) else it
+                    })
+                }
+                positioning=null
+            }
+        }
+    }
     fun change(action: () -> Unit) {
         if (local && secure.cloudEnrollment() == owner) {
             action()
@@ -629,6 +642,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
             Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(12.dp)).clickable(enabled=local){expanded=if(expanded==sensor.id)null else sensor.id}.padding(14.dp)){
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(sensor.name,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                    if (local && onPrefs!=null && state.preferences.greenhouses.any { it.id==sensor.greenhouseId }) TextButton(onClick={positioning=sensor}) { Text("Position",color=DashboardTokens.Amber) }
                     if (local) TextButton(onClick = { editing = sensor }) { Text("Edit", color = DashboardTokens.Amber) }
                 }
                 sensor.lightLevel?.let { Text("Ambient light · $it" + if (sensor.isFresh()) "" else " (last reading)", color=DashboardTokens.Muted) }
