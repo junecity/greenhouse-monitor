@@ -32,15 +32,8 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     private val single = SensorStores(app, "_standalone")
     private var stores = if (secure.cloudEnrollment().isStandaloneClient()) single else paired
     private val preferences get() = stores.preferences
-    // Remote device IDs can repeat across tenants. Keep each authorized server archive separate.
-    private fun viewerSuffix(owner: CloudEnrollment): String {
-        val identity = listOf(owner.tenantId, owner.deviceId, owner.greenhouseId).joinToString("\u0000")
-        return "_viewer_" + java.security.MessageDigest.getInstance("SHA-256")
-            .digest(identity.toByteArray()).joinToString("") { "%02x".format(it) }
-    }
-
     private fun viewerArchive(enrollment: CloudEnrollment?) =
-        enrollment?.takeIf { it.role == CloudDeviceRole.ViewerClient && !it.isStandaloneClient() }?.let(::viewerSuffix)
+        enrollment?.takeIf { it.role == CloudDeviceRole.ViewerClient && !it.isStandaloneClient() }?.let(::viewerHistorySuffix)
     private var currentViewerArchive = viewerArchive(secure.cloudEnrollment())
 
     private val legacyZones get() = stores.zones
@@ -225,7 +218,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 if (!silent) _state.value = _state.value.copy(message = "Waiting for greenhouse server data")
                 return greenhouseId.isBlank()
             }
-            val suffix = viewerSuffix(enrollment.copy(greenhouseId = greenhouseId))
+            val suffix = viewerHistorySuffix(enrollment.copy(greenhouseId = greenhouseId))
             withContext(Dispatchers.IO) {
                 GreenhouseBackupStore(getApplication(), suffix).restore(snapshot, CameraMode.ViewerClient)
             }
@@ -315,7 +308,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         val storage = stores
         val rows = withContext(Dispatchers.IO) {
             if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) {
-                HistoryStore(getApplication(), viewerSuffix(owner)).use { it.dayReadings(day) }
+                HistoryStore(getApplication(), viewerHistorySuffix(owner)).use { it.dayReadings(day) }
             } else storage.history.dayReadings(day)
         }
         return if (storage == stores && secure.cloudEnrollment() == owner) rows else emptyList()
@@ -340,7 +333,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             )
             val (rows, daily) = withContext(Dispatchers.IO) {
                 if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) {
-                    HistoryStore(getApplication(), viewerSuffix(owner)).use(::read)
+                    HistoryStore(getApplication(), viewerHistorySuffix(owner)).use(::read)
                 } else read(storage.history)
             }
             if (forHistory != needsWeekHistory() || showDaily != (_state.value.screen == AppScreen.History)) return@launch

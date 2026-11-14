@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-13 · Android 2.20.0 (52)
+- Settings hamburger now includes Energy with monthly estimated costs, expandable nightly forecast/revised cost comparison, training coverage and explanation. EnergySettings uses the existing dark/amber controls and portrait scrolling.
+- EnergyArchive creates heating_costs.db with one transactional record per enrollment/greenhouse/ZIP/local sunset date. Preserve first forecast, update latest, freeze completed-night price/coefficient and retain the archive independently of raw-reading expiry. Greater station coverage can revise finished nights. Missing nights remain absent. Foreground and NightHeatingWorker save costs; viewer worker reads the existing isolated server-history archive.
+- HeatingStore retains 90 days of quarter-hour samples, serializes merges and persists foreground observations. NightHeating learns from up to 30 qualifying nights. Absolute energy use still depends on heat-loss and delivery assumptions. Costs/training are local to the installation and currently excluded from exported CustomerBackup and server snapshots.
+- Passed 126 JVM tests, lint (0 errors), four API 35 tests including live feeds and archive/fuel/month/reopen isolation. The live EIA table initially timed out twice; a measured 10.9-second response required a 25-second EIA-only read timeout, and rerun passed. Final storage regression passed again. Moto G7 opened Settings → Energy with real retained training and estimated costs. Actual billing accuracy, elapsed multi-month retention and cross-phone energy archival remain unverified.
+
 ## 2026-11-13 · Android 2.19.0 (51)
 - Energy and Quick Start store only the per-greenhouse fuel. FuelPrices maps the weather ZIP to an EIA state residential average with a U.S. fallback, cached data and a dated bundled snapshot. Wood uses dollars per million Btu. Existing therm and kWh selections still work.
 - StationWeather retains up to seven days of nearby NWS hourly observations. LiveWeatherProvider supplies ZIP state/coordinates and hourly forecasts. NightHeating and HeatingStore use station temperatures as available, preserve modeled temperatures for gaps and forecasts, and keep absolute cost tied to the assumed heat-loss and delivery coefficients. No meter, database migration or cloud deployment.

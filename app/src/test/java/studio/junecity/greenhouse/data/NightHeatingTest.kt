@@ -20,6 +20,15 @@ class NightHeatingTest {
         assertNull(learnedTemperature(stable.map { it.copy(outdoor = it.indoor) }))
         assertNull(learnedTemperature(samples(1, listOf(67.0, 66.0, 65.0, 64.0, 63.0))))
     }
+    @Test fun learnsAcrossThirtyQualifyingNightsWithoutOverweightingOldNights() {
+        val history = (0..39).flatMap { day ->
+            (0..4).map { quarter -> ThermalPoint(date.plusDays(day.toLong()),
+                (day * 24L * HEATING_HOUR) + quarter * HEATING_HOUR / 4,
+                if (day < 10) 75.0 else 61.0, 40.0, listOf("a")) }
+        }
+        assertEquals(LearnedTemperature(61.0, 30), learnedTemperature(history))
+    }
+
     private val zone = ZoneId.of("America/New_York")
     private fun at(day: LocalDate, time: String) = day.atTime(LocalTime.parse(time)).atZone(zone).toInstant().toEpochMilli()
     private val sunsets = (-3L..8L).associate { n ->

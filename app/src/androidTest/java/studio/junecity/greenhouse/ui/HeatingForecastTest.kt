@@ -36,6 +36,61 @@ class HeatingForecastTest {
         check(weather.stationHours.keys.any { it in (now - 24 * HEATING_HOUR)..now })
     }
 
+    @Test fun forecastAndRevisedMonthSurviveReopenAndFuelChange() {
+        assumeTrue(android.os.Build.MODEL.contains("sdk", ignoreCase = true))
+        val context = instrumentation.targetContext
+        val date = java.time.LocalDate.now(java.time.ZoneOffset.UTC).withDayOfMonth(1).minusDays(1)
+        val house = GreenhouseConfig(id = "energy-test-" + java.util.UUID.randomUUID())
+        val owner = studio.junecity.greenhouse.settings.SecureSettingsStore(context).cloudEnrollment()
+        val store = HeatingStore(context, owner, house.id)
+        val h = HEATING_HOUR
+        val start = date.toEpochDay() * 24 * h + 18 * h
+        val sunrise = start + 12 * h
+        val solar = mapOf(date to SolarDay(start-12*h, start), date.plusDays(1) to SolarDay(sunrise, sunrise+12*h))
+        val hourly = (0..11).associate { start + it*h to 40.0 }
+        val weather = WeatherReading("06382", "Fixture", 40.0, "Clear", start-h, zone=java.time.ZoneOffset.UTC,
+            solarDays=solar, hourlyOutdoorF=hourly)
+        val training = (0..4).map { ThermalPoint(date.minusDays(1), start - 24*h + it*h/4, 60.0, 40.0, listOf("S1")) }
+        val expired = training.first().copy(time=start-91*24*h)
+        store.update("06382", training + expired, start)
+        store.update("06382", training, start)
+        assertEquals(training, HeatingStore(context, owner, house.id).history("06382"))
+        check(HeatingStore(context, owner, house.id+"-other").history("06382").isEmpty())
+        val quote = FuelPrice(0.2, "CT", "2026-08")
+        val original = EnergyArchive(context).use { db ->
+            db.record(store.namespace, house, weather, training, EnergyUnit.Kwh, quote, start-h)
+            db.nights(store.namespace, weather.zipCode).single()
+        }
+        check(original.first == original.estimate && !original.finished)
+        val revised = weather.copy(updatedAtEpochMs=sunrise+h, stationHours=hourly.keys.associateWith { StationHour(50.0, it) })
+        EnergyArchive(context).use { db ->
+            repeat(2) { db.record(store.namespace, house, revised, training, EnergyUnit.Wood,
+                FuelPrice(8.0, "US", "2024"), sunrise+h) }
+            db.record(store.namespace, house, weather, training, EnergyUnit.Kwh, quote, start-h)
+            val final = db.nights(store.namespace, weather.zipCode).single()
+            assertEquals(original.first, final.first)
+            assertEquals(original.estimate/2, final.estimate, 0.000001)
+            assertEquals("Electric", final.fuel)
+            assertEquals(12.0, final.stationHours, 0.0)
+            check(final.finished && db.nights("other", weather.zipCode).isEmpty())
+            check(db.nights(store.namespace, "90210").isEmpty())
+        }
+        val state = GreenhouseUiState(preferences = AppPreferences(greenhouses=listOf(house), activeGreenhouseId=house.id),
+            weather=weather)
+        compose.activityRule.scenario.onActivity { activity ->
+            activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            activity.setContent { EnergySettings(state) }
+        }
+        compose.waitUntil(8000) { compose.onAllNodesWithText("Earlier").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Earlier").performClick()
+        compose.onNodeWithText("Estimated heating for 1 completed night", substring=true).assertExists()
+        compose.onNodeWithText("View nightly costs").performScrollTo().performClick()
+        compose.onNodeWithText("First forecast", substring=true).assertExists()
+        compose.onNodeWithText("Historical estimate", substring=true).assertExists()
+        compose.onNodeWithText("Training data").performScrollTo().assertExists()
+        compose.onNodeWithText("How it works").performScrollTo().assertExists()
+    }
+
     @Test fun firstRunSinglePhoneGuideValidatesAndReturnsInputs() {
         assumeTrue(android.os.Build.MODEL.contains("sdk", ignoreCase = true))
         var result: studio.junecity.greenhouse.cloud.QuickStartData? = null

@@ -175,11 +175,22 @@ class MainActivity : ComponentActivity() {
                     studio.junecity.greenhouse.data.HeatingStore(applicationContext,
                         SecureSettingsStore(applicationContext).cloudEnrollment(), state.preferences.activeGreenhouseId)
                 }
-                val heatingPoints = if (state.screen == AppScreen.Dashboard || state.screen == AppScreen.Energy) studio.junecity.greenhouse.ui.heatingPoints(state, heatingStore) else emptyList()
+                val heatingPoints = studio.junecity.greenhouse.ui.heatingPoints(state, heatingStore)
                 val learned = remember(heatingPoints) { studio.junecity.greenhouse.data.learnedTemperature(heatingPoints) }
-                val dashboardFuel = remember(heatingStore, state.screen) { heatingStore.settings().unit }
-                val dashboardPrice = if (state.screen == AppScreen.Dashboard)
-                    studio.junecity.greenhouse.ui.energyPrice(state, dashboardFuel)?.dollars else null
+                val dashboardFuel by heatingStore.fuelFlow.collectAsState(initial = heatingStore.settings().unit)
+                val energyQuote = studio.junecity.greenhouse.ui.energyPrice(state, dashboardFuel)
+                val dashboardPrice = energyQuote?.dollars
+                LaunchedEffect(heatingStore, heatingPoints, state.weather, energyQuote, state.preferences.activeGreenhouse, dashboardFuel) {
+                    val quote = energyQuote ?: return@LaunchedEffect
+                    if (state.weather.zipCode == state.preferences.zipCode && heatingPoints.isNotEmpty()) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            studio.junecity.greenhouse.data.EnergyArchive(applicationContext).use {
+                                it.record(heatingStore.namespace, state.preferences.activeGreenhouse, state.weather,
+                                    heatingPoints, dashboardFuel, quote, System.currentTimeMillis())
+                            }
+                        }
+                    }
+                }
                 val heatingSummary = remember(learned, dashboardFuel, dashboardPrice, state.weather, state.preferences.activeGreenhouse, state.screen, now.toLocalDate(), now.hour) {
                     if (learned == null || state.weather.zipCode != state.preferences.zipCode || state.weather.stale || dashboardPrice == null) null else {
                         val forecast = studio.junecity.greenhouse.data.NightHeating.forecast(state.weather, learned.fahrenheit, System.currentTimeMillis())

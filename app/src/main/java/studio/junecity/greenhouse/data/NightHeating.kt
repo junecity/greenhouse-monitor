@@ -130,7 +130,7 @@ internal fun learnedTemperature(points: List<ThermalPoint>): LearnedTemperature?
             if (temps.max() - temps.min() > 2.0 || abs(temps.last() - temps.first()) > 1.0) null else median(temps)
         }
         if (centers.isEmpty()) null else median(centers)
-    }.take(7)
+    }.take(30)
     return if (nightly.isEmpty()) null else LearnedTemperature(median(nightly), nightly.size)
 }
 

@@ -44,11 +44,8 @@ internal fun heatingPoints(state: GreenhouseUiState, store: HeatingStore): List<
     var points by remember(store, zip, ids) { mutableStateOf(emptyList<ThermalPoint>()) }
     LaunchedEffect(store, weather, state.history, ids, zip) {
         points = withContext(Dispatchers.Default) {
-            val cached = withContext(Dispatchers.IO) { store.history(zip) }.filter {
-                it.time >= now - 30L * 24 * HEATING_HOUR && it.sensors.all(ids::contains)
-            }
             val observed = if (validWeather) NightHeating.observations(weather, state.history, ids, now) else emptyList()
-            (cached + observed).associateBy { it.time }.values.sortedBy { it.time }
+            withContext(Dispatchers.IO) { store.update(zip, observed, now) }.filter { it.sensors.all(ids::contains) }
         }
     }
     return points
@@ -173,15 +170,10 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
                             TextButton(onClick = refresh) { Text("Refresh weather", color = DashboardTokens.Amber) }
                         }
                         HorizontalDivider(color = DashboardTokens.Divider)
-                        if (validWeather && learned != null && nights.isNotEmpty()) {
-                            val previous = NightHeating.night(weather, learned.fahrenheit, nights.first().date.minusDays(1), now)
-                            val cost = previous.degreeHours?.let { costPerDegree?.times(it) }
-                            if (cost != null) {
-                                val observed = previous.hours.filter { it.observed }.sumOf { it.hours }
-                                Text("Last completed night · ${money(cost)} estimated", fontWeight = FontWeight.Bold)
-                                Text("${previous.date} · ${number(observed)} of ${number(previous.hours.sumOf { it.hours })} hours from station observations; remaining hours use local weather-model data.",
-                                    color = DashboardTokens.Muted)
-                            }
+                        savedEnergyNights(store, zip).firstOrNull { it.finished }?.let { previous ->
+                            Text("Last completed night · ${money(previous.estimate)} estimated", fontWeight = FontWeight.Bold)
+                            Text("${previous.date} · ${previous.fuel} · ${number(previous.stationHours)} hours from station observations",
+                                color = DashboardTokens.Muted)
                         }
                         Text("Nighttime behavior", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         if (behavior == null) Text("Waiting for an hour of paired indoor and outdoor readings after sunset.",

@@ -31,7 +31,7 @@ internal fun publicEnergyData(url: String): String {
     val connection = URL(url).openConnection() as HttpURLConnection
     return try {
         connection.connectTimeout = 5000
-        connection.readTimeout = 8000
+        connection.readTimeout = if (connection.url.host == "www.eia.gov") 25_000 else 8_000
         connection.setRequestProperty("User-Agent", "GreenhouseStudio/2.19 (greenhouse weather and energy estimates)")
         connection.inputStream.bufferedReader().use { it.readText() }
     } finally { connection.disconnect() }

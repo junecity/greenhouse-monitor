@@ -301,7 +301,7 @@ import kotlin.math.roundToInt
 @Composable private fun LiveCameraPreview(d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,quality:CameraStreamQuality,onStatus:(Boolean,String?)->Unit){FrontCameraFeed(d,t,Modifier.fillMaxSize(),quality,onStatus)}
 @Composable private fun CameraControls(active:Int,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSelect:(Int)->Unit){val tabs=listOf(Triple("Live View",DashboardIcon.Video,0),Triple("Playback",DashboardIcon.Play,1),Triple("Timelapse",DashboardIcon.Calendar,2),Triple("Settings",DashboardIcon.Settings,3));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){tabs.forEach{(label,icon,i)->val selected=i==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onSelect(i)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else Color.White,Modifier.size(d(27f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
-private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIcon.Sliders),Connectivity(DashboardIcon.Wifi),Camera(DashboardIcon.Camera),Alerts(DashboardIcon.Bell),Devices(DashboardIcon.Signal),Display(DashboardIcon.Resize),Backup(DashboardIcon.Download),}
+private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIcon.Sliders),Energy(DashboardIcon.Flame),Connectivity(DashboardIcon.Wifi),Camera(DashboardIcon.Camera),Alerts(DashboardIcon.Bell),Devices(DashboardIcon.Signal),Display(DashboardIcon.Resize),Backup(DashboardIcon.Download),}
 @Composable private fun visibleCategories(state:GreenhouseUiState):List<SettingsCategory>{
     val context=LocalContext.current
     val role=remember(state.standalone,state.preferences.cameraMode){SecureSettingsStore(context).cloudEnrollment()?.role}
@@ -410,6 +410,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         SettingsCategory.Camera->CameraRoleSettings(state,d,t,onUpdatePreferences)
         SettingsCategory.Alerts->AlertSettings(state,d,t,onUpdatePreferences)
         SettingsCategory.Devices->DevicesSettings(state,d,t,onAssignZone,onRefresh,onSaveKey)
+        SettingsCategory.Energy -> EnergySettings(state)
         SettingsCategory.Backup -> BackupPanel(onRestored)
         SettingsCategory.Display->DisplaySettings(state,d,t,onUpdatePreferences)
     }
