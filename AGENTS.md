@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.25.0 (60)
+- Dashboard FAN opens a two-fan circulation scenario. FanAirflow uses the saved footprint, individual section heights, and assumed airflow and outlet diameter. FanAirflowDialog places and aims each fan on the plan, using degrees clockwise from plan top. Save on a collector; a paired viewer can try a scenario. HEAT and COOL open Energy and temperature Zones.
+- Models, AppPreferencesStore, GreenhouseViewModel, MainActivity and DashboardScreen carry speed and aim through existing greenhouse preferences and snapshot/backup serialization. NightHeating shares the original geometric volume estimate. No cloud or database migration.
+- Passed 143 JVM tests and one API 35 touch/save/restore regression; lint 0 errors. Moto G7 received the signed upgrade and opened the fan direction editor. Actual air velocities and two-phone direction propagation remain unverified.
+
 ## 2026-11-14 · Greenhouse Studio 2.24.1 (59)
 - SensorBluetooth shares filtered Android scanning. GoveeBattery listens for H5179 manufacturer packets on the collector, matches unique radio addresses to enrolled sensors and timestamps battery separately. GoveeBatteryLink in Devices supports permission and explicit address selection. ShellyCollection preserves that metadata across Govee cloud refreshes. CurrentSensorCodec carries it to viewers and backups.
 - 140 JVM tests and three API 35 instrumentation tests passed, including two virtual H5179 formats and viewer rendering. Lint had zero errors. The next hardware check is receipt from the owner's H5179s and delivery to a second physical phone. No cloud deployment or database migration.

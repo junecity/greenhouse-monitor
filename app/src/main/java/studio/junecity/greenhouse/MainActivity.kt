@@ -30,6 +30,7 @@ import studio.junecity.greenhouse.ui.AppMotion
 import studio.junecity.greenhouse.ui.accessibleMotionDuration
 import studio.junecity.greenhouse.camera.CameraStreamServer
 import studio.junecity.greenhouse.model.CameraMode
+import studio.junecity.greenhouse.model.Metric
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.cloud.CloudCameraServerService
 import studio.junecity.greenhouse.cloud.CloudAlertService
@@ -225,6 +226,8 @@ class MainActivity : ComponentActivity() {
                     if (screen == AppScreen.Dashboard) {
                         DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
                             onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
+                            onSaveFans = viewModel::saveCirculationFans,
+                            onCool = { viewModel.selectMetric(Metric.Temperature); navigate(AppScreen.Zones) },
                             heatingSummary = heatingSummary, onHeating = { navigate(AppScreen.Energy) },
                             onRefresh = { viewModel.syncFromServer() }, onForecast = { forecastOpen = true; viewModel.refreshWeather(true) })
                     } else if (screen == AppScreen.Energy) {

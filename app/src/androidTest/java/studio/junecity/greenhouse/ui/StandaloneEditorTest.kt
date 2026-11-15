@@ -35,6 +35,51 @@ class StandaloneEditorTest {
     private val instrumentation=InstrumentationRegistry.getInstrumentation()
     private val ui get()=instrumentation.uiAutomation
 
+    @Test fun dashboardFanSpeedAndDirectionSurviveSaveAndRestore() {
+        val store = AppPreferencesStore(instrumentation.targetContext, "_fan_fixture")
+        store.clear()
+        val houses = listOf(GreenhouseConfig(), GreenhouseConfig("second", "Second house"))
+        store.save(AppPreferences(greenhouses = houses))
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    activity.setContent {
+                        DashboardScreen(GreenhouseUiState(standalone = true, preferences = store.load()),
+                            DeviceStatus(80, true, true), java.time.LocalDateTime.now(), {}, Modifier.fillMaxSize(),
+                            onSaveFans = { id, fans -> store.save(AppPreferences(greenhouses = houses.map {
+                                if (it.id == id) it.copy(circulationFans = fans) else it
+                            })) })
+                    }
+                }
+                click("FAN")
+                find("192 CFM")
+                click("Fan 1 High")
+                find("224 CFM")
+                click("Set direction")
+                val bounds = Rect().also { find("Fan direction floor plan").getBoundsInScreen(it) }
+                gesture(bounds, listOf(.50f to .50f))
+                find("Tap where the fan blows.")
+                gesture(bounds, listOf(.65f to .50f))
+                click("Apply")
+                find("Aim · 90°")
+                click("Save setup")
+                find("FAN")
+            }
+            val json = store.exportJson()
+            store.clear()
+            store.importJson(json)
+            val restored = store.load().greenhouses
+            assertEquals(FanSpeed.High, restored.first().circulationFans[0].speed)
+            assertEquals(90.0, restored.first().circulationFans[0].aim!!.degrees, 1.0)
+            assertEquals(CirculationFan(), restored.first().circulationFans[1])
+            assertEquals(houses[1], restored[1])
+            json.getJSONArray("greenhouses").getJSONObject(0).remove("circulationFans")
+            store.importJson(json)
+            assertEquals(houses, store.load().greenhouses)
+        } finally { store.clear() }
+    }
+
     @Test fun forecastThresholdNotificationAndDailyReminder() {
         val context = instrumentation.targetContext
         assumeTrue("Use isolated emulator", android.os.Build.MODEL.contains("sdk", ignoreCase = true) &&

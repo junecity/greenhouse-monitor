@@ -282,6 +282,14 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         ensurePositions(updated)
     }
     fun updateGreenhouse(name:String,length:Double,width:Double){if(length !in 0.1..480.0 || width !in 0.1..480.0)return;val p=_state.value.preferences;val old=p.activeGreenhouse;val geometry=old.copy(name=name.ifBlank{old.name},lengthFeet=length,widthFeet=width);val updated=geometry.copy(sensorPositions=old.sensorPositions.mapValues{(_,v)->geometry.reproject(v,old)});savePreferences(p.copy(greenhouses=p.greenhouses.map{if(it.id==old.id)updated else it}))}
+    fun saveCirculationFans(houseId: String, fans: List<CirculationFan>) {
+        val owner = secure.cloudEnrollment()
+        if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
+        val prefs = _state.value.preferences
+        if (prefs.activeGreenhouseId == houseId) savePreferences(prefs.copy(
+            greenhouses = prefs.greenhouses.map { if (it.id == houseId) it.copy(circulationFans = fans) else it }))
+    }
+
     fun updatePreferences(transform:(AppPreferences)->AppPreferences)=savePreferences(transform(_state.value.preferences))
     private fun savePreferences(p: AppPreferences) {
         val previous = _state.value

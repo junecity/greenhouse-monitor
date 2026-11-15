@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.data
 
+import studio.junecity.greenhouse.model.estimatedVolumeFt3
 import studio.junecity.greenhouse.model.GreenhouseConfig
 import studio.junecity.greenhouse.model.GreenhouseShape
 import studio.junecity.greenhouse.model.HistoryReading
@@ -39,8 +40,7 @@ internal fun heatingCoefficient(house: GreenhouseConfig, unit: EnergyUnit): Heat
         2 * shared * min(height, stemHeight)
     ) else perimeter * height * .8
     val cover = exteriorWalls + house.areaSquareFeet * 1.1
-    val volume = .9 * (height * house.areaSquareFeet + if (house.hasStem)
-        (stemHeight - height) * house.attachedLengthFeet * house.attachedWidthFeet else 0.0)
+    val volume = house.estimatedVolumeFt3()
     // Cover transmission plus sensible infiltration, in Btu per hour per Fahrenheit degree.
     fun units(u: Double, changes: Double, efficiency: Double) =
         (cover * u + .018 * volume * changes) / (unit.btu * efficiency)

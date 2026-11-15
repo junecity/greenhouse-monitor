@@ -20,11 +20,32 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
         p.greenhouses.forEach{g->
             val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet).put("mountLevel",pos.level?.name).put("floorMount",pos.heightFeet == 0.0))}
             val preset = g.shape.takeIf { it == GreenhouseShape.Circle || it == GreenhouseShape.LShape }
-            greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",if(preset!=null) g.planLengthFeet else g.lengthFeet).put("width",if(preset!=null) g.planWidthFeet else g.widthFeet).put("height",g.heightFeet).put("attachedHeight",g.attachedHeightFeet).put("positions",positions).put("shape",if(preset!=null) GreenhouseShape.Drawn.name else g.shape.name).put("preset",preset?.name).put("sectionLength",if(preset!=null) g.lengthFeet else null).put("sectionWidth",if(preset!=null) g.widthFeet else null).put("vertices",JSONArray().also{points->(if(preset!=null) g.outline() else g.vertices).forEach{points.put(JSONArray().put(it.x).put(it.y))}}).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
+            greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",if(preset!=null) g.planLengthFeet else g.lengthFeet).put("width",if(preset!=null) g.planWidthFeet else g.widthFeet).put("height",g.heightFeet).put("attachedHeight",g.attachedHeightFeet).put("circulationFans",encodeFans(g.circulationFans)).put("positions",positions).put("shape",if(preset!=null) GreenhouseShape.Drawn.name else g.shape.name).put("preset",preset?.name).put("sectionLength",if(preset!=null) g.lengthFeet else null).put("sectionWidth",if(preset!=null) g.widthFeet else null).put("vertices",JSONArray().also{points->(if(preset!=null) g.outline() else g.vertices).forEach{points.put(JSONArray().put(it.x).put(it.y))}}).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
         }
         val assignments=JSONObject();p.sensorGreenhouseIds.forEach{(sensor,greenhouse)->assignments.put(sensor,greenhouse)}
         return JSONObject().put("zip",p.zipCode).put("fahrenheit",p.temperatureFahrenheit).put("refresh",p.refreshMinutes).put("retention",p.historyRetentionDays).put("screen",p.keepScreenOn).put("boot",p.autoStart).put("active",p.activeGreenhouseId).put("cameraMode",p.cameraMode.name).put("cameraStreamQuality",p.cameraStreamQuality.name).put("notifications",notifications).put("greenhouses",greenhouses).put("sensorGreenhouses",assignments)
     }
+    private fun encodeFans(fans: List<CirculationFan>) = JSONArray().apply {
+        fans.forEach { fan ->
+            val row = JSONObject().put("speed", fan.speed.name)
+            fan.aim?.let { row.put("x", it.origin.x).put("y", it.origin.y).put("degrees", it.degrees) }
+            put(row)
+        }
+    }
+
+    private fun decodeFans(saved: JSONArray?) = List(2) { index ->
+        val row = saved?.optJSONObject(index)
+        val speed = FanSpeed.entries.find { it.name == row?.optString("speed") } ?: FanSpeed.Medium
+        val aim = row?.let {
+            val x = it.optDouble("x")
+            val y = it.optDouble("y")
+            val angle = it.optDouble("degrees")
+            if (x in 0.0..1.0 && y in 0.0..1.0 && angle >= 0 && angle < 360)
+                FanAim(NormalizedPosition(x, y), angle) else null
+        }
+        CirculationFan(speed, aim)
+    }
+
     // Same physical range that the corner editor accepts, including fractional custom plans.
     private fun JSONObject.dimension(key:String, fallback:Double) =
         optDouble(key).takeIf { it in 0.1..480.0 } ?: fallback
@@ -53,7 +74,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
                 else -> null
             }?.takeIf { shape == GreenhouseShape.Drawn }
             val legacyRefresh=DataSyncIntervals.normalize(o.optInt("refresh",1))
-            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.dimension("sectionLength",16.0) else x.dimension("length",16.0),if(preset!=null) x.dimension("sectionWidth",8.0) else x.dimension("width",8.0),x.optDouble("height").takeIf{it in 0.1..480.0},positions,preset ?: shape,x.dimension("attachedLength",16.0),x.dimension("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points,x.optDouble("attachedHeight").takeIf{it in 0.1..480.0})
+            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.dimension("sectionLength",16.0) else x.dimension("length",16.0),if(preset!=null) x.dimension("sectionWidth",8.0) else x.dimension("width",8.0),x.optDouble("height").takeIf{it in 0.1..480.0},positions,preset ?: shape,x.dimension("attachedLength",16.0),x.dimension("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points,x.optDouble("attachedHeight").takeIf{it in 0.1..480.0},decodeFans(x.optJSONArray("circulationFans")))
         }
         if(greenhouses.isEmpty())greenhouses+=GreenhouseConfig()
         val n=o.optJSONObject("notifications")?:JSONObject()
