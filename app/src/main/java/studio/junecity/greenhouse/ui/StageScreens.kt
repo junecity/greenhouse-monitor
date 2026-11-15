@@ -71,7 +71,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
-@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={},onHistoryDay:suspend (Long)->List<HistoryReading> = { emptyList() },onSensorsChanged:()->Unit={}){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric,onHistoryDay);AppScreen.Cameras->CameraContent(state,d,stageText){quality->onUpdatePreferences{it.copy(cameraStreamQuality=quality)}};AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored,onSensorsChanged);else->Unit}}}
+@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={},onHistoryDay:suspend (Long)->List<HistoryReading> = { emptyList() },onSensorsChanged:()->Unit={}){ApprovedFrame(state.screen,status,now,onNavigate,modifier,state=state){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric,onHistoryDay);AppScreen.Cameras->CameraContent(state,d,stageText){quality->onUpdatePreferences{it.copy(cameraStreamQuality=quality)}};AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored,onSensorsChanged);else->Unit}}}
 
 @Composable private fun MetricControls(active:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){val labels=listOf(Triple(Metric.Temperature,"Temperature",DashboardIcon.Thermometer),Triple(Metric.Humidity,"Humidity",DashboardIcon.Droplet),Triple(Metric.Vpd,"VPD",DashboardIcon.Gauge),Triple(Metric.DewPoint,"Dew Point",DashboardIcon.Droplet));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){labels.forEach{(m,label,icon)->val selected=m==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onMetric(m)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else if(m==Metric.Humidity||m==Metric.DewPoint)DashboardTokens.Blue else Color.White,Modifier.size(d(26f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
@@ -171,7 +171,7 @@ import kotlin.math.roundToInt
     Column(Modifier.offset {
         IntOffset((display.x * widthDp.dp.toPx() - d(42f).toPx()).roundToInt(),
             (display.y * heightDp.dp.toPx() - d(42f).toPx()).roundToInt())
-    }.size(d(84f)).background(Color(0xCC082326),CircleShape).border(d(2f),Color.White,CircleShape)
+    }.size(d(84f)).background(Color(0xCC082326),CircleShape).border(d(2f),LocalSensorSlots.current.accent(sensor.id),CircleShape)
         .pointerInput(sensor.id,widthDp,heightDp,editable) {
             if (!editable) return@pointerInput
             try {
@@ -206,7 +206,8 @@ import kotlin.math.roundToInt
     val source = if (inspectDay != null) detail else if (daily) state.dailyHistory else state.history
     val end = inspectDay?.let { (it + 1) * DAY_MS - 1 } ?: remember(source) { System.currentTimeMillis() }
     val start = if (inspectDay != null) inspectDay!! * DAY_MS else if (daily) (end / DAY_MS - hours / 24 + 1) * DAY_MS else end - hours * 3_600_000L
-    val series = remember(source, start, state.preferences, state.sensors) {
+    val slots = LocalSensorSlots.current
+    val series = remember(slots, source, start, state.preferences, state.sensors) {
         val house = state.preferences.activeGreenhouseId
         val inventory = state.sensors.associateBy { it.id }
         source.filter { row ->
@@ -214,7 +215,7 @@ import kotlin.math.roundToInt
         }.filter { it.timestampEpochMs in start..end }.groupBy { it.sensorId }.toSortedMap()
             .entries.map { (id, rows) ->
                 val timeline = studio.junecity.greenhouse.data.SensorTimeline(rows)
-                TrendSensor(id, inventory[id]?.name ?: rows.maxBy { it.timestampEpochMs }.sensorName, timeline)
+                TrendSensor(id, inventory[id]?.name ?: rows.maxBy { it.timestampEpochMs }.sensorName, timeline, slots.accent(id))
             }
     }
     var cursor by remember(hours, state.metric, inspectDay) { mutableStateOf<Long?>(null) }
@@ -648,7 +649,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         items(state.sensors,key={it.id}){sensor->
             Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(12.dp)).clickable(enabled=local){expanded=if(expanded==sensor.id)null else sensor.id}.padding(14.dp)){
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(sensor.name,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                    Text(sensor.name,color=LocalSensorSlots.current.accent(sensor.id),fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
                     if (local && onPrefs!=null && state.preferences.greenhouses.any { it.id==sensor.greenhouseId }) TextButton(onClick={positioning=sensor}) { Text("Position",color=DashboardTokens.Amber) }
                     if (local) TextButton(onClick = { editing = sensor }) { Text("Edit", color = DashboardTokens.Amber) }
                 }

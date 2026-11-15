@@ -231,7 +231,7 @@ class MainActivity : ComponentActivity() {
                             heatingSummary = heatingSummary, onHeating = { navigate(AppScreen.Energy) },
                             onRefresh = { viewModel.syncFromServer() }, onForecast = { forecastOpen = true; viewModel.refreshWeather(true) })
                     } else if (screen == AppScreen.Energy) {
-                        studio.junecity.greenhouse.ui.ApprovedFrame(screen, status, now, navigate, Modifier.fillMaxSize(), standalone = state.standalone) { _, _ ->
+                        studio.junecity.greenhouse.ui.ApprovedFrame(screen, status, now, navigate, Modifier.fillMaxSize(), state = state) { _, _ ->
                             studio.junecity.greenhouse.ui.NightHeatingContent(state, heatingStore, { viewModel.refreshWeather() }, heatingPoints)
                         }
                     } else {

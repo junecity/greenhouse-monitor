@@ -50,6 +50,13 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
     mode: Insight, state: GreenhouseUiState, d: (Float) -> Dp, t: (Float) -> TextUnit,
     alertSensor: String? = null, allowVideo: Boolean = false, alertTime: Long? = null, close: () -> Unit
 ) {
+    CompositionLocalProvider(LocalSensorSlots provides sensorSlots(state)) {
+        InsightBody(mode, state, d, t, alertSensor, allowVideo, alertTime, close)
+    }
+}
+
+@Composable private fun InsightBody(mode: Insight, state: GreenhouseUiState, d: (Float)->Dp, t: (Float)->TextUnit,
+    alertSensor: String?, allowVideo: Boolean, alertTime: Long?, close: ()->Unit) {
     val g = state.preferences.activeGreenhouse
     val sensors = state.sensors.filter { it.greenhouseId == g.id }
     val ids = sensors.map { it.id }.toSet()
@@ -108,7 +115,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
                             else Text("Coldest · ${label(cold.first)} · ${formatTemp(low.temperatureF)} at ${clock(low.timestampEpochMs)}")
                             stats.forEach { (sensor, result) ->
                                 val covered = result?.coverageMs ?: 0
-                                Text(label(sensor), color = sensorAccent(sensor.id))
+                                Text(label(sensor), color = LocalSensorSlots.current.accent(sensor.id))
                                 if (covered > 0) Text("About ${minutes(result!!.belowMs)} below ${formatTemp(threshold)}")
                                 Text("${minutes(covered)} observed · ${minutes(night.end - night.start - covered)} without coverage")
                             }
@@ -138,7 +145,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
                             }
                             if (relevant.isEmpty()) Text("No matching sensor in the current greenhouse.")
                             relevant.forEach { sensor ->
-                                Text(label(sensor), color = sensorAccent(sensor.id))
+                                Text(label(sensor), color = LocalSensorSlots.current.accent(sensor.id))
                                 g.sensorPositions[sensor.id]?.let { Text("Location · %.1f ft across, %.1f ft down".format(it.xFeet, it.yFeet)) }
                                 val recent = timelines[sensor.id]?.rows.orEmpty().filter { it.timestampEpochMs in (eventTime - 3_600_000)..eventTime }
                                 if (recent.isEmpty()) Text("No measurements in the last hour.")
@@ -158,9 +165,10 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
 
 @Composable private fun Replay(sensors: List<GoveeSensor>, timelines: Map<String, SensorTimeline>,
     g: GreenhouseConfig, night: NightWindow, metric: Metric, d: (Float)->Dp, t:(Float)->TextUnit, height: Dp) {
-    val series = remember(sensors.map { it.id to it.name }, timelines) {
+    val slots = LocalSensorSlots.current
+    val series = remember(slots, sensors.map { it.id to it.name }, timelines) {
         sensors.sortedBy { it.id }.mapNotNull { sensor ->
-            timelines[sensor.id]?.let { TrendSensor(sensor.id, sensor.name, it) }
+            timelines[sensor.id]?.let { TrendSensor(sensor.id, sensor.name, it, slots.accent(sensor.id)) }
         }
     }
     var time by remember(g.id, night.start) { mutableStateOf<Long?>(null) }
@@ -243,8 +251,9 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
     val b = sensors.first { it.id == second }
     var metric by remember { mutableStateOf(Metric.Temperature) }
     var cursor by remember(first,second,night.start) { mutableStateOf<Long?>(null) }
-    val series = remember(timelines, a.id, a.name, b.id, b.name) {
-        listOf(a,b).map { s -> TrendSensor(s.id,s.name,timelines[s.id] ?: SensorTimeline(emptyList())) }
+    val slots = LocalSensorSlots.current
+    val series = remember(slots, timelines, a.id, a.name, b.id, b.name) {
+        listOf(a,b).map { s -> TrendSensor(s.id,s.name,timelines[s.id] ?: SensorTimeline(emptyList()), slots.accent(s.id)) }
     }
     val inspectedAt = cursor
     fun value(sensor: GoveeSensor): Double? {
@@ -305,7 +314,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
             Text("$value  ▾",color=Color.White,fontWeight=FontWeight.Bold)
         }
         DropdownMenu(expanded=open,onDismissRequest={open=false}) {
-            options.forEach { sensor -> DropdownMenuItem(text={Text(label(sensor), color = sensorAccent(sensor.id))},onClick={select(sensor.id);open=false}) }
+            options.forEach { sensor -> DropdownMenuItem(text={Text(label(sensor), color = LocalSensorSlots.current.accent(sensor.id))},onClick={select(sensor.id);open=false}) }
         }
     }
 }

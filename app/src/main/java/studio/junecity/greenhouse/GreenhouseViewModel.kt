@@ -52,7 +52,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         val enrollment = secure.cloudEnrollment()
         val viewer = enrollment?.role == CloudDeviceRole.ViewerClient
         val prefs = preferences.load()
-        return GreenhouseUiState(standalone = enrollment.isStandaloneClient(), sensors = currentSensors.load().inSavedHouses(prefs),
+        return GreenhouseUiState(sensorColorSlots = currentSensors.colorSlots(), standalone = enrollment.isStandaloneClient(), sensors = currentSensors.load().inSavedHouses(prefs),
             preferences = if (viewer) prefs.copy(cameraMode = CameraMode.ViewerClient) else prefs,
             goveeConnected = if (viewer && !enrollment.isStandaloneClient()) currentSensors.load().any { it.isFresh() }
                 else secure.sensorKey(enrollment) != null)
@@ -162,7 +162,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 val latest = _state.value.preferences
                 val sensors = storage.sensors.replaceGovee(collected.withCurrentAssignments(latest, storage.zones::zone))
                 ensurePositions(sensors)
-                _state.value = _state.value.copy(sensors = sensors, goveeConnected = true, message = "Updated ${sensors.size} sensors")
+                _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = storage.sensors.colorSlots(), goveeConnected = true, message = "Updated ${sensors.size} sensors")
                 withContext(Dispatchers.IO) {
                     sensors.filterNot { it.isShelly() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
                     if (!owner.isStandaloneClient()) HeartbeatHealthStore(getApplication()).save(sensors,
@@ -232,6 +232,8 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             _state.value = _state.value.copy(
                 preferences = paired.preferences.load().copy(cameraMode = CameraMode.ViewerClient),
                 sensors = syncedSensors,
+                serverStatus = snapshot.serverHealth(),
+                sensorColorSlots = paired.sensors.colorSlots(),
                 goveeConnected = syncedSensors.any { it.isFresh() },
                 message = if (silent) _state.value.message else "Synchronized from greenhouse server"
             )
@@ -262,7 +264,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
         val sensors = currentSensors.load().inSavedHouses(preferences.load())
         if (_state.value.sensors == sensors) return
-        _state.value = _state.value.copy(sensors = sensors)
+        _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = currentSensors.colorSlots())
         ensurePositions(sensors)
         if (_state.value.screen == AppScreen.History) loadHistory()
     }

@@ -62,7 +62,8 @@ data class MonitoringHealth(
     val cameraStatus: String? = null,
     val lastSensorSyncEpochMs: Long? = null,
     val lastDataUploadEpochMs: Long? = null,
-    val appVersion: String? = null
+    val appVersion: String? = null,
+    val wifiSignalStrength: Int? = null
 )
 
 class HeartbeatReporter(
@@ -79,6 +80,7 @@ class HeartbeatReporter(
             batteryPercent = health.batteryPercent,
             charging = health.charging,
             networkType = health.networkType,
+            wifiSignalStrength = health.wifiSignalStrength,
             sensorCount = health.sensorCount,
             sensorProvider = health.sensorProvider,
             cameraStatus = health.cameraStatus,

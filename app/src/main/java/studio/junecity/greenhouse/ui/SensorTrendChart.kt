@@ -32,9 +32,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.*
 
-internal data class TrendSensor(val id: String, val name: String, val timeline: SensorTimeline) {
-    val color = sensorAccent(id)
-}
+internal data class TrendSensor(val id: String, val name: String, val timeline: SensorTimeline, val color: Color)
 private data class Sample(val time: Long, val value: Double)
 internal fun Metric.displayName() = when (this) {
     Metric.Vpd -> "VPD"

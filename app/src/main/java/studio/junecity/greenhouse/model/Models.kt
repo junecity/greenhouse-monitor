@@ -100,7 +100,11 @@ data class WeatherReading(
     val stateCode: String? = null, val latitude: Double? = null, val longitude: Double? = null,
     val stationHours: Map<Long, StationHour> = emptyMap(), val stationId: String? = null
 )
-data class DeviceStatus(val batteryPercent:Int,val charging:Boolean,val wifiConnected:Boolean)
+data class DeviceStatus(
+    val batteryPercent: Int?, val charging: Boolean?, val wifiConnected: Boolean,
+    val network: String = if (wifiConnected) "Wi-Fi" else "Offline",
+    val signalDbm: Int? = null, val reportedAt: Long = 0
+)
 const val HISTORY_DAYS = 180
 const val DAY_MS = 86_400_000L
 
@@ -112,4 +116,4 @@ object DataSyncIntervals {
 }
 
 data class AppPreferences(val zipCode:String="06382",val temperatureFahrenheit:Boolean=true,val refreshMinutes:Int=1,val historyRetentionDays:Int=HISTORY_DAYS,val keepScreenOn:Boolean=true,val autoStart:Boolean=false,val greenhouses:List<GreenhouseConfig> = listOf(GreenhouseConfig()),val activeGreenhouseId:String="main",val notifications:NotificationPreferences=NotificationPreferences(),val sensorGreenhouseIds:Map<String,String> = emptyMap(),val cameraMode:CameraMode=CameraMode.CameraServer,val cameraStreamQuality:CameraStreamQuality=CameraStreamQuality.Balanced){val activeGreenhouse get()=greenhouses.firstOrNull{it.id==activeGreenhouseId}?:greenhouses.first();val activeRefreshMinutes get()=DataSyncIntervals.normalize(activeGreenhouse.refreshMinutes)}
-data class GreenhouseUiState(val screen:AppScreen=AppScreen.Dashboard,val metric:Metric=Metric.Temperature,val sensors:List<GoveeSensor> = emptyList(),val weather:WeatherReading=WeatherReading("06382","Outside (06382)",null,"Unavailable"),val history:List<HistoryReading> = emptyList(),val preferences:AppPreferences=AppPreferences(),val standalone:Boolean=false,val goveeConnected:Boolean=false,val refreshing:Boolean=false,val message:String?=null,val dailyHistory:List<HistoryReading> = emptyList())
+data class GreenhouseUiState(val screen:AppScreen=AppScreen.Dashboard,val metric:Metric=Metric.Temperature,val sensors:List<GoveeSensor> = emptyList(),val weather:WeatherReading=WeatherReading("06382","Outside (06382)",null,"Unavailable"),val history:List<HistoryReading> = emptyList(),val preferences:AppPreferences=AppPreferences(),val standalone:Boolean=false,val goveeConnected:Boolean=false,val refreshing:Boolean=false,val message:String?=null,val dailyHistory:List<HistoryReading> = emptyList(), val serverStatus: DeviceStatus? = null, val sensorColorSlots: Map<String, Int> = emptyMap())

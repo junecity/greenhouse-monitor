@@ -111,7 +111,8 @@ class CloudHeartbeatService : Service() {
                 HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature,
                     batteryPercent=device.batteryPercent, charging=device.charging,
-                    networkType=if(device.wifiConnected)"WIFI" else "CELLULAR_OR_OTHER",
+                    networkType=if (device.wifiConnected) "WIFI" else device.network.uppercase(),
+                    wifiSignalStrength=device.signalDbm.takeIf { device.wifiConnected },
                     sensorCount=sensors.size, sensorProvider=listOfNotNull("GOVEE".takeIf { secure.goveeApiKey()!=null }, "SHELLY".takeIf { sensors.any { s -> s.id.startsWith("shelly:") } }).joinToString(", ").ifBlank { null },
                     cameraStatus=if(packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))"AVAILABLE" else "UNAVAILABLE",
                     lastSensorSyncEpochMs=sensors.maxOfOrNull(GoveeSensor::updatedAtEpochMs),
@@ -127,7 +128,7 @@ class CloudHeartbeatService : Service() {
                     if (prefs.activeGreenhouse != publishedPlan || available != publishedSensors ||
                         System.currentTimeMillis() - lastUpload.get() >= prefs.activeRefreshMinutes * 60_000L) {
                         backup = launch {
-                            runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot()) }
+                            runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot().put("serverHealth", device.toHealthJson())) }
                                 .onSuccess {
                                     publishedPlan = prefs.activeGreenhouse
                                     publishedSensors = available

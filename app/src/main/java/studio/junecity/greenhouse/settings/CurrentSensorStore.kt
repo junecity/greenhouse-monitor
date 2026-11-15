@@ -22,6 +22,14 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).apply()
     }
 
+    internal fun colorSlots(): Map<String, Int> = synchronized(lock) {
+        val json = JSONObject(preferences.getString("sensorColorSlots", "{}"))
+        val saved = json.keys().asSequence().associateWith(json::getInt)
+        val result = studio.junecity.greenhouse.model.assignSensorSlots(saved, load().map { it.id })
+        if (result.size != saved.size) preferences.edit().putString("sensorColorSlots", JSONObject(result).toString()).apply()
+        result
+    }
+
     fun removed(): List<GoveeSensor> = CurrentSensorCodec.decode(JSONArray(preferences.getString("removed", "[]")))
 
     private fun labels() = JSONObject(preferences.getString("labels", "{}"))
@@ -81,12 +89,13 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
     }
 
     internal fun writeBackup(meta: JSONObject, inventory: (List<GoveeSensor>) -> List<GoveeSensor> = { it }) = synchronized(lock) {
-        meta.put("sensors", CurrentSensorCodec.encode(inventory(load()))).put("removedSensors", CurrentSensorCodec.encode(removed()))
+        meta.put("sensorColorSlots", JSONObject(colorSlots())).put("sensors", CurrentSensorCodec.encode(inventory(load()))).put("removedSensors", CurrentSensorCodec.encode(removed()))
             .put("sensorLabels", labels()).put("forgottenGovee", JSONArray(forgottenGovee().toList()))
     }
 
-    internal fun restore(sensors: List<GoveeSensor>, removed: JSONArray?, labels: JSONObject?, forgotten: JSONArray? = null) = synchronized(lock) {
+    internal fun restore(sensors: List<GoveeSensor>, removed: JSONArray?, labels: JSONObject?, forgotten: JSONArray? = null, slots: JSONObject? = null) = synchronized(lock) {
         check(preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString())
+            .putString("sensorColorSlots", (slots ?: JSONObject()).toString())
             .putString("removed", (removed ?: JSONArray()).toString())
             .putStringSet("forgottenGovee", CurrentSensorCodec.forgottenIds(forgotten))
             .putString("labels", (labels ?: JSONObject()).toString()).commit())
@@ -107,6 +116,13 @@ object CurrentSensorCodec {
 
     fun validateManagement(meta: JSONObject) {
         forgottenIds(meta.optJSONArray("forgottenGovee"))
+        meta.optJSONObject("sensorColorSlots")?.let { slots ->
+            val used = mutableSetOf<Int>()
+            require(slots.keys().asSequence().all { id ->
+                val slot = slots.optInt(id, -1)
+                id.isNotBlank() && slot in 0..1_000_000 && used.add(slot)
+            })
+        }
         meta.optJSONArray("removedSensors")?.let { decode(it) }
         meta.optJSONObject("sensorLabels")?.let { labels ->
             require(labels.keys().asSequence().all { labels.get(it) is String && labels.getString(it).length in 1..64 })

@@ -15,17 +15,35 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Preserve the original Zones assignments, including sensors with negative ID hashes.
-private val sensorAccents = listOf(Color(0xFFFFBF20), Color(0xFF19EF8A), Color(0xFF10BFF3), Color(0xFFAE55ED))
+private val sensorAccents = listOf(0xFFFFBF20, 0xFF19EF8A, 0xFF10BFF3, 0xFFAE55ED,
+    0xFFFF7994, 0xFFB8EA51, 0xFF82A0FF, 0xFFFF9962, 0xFF53E4C4, 0xFFE98DF3).map { Color(it) }
 
-internal fun sensorAccent(id: String): Color {
-    val hash = kotlin.math.abs(id.hashCode().toLong())
-    return sensorAccents[(hash % sensorAccents.size).toInt()]
+internal fun sensorSlotColor(slot: Int): Color {
+    sensorAccents.getOrNull(slot)?.let { return it }
+    val index = slot - sensorAccents.size
+    val hue = ((index.toLong() * 137 + 17) % 360).toFloat()
+    val saturation = .55f + ((index / 360) % 4) * .10f
+    val value = .97f - ((index / 1440) % 3) * .09f
+    return Color.hsv(hue, saturation, value)
 }
+
+internal fun sensorAccent(id: String) = sensorSlotColor(studio.junecity.greenhouse.model.originalSensorSlot(id))
+internal val LocalSensorSlots = compositionLocalOf<Map<String, Int>> { emptyMap() }
+internal fun Map<String, Int>.accent(id: String) = this[id]?.let(::sensorSlotColor) ?: sensorAccent(id)
+
+@Composable
+internal fun sensorSlots(state: studio.junecity.greenhouse.model.GreenhouseUiState): Map<String, Int> =
+    remember(state.sensorColorSlots, state.sensors, state.history, state.dailyHistory) {
+        val ids = linkedSetOf<String>()
+        state.sensors.mapTo(ids) { it.id }
+        state.history.mapTo(ids) { it.sensorId }
+        state.dailyHistory.mapTo(ids) { it.sensorId }
+        studio.junecity.greenhouse.model.assignSensorSlots(state.sensorColorSlots, ids)
+    }
 
 @Composable
 internal fun SensorReadingRow(id: String, title: String, subtitle: String, reading: String) {
-    val accent = sensorAccent(id)
+    val accent = LocalSensorSlots.current.accent(id)
     val shape = RoundedCornerShape(9.dp)
     Row(
         Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised, shape)

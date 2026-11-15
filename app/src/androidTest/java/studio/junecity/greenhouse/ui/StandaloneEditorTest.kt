@@ -28,6 +28,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Test
 import studio.junecity.greenhouse.MainActivity
+import studio.junecity.greenhouse.cloud.serverHealth
+import studio.junecity.greenhouse.cloud.toHealthJson
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.*
@@ -1313,6 +1315,47 @@ class StandaloneEditorTest {
                 assertEquals(action, chosen.get())
             }
         }
+    }
+
+    @Test fun serverReportAndSensorAssignmentsSurviveSync() {
+        val context = instrumentation.targetContext
+        val store = CurrentSensorStore(context, "_server_health_fixture")
+        val viewer = CurrentSensorStore(context, "_viewer_health_fixture")
+        val reportedAt = System.currentTimeMillis()
+        val server = DeviceStatus(42, true, true, "Wi-Fi", -67, reportedAt)
+        val ids = listOf("d", "a", "b", "c", "g")
+        val sensors = ids.map { GoveeSensor(it, "H5179", "Sensor $it", 70.0, 75.0, true, reportedAt) }
+        try {
+            store.clear()
+            store.save(sensors)
+            val original = store.colorSlots()
+            assertEquals(5, original.values.map(::sensorSlotColor).distinct().size)
+            store.save(sensors.reversed() + GoveeSensor("j", "H5179", "New"))
+            val payload = org.json.JSONObject().put("serverHealth", server.toHealthJson())
+            store.writeBackup(payload)
+            viewer.restore(CurrentSensorCodec.decode(payload.getJSONArray("sensors")), null, null,
+                slots = payload.getJSONObject("sensorColorSlots"))
+            assertEquals(store.colorSlots(), viewer.colorSlots())
+            assertTrue(original.all { (id, slot) -> viewer.colorSlots()[id] == slot })
+            assertEquals(server, payload.serverHealth())
+            assertNull(org.json.JSONObject().serverHealth())
+            val state = GreenhouseUiState(sensors = viewer.load(), sensorColorSlots = viewer.colorSlots(),
+                serverStatus = payload.serverHealth(), preferences = AppPreferences(cameraMode = CameraMode.ViewerClient))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    activity.setContent {
+                        DashboardScreen(state, DeviceStatus(99,false,false,"Cellular",-100),java.time.LocalDateTime.now(),{})
+                    }
+                }
+                find("42%")
+                find("Wi-Fi -67 dBm")
+                screenshot("server-battery-signal")
+                click("Server · Battery 42% charging · Wi-Fi · -67 dBm")
+                find("Battery · 42% charging")
+                find("Signal · -67 dBm")
+            }
+        } finally { store.clear(); viewer.clear() }
     }
 
     @Test fun sensorColorsMatchAcrossZonesAndHistory() {

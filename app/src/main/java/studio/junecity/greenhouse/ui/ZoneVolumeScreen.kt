@@ -66,6 +66,7 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
     var showFans by rememberSaveable(g.id) { mutableStateOf(true) }
     val h=ZoneClimate.height(g)
     val scale = ZoneHeatScale.forMetric(metric)
+    val slots = sensorSlots(state)
     val cells=remember(g,probes,metric){ZoneClimate.field(g,probes,metric).map {it to scale.color(it.value).copy(alpha=(it.opacity*.44).toFloat())}}
     val planLayer = remember(g, probes, metric) {
         val samples = probes.mapNotNull { (sensor, position) ->
@@ -252,7 +253,7 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
                     val p=probe.position; val v=if(metric==Metric.Humidity)probe.sensor.humidityPercent!! else probe.sensor.temperatureF!!
                     val mounted=p.heightFeet!=null; val color=scale.color(v)
                     if(mounted)drawLine(color.copy(alpha=.5f),camera.point(p.xFeet,p.yFeet,0.0),pt,1.dp.toPx())
-                    drawCircle(DashboardTokens.Background,7.dp.toPx(),pt);drawCircle(color,4.dp.toPx(),pt)
+                    drawCircle(slots.accent(probe.sensor.id),7.dp.toPx(),pt);drawCircle(DashboardTokens.Background,5.5.dp.toPx(),pt);drawCircle(color,4.dp.toPx(),pt)
                     if(probe.sensor.id==sensor?.id)drawCircle(activeColor,9.dp.toPx(),pt,style=androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx()))
                     if (positions.size > 8 && probe.sensor.id != sensor?.id) continue
                     drawContext.canvas.nativeCanvas.apply {
@@ -318,7 +319,7 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
                         } ?: "No sensors",color=Color.White)
                     }
                     DropdownMenu(expanded=menu,onDismissRequest={menu=false}){sensors.forEach{s->
-                        DropdownMenuItem(text={Text(s.name)},onClick={selected=s.id;menu=false})
+                        DropdownMenuItem(text={Text(s.name,color=slots.accent(s.id))},onClick={selected=s.id;menu=false})
                     }}
                 }
                 if(editable) {

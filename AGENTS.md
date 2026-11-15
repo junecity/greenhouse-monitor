@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.30.0 (68)
+- PhoneHealthBadge in the shared header uses AndroidDeviceStatusProvider on the collecting phone and the latest serverHealth in the authenticated greenhouse snapshot on a viewer. Tap for charging, signal in dBm and sample time. Older snapshots lack telemetry. Wi-Fi RSSI also uses the existing heartbeat contract. No backend migration.
+- CurrentSensorStore retains ID-to-color slots and includes them in backups and viewer snapshots. SensorReadings supplies identity accents across the dashboard, map, list and chart screens. Reserve earlier slots when adding a sensor or reviewing history. Metric heat colors remain independent.
+- Passed 150 JVM tests, 11 API 35 instrumentation tests, lint with zero errors and APK signature verification. Server/client status separation used fixture reports. Live physical radios and two-phone delivery remain to be checked. See CHANGELOG for the artifact.
+
 ## 2026-11-15 · Greenhouse Studio 2.29.0 (67)
 - Energy → Water storage uses WaterHeat, HeatingStore, NightHeatingContent and WaterHeatDialog to compare observed daylight heat loss, potential heat retained by water at sunset, overnight heat delivery and estimated fuel savings. The baseline uses whole-house readings. A selected sensor models the barrel location. Scenario inputs are local to each enrolled greenhouse.
 - Passive exchange assumes water starts at the learned nighttime temperature with a 12-hour time constant. Heat delivery is capped by simultaneous forecast demand. Air readings cannot establish measured barrel temperature or realized savings. No database or cloud migration.
