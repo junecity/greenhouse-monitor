@@ -228,7 +228,7 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
                     while(y<g.planWidthFeet){rail(0.0,y,0.0,g.planLengthFeet,y,0.0,strut.copy(alpha=.16f));y+=grid}
                 }
             }
-            if (showFans && !placing) VolumeFans(fans, camera)
+            if (showFans && !placing) FanMapOverlay(fans) { x, y, z -> camera.point(x, y, z) }
             Canvas(Modifier.fillMaxSize()) {
                 for((probe,pt) in positions){
                     if (placing && probe.sensor.id == sensor?.id) continue

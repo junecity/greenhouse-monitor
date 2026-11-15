@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.26.1 (62)
+- Both installed fans have a fixed 5 ft horizontal discharge height. VolumeFans supplies FanMapOverlay to ZoneVolumeScreen and the live Zones HeatMap in StageScreens. Use the floor-plan transform for 2D and the elevated projection with a floor reference line for 3D. Keep current fan settings out of historical Replay.
+- Passed 145 JVM and three API 35 instrumentation tests. The Moto G7 showed both saved Low fans (9° and 174°) in both views after the upgrade. Physical second-phone viewing is pending. No settings migration or backend change.
+
 ## 2026-11-14 · Greenhouse Studio 2.26.0 (61)
 - Zones → 3D view projects both saved fans onto the greenhouse floor. VolumeFans uses the same projection as the heat map, lifecycle-aware motion and distinct outlet arrows. Set the actual horizontal positions, directions and chosen speeds under Dashboard → FAN on the collector.
 - FanAirflow clips each direction to the first exterior wall, detects a path across the attached section opening and combines estimated discharge momentum by direction. FanAirflowDialog reports these values alongside gross circulation based on greenhouse volume. Direction never cancels gross CFM. Assumed capacities and a 12-inch outlet remain the basis for estimates.

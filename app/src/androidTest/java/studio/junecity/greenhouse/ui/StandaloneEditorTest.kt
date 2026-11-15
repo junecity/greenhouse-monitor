@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.ui
 
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import android.app.Application
 import android.graphics.Rect
@@ -895,7 +896,9 @@ class StandaloneEditorTest {
     }
 
     @Test fun flatMapUsesFixedColorsAndLegendForEachMetric() {
-        val plan = GreenhouseConfig()
+        val plan = GreenhouseConfig(circulationFans = listOf(
+            CirculationFan(FanSpeed.High, FanAim(NormalizedPosition(.25, .25), 90.0)),
+            CirculationFan(FanSpeed.Low, FanAim(NormalizedPosition(.75, .75), 270.0))))
         val samples = listOf(studio.junecity.greenhouse.data.SpatialSample(8.0, 4.0, 65.0))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             val metric = androidx.compose.runtime.mutableStateOf(Metric.Temperature)
@@ -903,9 +906,24 @@ class StandaloneEditorTest {
                 activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                 activity.setContent {
                     HeatMap(samples, metric.value, plan, emptyList(), { it.dp }, { it.sp },
-                        { _, _, _ -> }, Modifier.fillMaxSize())
+                        { _, _, _ -> }, Modifier.fillMaxSize(), showFans = true)
                 }
             }
+            SystemClock.sleep(750)
+            val plot = Rect().also {
+                find("Fan 1 High, 90 degrees from plan top; Fan 2 Low, 270 degrees from plan top").getBoundsInScreen(it)
+            }
+            screenshot("fans-floor-plan")
+            val frame = requireNotNull(ui.takeScreenshot())
+            try {
+                for ((location, color) in listOf(.25 to DashboardTokens.Amber, .75 to DashboardTokens.Blue)) {
+                    val x = plot.left + (plot.width() * location).toInt()
+                    val y = plot.top + (plot.height() * location).toInt()
+                    assertTrue("Fan hub at ($x,$y), bounds $plot, pixel ${Integer.toHexString(frame.getPixel(x,y))}", (-2..2).any { dx ->
+                        (-2..2).any { dy -> frame.getPixel(x + dx, y + dy) == color.toArgb() }
+                    })
+                }
+            } finally { frame.recycle() }
             for ((mode, low, high) in listOf(
                 Triple(Metric.Temperature, "40°F", "90°F"), Triple(Metric.Humidity, "35%", "100%"),
                 Triple(Metric.DewPoint, "40°F", "90°F"), Triple(Metric.Vpd, "0 kPa", "3 kPa")
@@ -960,6 +978,7 @@ class StandaloneEditorTest {
             if (motionEnabled) assertTrue("Moving blades and traveling arrows", changedPixels() > 12)
             screenshot("3d-circulation")
             click("Fans")
+            find("Modeled airflow · mounted 5 ft above floor")
             click("Hide fans")
             click("Fans")
             click("Show fans")

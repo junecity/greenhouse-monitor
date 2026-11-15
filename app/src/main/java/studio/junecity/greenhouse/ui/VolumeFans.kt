@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -25,12 +26,14 @@ import studio.junecity.greenhouse.model.DirectedFan
 import studio.junecity.greenhouse.model.FanSpeed
 import kotlin.math.*
 
+private const val FAN_MOUNT_FEET = 5
+
 @Composable internal fun VolumeFanMenu(fans: List<DirectedFan>, visible: Boolean, setVisible: (Boolean) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         InsightButton("Fans") { open = true }
         DropdownMenu(open, onDismissRequest = { open = false }) {
-            Text("Modeled airflow · floor projection", Modifier.padding(horizontal = 14.dp, vertical = 5.dp))
+            Text("Modeled airflow · mounted ${FAN_MOUNT_FEET} ft above floor", Modifier.padding(horizontal = 14.dp, vertical = 5.dp))
             fans.forEach { Text("Fan ${it.index + 1} · ${it.speed.name} · ${it.heading.roundToInt() % 360}°",
                 Modifier.padding(horizontal = 14.dp, vertical = 3.dp),
                 color = if (it.index == 0) DashboardTokens.Amber else DashboardTokens.Blue) }
@@ -41,7 +44,10 @@ import kotlin.math.*
     }
 }
 
-@Composable internal fun VolumeFans(fans: List<DirectedFan>, camera: Projection) {
+@Composable internal fun FanMapOverlay(
+    fans: List<DirectedFan>,
+    project: DrawScope.(Double, Double, Double) -> Offset
+) {
     if (fans.isEmpty()) return
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val motionMillis = accessibleMotionDuration(1000)
@@ -63,9 +69,10 @@ import kotlin.math.*
         val time = seconds.doubleValue
         val radius = 10.dp.toPx()
         for (fan in fans) {
-            // Floor arrows show a horizontal projection; the app has no fan mounting-height input.
-            val origin = camera.point(fan.x, fan.y, 0.0)
-            val tip = camera.point(fan.x + fan.dx * fan.wallFeet, fan.y + fan.dy * fan.wallFeet, 0.0)
+            val height = FAN_MOUNT_FEET.toDouble()
+            val origin = project(fan.x, fan.y, height)
+            val floor = project(fan.x, fan.y, 0.0)
+            val tip = project(fan.x + fan.dx * fan.wallFeet, fan.y + fan.dy * fan.wallFeet, height)
             val delta = tip - origin
             val length = delta.getDistance()
             val active = fan.speed != FanSpeed.Off
@@ -73,6 +80,10 @@ import kotlin.math.*
                 !active -> DashboardTokens.Muted
                 fan.index == 0 -> DashboardTokens.Amber
                 else -> DashboardTokens.Blue
+            }
+            if (origin != floor) {
+                drawLine(color.copy(alpha = .38f), origin, floor, 1.dp.toPx())
+                drawCircle(color.copy(alpha = .65f), 2.dp.toPx(), floor)
             }
             if (active && length > 1f) {
                 val axis = delta / length
