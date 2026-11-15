@@ -73,10 +73,19 @@ import kotlin.math.roundToInt
 
 @Composable private fun MetricControls(active:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){val labels=listOf(Triple(Metric.Temperature,"Temperature",DashboardIcon.Thermometer),Triple(Metric.Humidity,"Humidity",DashboardIcon.Droplet),Triple(Metric.Vpd,"VPD",DashboardIcon.Gauge),Triple(Metric.DewPoint,"Dew Point",DashboardIcon.Droplet));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){labels.forEach{(m,label,icon)->val selected=m==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onMetric(m)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else if(m==Metric.Humidity||m==Metric.DewPoint)DashboardTokens.Blue else Color.White,Modifier.size(d(26f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
-@Composable private fun ZonesContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit,onMove:(String,Double,Double)->Unit,onVolume:()->Unit){var insight by remember { mutableStateOf<Insight?>(null) };insight?.let { InsightsDialog(it,state,d,t){insight=null} };val g=state.preferences.activeGreenhouse;val fresh=state.sensors.filter{it.greenhouseId==g.id&&it.isFresh()};val samples=SpatialInterpolator.samples(fresh,g,state.metric);val center=SpatialInterpolator.center(samples,g);val shapeLabel=g.areaLabel();val editable=state.standalone || state.preferences.cameraMode!=CameraMode.ViewerClient;Column(Modifier.fillMaxSize()){Row(Modifier.height(d(74f)),horizontalArrangement=Arrangement.spacedBy(d(18f))){NeonPanel(Modifier.weight(.30f).fillMaxHeight()){Row(Modifier.fillMaxSize().padding(horizontal=d(25f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(DashboardIcon.HeatMap,Color.White,Modifier.size(d(30f)));Spacer(Modifier.width(d(20f)));Text("${g.name} · $shapeLabel",color=Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}};Box(Modifier.weight(.70f)){MetricControls(state.metric,d,t,onMetric)}};Spacer(Modifier.height(d(14f)));Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(14f))){Column(Modifier.weight(.18f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(d(12f))){ZoneStat("Avg Temp",formatTemp(SpatialInterpolator.greenhouseAverage(fresh,g,Metric.Temperature)),DashboardIcon.Thermometer,Color.White,d,t,Modifier.weight(1f));ZoneStat("Avg Humidity",formatHumidity(SpatialInterpolator.greenhouseAverage(fresh,g,Metric.Humidity)),DashboardIcon.Droplet,DashboardTokens.Blue,d,t,Modifier.weight(1f));ZoneStat("Sensors","${fresh.size} Online",DashboardIcon.Wifi,DashboardTokens.Green,d,t,Modifier.weight(1f))};NeonPanel(Modifier.weight(.51f).fillMaxHeight()){Column(Modifier.fillMaxSize().padding(d(18f))){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(if(editable) "Zone Heat Map" else "Zone Heat Map · Server layout",color=Color.White,fontSize=t(23f),fontWeight=FontWeight.Bold);Text("Center ${formatMetric(center,state.metric)}  ·  ${g.dimensionsLabel()} footprint",color=Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold)};Spacer(Modifier.height(d(10f)));HeatMap(samples,state.metric,g,fresh,d,t,onMove,Modifier.weight(1f).fillMaxWidth(),editable=editable,showFans=true)}};NeonPanel(Modifier.weight(.31f).fillMaxHeight()){Column(Modifier.fillMaxSize()){Row{InsightButton("3D view",onVolume);InsightButton("Compare"){insight=Insight.Compare};InsightButton("Replay"){insight=Insight.Replay}};if(fresh.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("No fresh sensor readings",color=DashboardTokens.Muted,fontSize=t(16f))}else LazyColumn(Modifier.fillMaxSize().padding(d(10f)),verticalArrangement=Arrangement.spacedBy(d(7f))){items(fresh,key={it.id}){s->ZoneSummary(s,d,t)}}}}}}}
+@Composable private fun ZonesContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit,onMove:(String,Double,Double)->Unit,onVolume:()->Unit){var insight by remember { mutableStateOf<Insight?>(null) };insight?.let { InsightsDialog(it,state,d,t){insight=null} };val g=state.preferences.activeGreenhouse;val fresh=state.sensors.filter{it.greenhouseId==g.id&&it.isFresh()};val samples=SpatialInterpolator.samples(fresh,g,state.metric);val center=SpatialInterpolator.center(samples,g);val shapeLabel=g.areaLabel();val editable=state.standalone || state.preferences.cameraMode!=CameraMode.ViewerClient;Column(Modifier.fillMaxSize()){Row(Modifier.height(d(74f)),horizontalArrangement=Arrangement.spacedBy(d(18f))){NeonPanel(Modifier.weight(.30f).fillMaxHeight()){Row(Modifier.fillMaxSize().padding(horizontal=d(25f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(DashboardIcon.HeatMap,Color.White,Modifier.size(d(30f)));Spacer(Modifier.width(d(20f)));Text("${g.name} · $shapeLabel",color=Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}};Box(Modifier.weight(.70f)){MetricControls(state.metric,d,t,onMetric)}};Spacer(Modifier.height(d(14f)));Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(14f))){Column(Modifier.weight(.18f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(d(12f))){ZoneStat("Avg Temp",formatTemp(SpatialInterpolator.greenhouseAverage(fresh,g,Metric.Temperature)),DashboardIcon.Thermometer,Color.White,d,t,Modifier.weight(1f));ZoneStat("Avg Humidity",formatHumidity(SpatialInterpolator.greenhouseAverage(fresh,g,Metric.Humidity)),DashboardIcon.Droplet,DashboardTokens.Blue,d,t,Modifier.weight(1f));ZoneStat("Sensors","${fresh.size} Online",DashboardIcon.Wifi,DashboardTokens.Green,d,t,Modifier.weight(1f))};NeonPanel(Modifier.weight(.51f).fillMaxHeight()){Column(Modifier.fillMaxSize().padding(d(18f))){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(if(editable) "Zone Heat Map" else "Zone Heat Map · Server layout",color=Color.White,fontSize=t(23f),fontWeight=FontWeight.Bold);Text("Center ${formatMetric(center,state.metric)}  ·  ${g.dimensionsLabel()} footprint",color=Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold)};Spacer(Modifier.height(d(10f)));HeatMap(samples,state.metric,g,fresh,d,t,onMove,Modifier.weight(1f).fillMaxWidth(),editable=editable,showFans=true)}};NeonPanel(Modifier.weight(.31f).fillMaxHeight()){Column(Modifier.fillMaxSize().padding(7.dp)) {
+    ZoneTools(onVolume, { insight = Insight.Compare }, { insight = Insight.Replay })
+    if (fresh.isEmpty()) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
+        Text("No fresh sensor readings",color=DashboardTokens.Muted,fontSize=t(16f))
+    } else LazyColumn(Modifier.fillMaxWidth().weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        items(fresh,key={it.id}) { sensor ->
+            SensorReadingRow(sensor.id, sensor.zone, sensor.name,
+                formatMetric(SpatialInterpolator.value(sensor, state.metric), state.metric))
+        }
+    }
+}}}}}
 
 @Composable private fun ZoneStat(label:String,value:String,icon:DashboardIcon,tint:Color,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier){NeonPanel(modifier){Row(Modifier.fillMaxSize().padding(d(18f)),verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,tint,Modifier.size(d(46f)));Spacer(Modifier.width(d(18f)));Column{Text(label,color=Color.White,fontSize=t(15f),fontWeight=FontWeight.Bold);Text(value,color=tint,fontSize=t(27f),fontWeight=FontWeight.Bold)}}}}
-@Composable private fun ZoneSummary(s:GoveeSensor,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit){val color=sensorColor(s);Row(Modifier.fillMaxWidth().height(d(74f)).background(Color(0x7A08282C),RoundedCornerShape(d(16f))).border(d(1f),Color(0xFF245A61),RoundedCornerShape(d(16f))).padding(d(10f)),verticalAlignment=Alignment.CenterVertically){Box(Modifier.width(d(10f)).fillMaxHeight().background(color,RoundedCornerShape(d(8f))));Spacer(Modifier.width(d(14f)));Column(Modifier.weight(1f)){Text(s.zone,color=Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold);Text(s.name,color=DashboardTokens.Muted,fontSize=t(11f),maxLines=1)};Text(formatTemp(s.temperatureF),color=color,fontSize=t(22f),fontWeight=FontWeight.Bold)}}
 
 @Composable internal fun HeatMap(samples:List<studio.junecity.greenhouse.data.SpatialSample>,metric:Metric,g:GreenhouseConfig,sensors:List<GoveeSensor>,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMove:(String,Double,Double)->Unit,modifier:Modifier,editable:Boolean=true,showFans:Boolean=false){
     val scale = ZoneHeatScale.forMetric(metric)
@@ -197,13 +206,13 @@ import kotlin.math.roundToInt
     val start = if (inspectDay != null) inspectDay!! * DAY_MS else if (daily) (end / DAY_MS - hours / 24 + 1) * DAY_MS else end - hours * 3_600_000L
     val series = remember(source, start, state.preferences, state.sensors) {
         val house = state.preferences.activeGreenhouseId
-        val inventory = state.sensors.associate { it.id to it.greenhouseId }
+        val inventory = state.sensors.associateBy { it.id }
         source.filter { row ->
-            (inventory[row.sensorId] ?: state.preferences.sensorGreenhouseIds[row.sensorId] ?: "main") == house
+            (inventory[row.sensorId]?.greenhouseId ?: state.preferences.sensorGreenhouseIds[row.sensorId] ?: "main") == house
         }.filter { it.timestampEpochMs in start..end }.groupBy { it.sensorId }.toSortedMap()
-            .entries.mapIndexed { i, (id, rows) ->
+            .entries.map { (id, rows) ->
                 val timeline = studio.junecity.greenhouse.data.SensorTimeline(rows)
-                TrendSensor(id, rows.maxBy { it.timestampEpochMs }.sensorName, timeline, trendPalette[i % trendPalette.size])
+                TrendSensor(id, inventory[id]?.name ?: rows.maxBy { it.timestampEpochMs }.sensorName, timeline)
             }
     }
     var cursor by remember(hours, state.metric, inspectDay) { mutableStateOf<Long?>(null) }
@@ -228,9 +237,7 @@ import kotlin.math.roundToInt
                         val ranges = listOf(6 to "6h", 24 to "24h", 168 to "7d", 720 to "30d", 2160 to "90d", HISTORY_DAYS * 24 to "180d")
                         if (inspectDay != null) InsightButton("‹ " + utcDay(start)) { inspectDay = null }
                         Box {
-                            TextButton({ choose = true }) {
-                                Text(ranges.first { it.first == hours }.second + " ▾", color = DashboardTokens.Amber)
-                            }
+                            PanelAction(ranges.first { it.first == hours }.second + " ▾") { choose = true }
                             DropdownMenu(expanded = choose, onDismissRequest = { choose = false }) {
                                 ranges.forEach { (value, label) ->
                                     DropdownMenuItem(text = { Text(label) }, onClick = { hours = value; inspectDay = null; choose = false })
@@ -251,15 +258,14 @@ import kotlin.math.roundToInt
                         if (daily && cursor != null) InsightButton("View day") { inspectDay = cursor!! / DAY_MS }
                         if (cursor != null && !daily) InsightButton("Latest"){ cursor=null }
                     }
-                    LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Spacer(Modifier.height(4.dp))
+                    LazyColumn(verticalArrangement=Arrangement.spacedBy(4.dp)) {
                         items(series,key={it.id}) { sensor ->
                             val stats = remember(sensor,metric) { sensor.timeline.rows.map { historyMetric(it,metric) }.filter { it.isFinite() } }
                             val row = cursor?.let { sensor.timeline.chartReading(it, daily) } ?: if(cursor==null) sensor.timeline.rows.lastOrNull() else null
-                            Column(Modifier.fillMaxWidth().background(DashboardTokens.PanelRaised,RoundedCornerShape(10.dp)).padding(8.dp)) {
-                                Text(sensor.name,color=sensor.color,fontWeight=FontWeight.Bold,fontSize=14.sp)
-                                Text(formatMetric(row?.let { historyMetric(it,metric) },metric),color=Color.White,fontSize=19.sp,fontWeight=FontWeight.Bold)
-                                Text("${formatMetric(stats.minOrNull(),metric)} – ${formatMetric(stats.maxOrNull(),metric)}",color=DashboardTokens.Muted,fontSize=12.sp)
-                            }
+                            SensorReadingRow(sensor.id, sensor.name,
+                                "${formatMetric(stats.minOrNull(),metric)} – ${formatMetric(stats.maxOrNull(),metric)}",
+                                formatMetric(row?.let { historyMetric(it,metric) },metric))
                         }
                     }
                 }
@@ -740,6 +746,3 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 @Composable internal fun darkFieldColors()=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedBorderColor=DashboardTokens.Amber,unfocusedBorderColor=DashboardTokens.PanelEdge,cursorColor=DashboardTokens.Amber)
 internal fun formatMetric(v:Double?,m:Metric)=when(m){Metric.Humidity->formatHumidity(v);Metric.Vpd->v?.let{"%.1f kPa".format(it)}?:"—";else->formatTemp(v)}
 internal fun historyMetric(r:HistoryReading,m:Metric):Double=when(m){Metric.Temperature->r.temperatureF;Metric.Humidity->r.humidityPercent;Metric.Vpd->{val c=(r.temperatureF-32)*5/9;.6108*kotlin.math.exp(17.27*c/(c+237.3))*(1-r.humidityPercent/100)};Metric.DewPoint->{val c=(r.temperatureF-32)*5/9;val a=17.625;val b=243.04;val gamma=kotlin.math.ln(r.humidityPercent.coerceAtLeast(.1)/100)+a*c/(b+c);(b*gamma/(a-gamma))*9/5+32}}
-private fun sensorColor(sensor:GoveeSensor)=sensorColor(sensor.id.hashCode())
-private fun sensorColor(value:Any)=sensorColor(value.hashCode())
-private fun sensorColor(index:Int)=listOf(Color(0xFFFFBF20),Color(0xFF19EF8A),Color(0xFF10BFF3),Color(0xFFAE55ED))[kotlin.math.abs(index)%4]

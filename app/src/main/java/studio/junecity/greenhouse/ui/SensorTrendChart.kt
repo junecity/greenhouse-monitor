@@ -32,10 +32,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.*
 
-internal val trendPalette = listOf(DashboardTokens.Amber, DashboardTokens.Blue, DashboardTokens.Green,
-    Color(0xFFC69AFF), Color(0xFFFF8891), Color(0xFFFFE596))
-
-internal data class TrendSensor(val id: String, val name: String, val timeline: SensorTimeline, val color: Color)
+internal data class TrendSensor(val id: String, val name: String, val timeline: SensorTimeline) {
+    val color = sensorAccent(id)
+}
 private data class Sample(val time: Long, val value: Double)
 internal fun Metric.displayName() = when (this) {
     Metric.Vpd -> "VPD"

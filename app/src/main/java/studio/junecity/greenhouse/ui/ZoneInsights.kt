@@ -108,7 +108,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
                             else Text("Coldest · ${label(cold.first)} · ${formatTemp(low.temperatureF)} at ${clock(low.timestampEpochMs)}")
                             stats.forEach { (sensor, result) ->
                                 val covered = result?.coverageMs ?: 0
-                                Text(label(sensor), color = DashboardTokens.Blue)
+                                Text(label(sensor), color = sensorAccent(sensor.id))
                                 if (covered > 0) Text("About ${minutes(result!!.belowMs)} below ${formatTemp(threshold)}")
                                 Text("${minutes(covered)} observed · ${minutes(night.end - night.start - covered)} without coverage")
                             }
@@ -138,7 +138,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
                             }
                             if (relevant.isEmpty()) Text("No matching sensor in the current greenhouse.")
                             relevant.forEach { sensor ->
-                                Text(label(sensor), color = DashboardTokens.Blue)
+                                Text(label(sensor), color = sensorAccent(sensor.id))
                                 g.sensorPositions[sensor.id]?.let { Text("Location · %.1f ft across, %.1f ft down".format(it.xFeet, it.yFeet)) }
                                 val recent = timelines[sensor.id]?.rows.orEmpty().filter { it.timestampEpochMs in (eventTime - 3_600_000)..eventTime }
                                 if (recent.isEmpty()) Text("No measurements in the last hour.")
@@ -159,8 +159,8 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
 @Composable private fun Replay(sensors: List<GoveeSensor>, timelines: Map<String, SensorTimeline>,
     g: GreenhouseConfig, night: NightWindow, metric: Metric, d: (Float)->Dp, t:(Float)->TextUnit, height: Dp) {
     val series = remember(sensors.map { it.id to it.name }, timelines) {
-        sensors.sortedBy { it.id }.mapIndexedNotNull { i, sensor ->
-            timelines[sensor.id]?.let { TrendSensor(sensor.id, sensor.name, it, trendPalette[i % trendPalette.size]) }
+        sensors.sortedBy { it.id }.mapNotNull { sensor ->
+            timelines[sensor.id]?.let { TrendSensor(sensor.id, sensor.name, it) }
         }
     }
     var time by remember(g.id, night.start) { mutableStateOf<Long?>(null) }
@@ -243,11 +243,12 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
     val b = sensors.first { it.id == second }
     var metric by remember { mutableStateOf(Metric.Temperature) }
     var cursor by remember(first,second,night.start) { mutableStateOf<Long?>(null) }
-    val series = remember(timelines, a.id, b.id) {
-        listOf(a,b).mapIndexed { i,s -> TrendSensor(s.id,s.name,timelines[s.id] ?: SensorTimeline(emptyList()),trendPalette[i]) }
+    val series = remember(timelines, a.id, a.name, b.id, b.name) {
+        listOf(a,b).map { s -> TrendSensor(s.id,s.name,timelines[s.id] ?: SensorTimeline(emptyList())) }
     }
+    val inspectedAt = cursor
     fun value(sensor: GoveeSensor): Double? {
-        val at = cursor
+        val at = inspectedAt
         if (at != null) return timelines[sensor.id]?.at(at)?.let { historyMetric(it,metric) }
         if (!sensor.isFresh(now) || sensor.updatedAtEpochMs > now) return null
         return if(metric==Metric.Temperature) sensor.temperatureF else sensor.humidityPercent
@@ -273,10 +274,10 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
         Spacer(Modifier.weight(1f))
         val diff = if(left==null || right==null) "—" else if(metric==Metric.Humidity)
             "%.0f percentage points".format(abs(left-right)) else formatTemp(abs(left-right))
-        Text("${if(cursor==null) "Current difference" else "Difference"} · $diff",
+        Text("${if(inspectedAt==null) "Current difference" else "Difference"} · $diff",
             color=Color.White,fontSize=15.sp,fontWeight=FontWeight.Bold)
     }
-    SensorTrendChart(series,metric,night.start,night.end,cursor,{ cursor=it },Modifier.fillMaxWidth().height((height-124.dp).coerceAtLeast(96.dp)))
+    SensorTrendChart(series,metric,night.start,night.end,inspectedAt,{ cursor=it },Modifier.fillMaxWidth().height((height-124.dp).coerceAtLeast(96.dp)))
     val peak = remember(series,metric,night.start,night.end/60_000) {
         val times = series.flatMap { s -> s.timeline.rows.map { it.timestampEpochMs } }.filter { it in night.start..night.end } + night.start
         times.mapNotNull { time ->
@@ -286,11 +287,11 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
         }.maxByOrNull { it.second }
     }
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-        Text(cursor?.let { clock(it) } ?: peak?.let {
+        Text(inspectedAt?.let { clock(it) } ?: peak?.let {
             val delta = if(metric==Metric.Humidity) "%.0f points".format(it.second) else formatTemp(it.second)
             "Overnight peak · $delta at ${clock(it.first)}"
         } ?: "No overlapping overnight readings",modifier=Modifier.weight(1f),color=DashboardTokens.Muted,fontSize=13.sp)
-        if(cursor!=null) InsightButton("Latest"){cursor=null}
+        if(inspectedAt!=null) InsightButton("Latest"){cursor=null}
         else Text("Drag to inspect",color=DashboardTokens.Muted,fontSize=12.sp)
     }
 }
@@ -304,7 +305,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
             Text("$value  ▾",color=Color.White,fontWeight=FontWeight.Bold)
         }
         DropdownMenu(expanded=open,onDismissRequest={open=false}) {
-            options.forEach { sensor -> DropdownMenuItem(text={Text(label(sensor))},onClick={select(sensor.id);open=false}) }
+            options.forEach { sensor -> DropdownMenuItem(text={Text(label(sensor), color = sensorAccent(sensor.id))},onClick={select(sensor.id);open=false}) }
         }
     }
 }

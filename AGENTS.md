@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.28.1 (65)
+- SensorReadings owns the ID-based four-color Zones palette and shared sidebar rows. SensorTrendChart, StageScreens and ZoneInsights reuse it for historical traces, comparison pickers, replay and reports. The heat field retains its metric scale. Zone rows use SpatialInterpolator's selected metric.
+- Zones uses equally sized tools and collapses them to a menu in narrow panes. History places the latest or selected value beside the sensor label and range. No settings or database migration.
+- Passed 145 JVM tests, three Android API 35 UI tests and lint with zero errors. Pixel checks verify four chart lines and sidebar accents against sensor IDs across independently ordered screens. No physical phone was connected. See CHANGELOG for release details.
+
 ## 2026-11-15 · Greenhouse Studio 2.28.0 (64)
 - Cameras → Live View saves up to 15 seconds. A viewer records the remaining time in its explicitly opened session. The greenhouse phone's Timelapse samples every five seconds for five minutes. CameraLibraryScreen, CameraSamples and CameraMovies share the existing CameraX/JPEG or decoded WebRTC output and store silent MP4s under the phone's private enrollment/greenhouse directory. Leaving capture or backgrounding cancels the unfinished take. Standalone users find the pairing invitation under Settings → Connectivity.
 - Camera archive routes in app.py and camera_archive.py, AuthenticatedCloudGateway and the Play dialog support a separate account-bound storage product. One-minute clips originate on the authorized server. The private seven-day S3 archive is opt-in. See docs/AWS_DEPLOYMENT.md before enabling it. No production billing or infrastructure deployment in this release.

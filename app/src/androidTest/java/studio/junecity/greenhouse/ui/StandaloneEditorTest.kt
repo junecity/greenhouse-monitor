@@ -17,6 +17,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
@@ -1283,6 +1284,80 @@ class StandaloneEditorTest {
         } finally { store.clear() }
     }
 
+    @Test fun compactZoneToolsRemainAccessible() {
+        val chosen = AtomicReference("")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    androidx.compose.foundation.layout.Box(Modifier.width(160.dp)) {
+                        ZoneTools({ chosen.set("3D view") }, { chosen.set("Compare") }, { chosen.set("Replay") })
+                    }
+                }
+            }
+            for (action in listOf("3D view", "Compare", "Replay")) {
+                click("Zone tools ▾")
+                click(action)
+                assertEquals(action, chosen.get())
+            }
+        }
+    }
+
+    @Test fun sensorColorsMatchAcrossZonesAndHistory() {
+        val now = System.currentTimeMillis()
+        val sensors = listOf("d", "b", "a", "c").mapIndexed { index, id ->
+            GoveeSensor(id, "H5179", "Bench $id", 60.0 + index * 4, 80.0 - index, true, now,
+                zone = "Zone ${index + 1}")
+        }
+        val history = sensors.flatMap { s -> (0..72).map { step ->
+            HistoryReading(s.id, "Former label", s.temperatureF!! + step % 3, s.humidityPercent!!,
+                now - step * 300_000L)
+        } }
+        val plan = GreenhouseConfig(sensorPositions = sensors.mapIndexed { index, s ->
+            s.id to SensorPosition(2.0 + index * 3, 2.0 + index % 2 * 4)
+        }.toMap())
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            fun show(screen: AppScreen, metric: Metric) = scenario.onActivity { activity ->
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                activity.setContent {
+                    StageScreen(GreenhouseUiState(screen = screen, metric = metric, sensors = sensors,
+                        history = history, preferences = AppPreferences(greenhouses = listOf(plan))),
+                        DeviceStatus(80,true,true), java.time.LocalDateTime.now(),
+                        {}, {}, {}, {}, {_,_,_->}, {_,_->}, {}, {}, {_,_,_->}, {}, Modifier.fillMaxSize())
+                }
+            }
+            fun checkRows(checkPlot: Boolean) {
+                // The rows use different sort orders on the two screens. Match each accent to its label.
+                val labels = sensors.associateWith { sensor ->
+                    Rect().also { find(sensor.name).getBoundsInScreen(it) }
+                }
+                SystemClock.sleep(600)
+                val image = ui.takeScreenshot() ?: error("No screen capture")
+                try {
+                    for ((sensor, bounds) in labels) {
+                        val color = sensorAccent(sensor.id).toArgb()
+                        val y = bounds.centerY()
+                        assertTrue("Missing accent beside ${sensor.name}", (bounds.left - 100 until bounds.left)
+                            .any { x -> x >= 0 && image.getPixel(x, y) == color })
+                        if (checkPlot) {
+                            val plot = Rect().also { find("Temperature trend").getBoundsInScreen(it) }
+                            assertTrue("Missing history line for ${sensor.name}", (plot.top until plot.bottom step 2)
+                                .any { py -> (plot.left until plot.right step 2).any { px -> image.getPixel(px, py) == color } })
+                        }
+                    }
+                } finally { image.recycle() }
+            }
+            show(AppScreen.Zones, Metric.Humidity)
+            find("80%")
+            checkRows(false)
+            screenshot("zone-sensor-colors")
+            show(AppScreen.History, Metric.Temperature)
+            find("Latest readings")
+            SystemClock.sleep(600)
+            screenshot("history-sensor-colors")
+            checkRows(true)
+        }
+    }
+
     @Test fun openComparisonReplayAndOvernightReport() {
         val now = System.currentTimeMillis()
         val night = studio.junecity.greenhouse.data.NightWindow.at(now)
@@ -1308,8 +1383,10 @@ class StandaloneEditorTest {
             click("Humidity")
             find("Current difference · 10 percentage points")
             fun scrub(label: String, fraction: Float) {
+                ui.waitForIdle(200, 2000)
                 val bounds = Rect().also { find(label).getBoundsInScreen(it) }
                 gesture(bounds, listOf(.1f to .5f, fraction to .5f))
+                ui.waitForIdle(200, 2000)
             }
             scrub("Humidity trend", .5f)
             find("Difference · —")
