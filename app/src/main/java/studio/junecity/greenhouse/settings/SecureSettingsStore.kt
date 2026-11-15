@@ -1,6 +1,8 @@
 package studio.junecity.greenhouse.settings
 
 import android.content.Context
+import studio.junecity.greenhouse.widget.widgetScope
+import studio.junecity.greenhouse.widget.ClimateWidget
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -50,7 +52,7 @@ data class CloudEnrollment(
 
 fun CloudEnrollment?.isStandaloneClient() = this?.role == CloudDeviceRole.ViewerClient && (greenhouseId.isBlank() || localSensors)
 
-class SecureSettingsStore(context: Context) {
+class SecureSettingsStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("secure_greenhouse_settings", Context.MODE_PRIVATE)
     private val alias = "greenhouse_govee_api_key"
 
@@ -77,7 +79,12 @@ class SecureSettingsStore(context: Context) {
     fun saveCloudSession(value: CloudSession) = saveEncrypted("cloud_session", value.toJson())
     fun cloudSession(): CloudSession? = loadEncrypted("cloud_session")?.let { runCatching { CloudSession.parse(it) }.getOrNull() }
     fun clearCloudSession() = prefs.edit().remove("cloud_session").apply()
-    fun saveCloudEnrollment(value: CloudEnrollment) = saveEncrypted("cloud_enrollment", value.toJson())
+    fun saveCloudEnrollment(value: CloudEnrollment) {
+        if (cloudEnrollment()?.widgetScope() != value.widgetScope())
+            context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
+        saveEncrypted("cloud_enrollment", value.toJson())
+        ClimateWidget.changed(context)
+    }
     fun cloudEnrollment(): CloudEnrollment? = loadEncrypted("cloud_enrollment")?.let { runCatching { CloudEnrollment.parse(it) }.getOrNull() }
     fun watchEnrollment(onChange: () -> Unit): () -> Unit {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _,key ->
@@ -86,7 +93,11 @@ class SecureSettingsStore(context: Context) {
         prefs.registerOnSharedPreferenceChangeListener(listener)
         return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    fun clearCloudEnrollment() = prefs.edit().remove("cloud_enrollment").apply()
+    fun clearCloudEnrollment() {
+        prefs.edit().remove("cloud_enrollment").apply()
+        context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
+        ClimateWidget.changed(context)
+    }
     fun cloudDeviceId(): String = stableIdentifier("cloud_device_id", "device")
     fun cloudGreenhouseId(): String = stableIdentifier("cloud_greenhouse_id", "greenhouse")
 

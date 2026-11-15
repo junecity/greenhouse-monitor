@@ -1,14 +1,18 @@
 package studio.junecity.greenhouse.settings
 
 import android.content.Context
+import studio.junecity.greenhouse.widget.ClimateWidget
 import org.json.JSONArray
 import org.json.JSONObject
 import studio.junecity.greenhouse.model.*
 
-class AppPreferencesStore(context:Context,private val suffix:String=""){
+class AppPreferencesStore(private val context:Context,private val suffix:String=""){
     private val prefs=context.getSharedPreferences("greenhouse_preferences_v2$suffix",Context.MODE_PRIVATE)
     fun load():AppPreferences=runCatching{prefs.getString("state",null)?.let{decode(JSONObject(it))}?:AppPreferences()}.getOrElse{AppPreferences()}
-    fun save(value:AppPreferences){prefs.edit().putString("state",encode(value).toString()).apply()}
+    fun save(value: AppPreferences) {
+        prefs.edit().putString("state", encode(value).toString()).apply()
+        ClimateWidget.changed(context)
+    }
     internal fun restore(value:AppPreferences){check(prefs.edit().putString("state",encode(value).toString()).commit())}
     fun clear(){prefs.edit().clear().apply()}
     fun exportJson():JSONObject=encode(load())

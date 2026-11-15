@@ -1,0 +1,12 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_body" android:orientation="vertical"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:gravity="center_vertical" android:padding="12dp"
+    android:background="@drawable/widget_surface">
+    <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:ellipsize="end" android:maxLines="1" android:text="@string/app_name" android:textSize="14sp" android:textStyle="bold" android:textColor="#FFB347" />
+    <TextView android:id="@+id/widget_reading" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:maxLines="2" android:text="—" android:textSize="24sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+    <TextView android:id="@+id/widget_time" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:maxLines="2" android:textSize="12sp" android:textColor="#C6C8CF" />
+</LinearLayout>

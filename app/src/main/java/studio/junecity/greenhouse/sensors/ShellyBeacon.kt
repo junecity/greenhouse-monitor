@@ -22,11 +22,13 @@ internal enum class ShellyModel(val sku: String, val type: Int, val title: Strin
 }
 
 /** Accept the printed/pasted Bluetooth address; normalize it to Android's scan identity. */
-internal fun shellyAddressId(text: String): String? {
+internal fun normalizedBluetoothAddress(text: String): String? {
     val compact = text.trim().replace(":", "").replace("-", "")
     if (!compact.matches(Regex("[0-9A-Fa-f]{12}")) || compact.all { it == '0' }) return null
-    return "shelly:" + compact.uppercase(java.util.Locale.ROOT).chunked(2).joinToString(":")
+    return compact.uppercase(java.util.Locale.ROOT).chunked(2).joinToString(":")
 }
+
+internal fun shellyAddressId(text: String) = normalizedBluetoothAddress(text)?.let { "shelly:$it" }
 
 private fun ByteArray.uint(offset: Int, count: Int): Int {
     var value = 0

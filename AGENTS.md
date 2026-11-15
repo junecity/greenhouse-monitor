@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.32.0 (71)
+- Devices → Add Bluetooth thermometer discovers advertised Bluetooth SIG Environmental Sensing services or checks a manually entered address. EnvironmentalBluetooth verifies readable temperature and humidity before enrollment. Collectors poll enrolled ESS addresses sequentially, keep timestamps on failure and use the existing sensor inventory, history, alarm and snapshot paths. Govee refresh preserves both local BLE providers. The heartbeat identifies BLE ESS.
+- ClimateWidget and WidgetSettingsActivity provide independent Android home-screen widgets for a saved greenhouse or individual sensor, metric and unit. Reads follow enrollment and viewer snapshot scope. Sensor changes trigger refresh, and the launcher periodically requests updates. The timestamp identifies cached observations. No new network service or database migration.
+- Passed 157 JVM tests, four API 35 instrumentation cases and lint with zero errors. The virtual GATT peripheral exercised discovery, read, reconnect and recording. An Android widget host verified a selected sensor in Celsius and cleared readings after sign-out. Physical third-party sensors, OEM launchers and second-phone delivery are pending.
+
 ## 2026-11-15 · Greenhouse Studio 2.31.0 (70)
 - History → Temperature shows observed Shelly Display Dark/Twilight/Bright periods and a selectable first-hour temperature response for each sensor. LightHistory and LightHistoryStrip require sustained transitions, preserve gaps, and compare distinct dates with similar starting indoor and outdoor observations.
 - HistoryStore schema 4 adds nullable light to raw samples. GreenhouseBackupStore carries it with existing raw and daily snapshots. CustomerBackup writes GHBACK03 and reads GHBACK01/02. Existing historical light cannot be reconstructed.

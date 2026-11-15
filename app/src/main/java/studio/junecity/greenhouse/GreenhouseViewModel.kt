@@ -164,7 +164,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 ensurePositions(sensors)
                 _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = storage.sensors.colorSlots(), goveeConnected = true, message = "Updated ${sensors.size} sensors")
                 withContext(Dispatchers.IO) {
-                    sensors.filterNot { it.isShelly() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
+                    sensors.filterNot { it.isLocalRadio() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
                     if (!owner.isStandaloneClient()) HeartbeatHealthStore(getApplication()).save(sensors,
                         prefs.notifications.lowTemperatureF, prefs.notifications.highTemperatureF)
                 }
@@ -230,6 +230,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 GreenhouseBackupStore(getApplication(), suffix).restore(snapshot, CameraMode.ViewerClient)
             }
             if (secure.cloudEnrollment() != enrollment.copy(greenhouseId=greenhouseId) || stores != paired) return false
+            studio.junecity.greenhouse.widget.ClimateWidget.viewerSynced(getApplication(), enrollment.copy(greenhouseId = greenhouseId))
             val syncedSensors = paired.sensors.load()
             _state.value = _state.value.copy(
                 preferences = paired.preferences.load().copy(cameraMode = CameraMode.ViewerClient),

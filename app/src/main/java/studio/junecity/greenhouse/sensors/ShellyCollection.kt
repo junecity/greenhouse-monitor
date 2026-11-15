@@ -18,7 +18,7 @@ internal fun CurrentSensorStore.replaceGovee(readings: List<GoveeSensor>) =
             if (last == null || !reading.sku.equals("H5179", true)) reading
             else reading.copy(batteryRadioAddress = last.batteryRadioAddress, batteryObservedAt = last.batteryObservedAt,
                 batteryPercent = last.batteryPercent ?: reading.batteryPercent)
-        } + existing.filter { it.isShelly() }
+        } + existing.filter { it.isLocalRadio() }
     }
 
 internal fun CurrentSensorStore.applyShellyPackets(
@@ -36,6 +36,7 @@ internal fun CurrentSensorStore.applyShellyPackets(
 internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, suffix: String) = withContext(Dispatchers.IO) {
     if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return@withContext
     launch { collectGoveeBatteries(context, owner, suffix) }
+    launch { collectEnvironmental(context, owner, suffix) }
     val secure = SecureSettingsStore(context)
     val store = CurrentSensorStore(context, suffix)
     val preferences = AppPreferencesStore(context, suffix)

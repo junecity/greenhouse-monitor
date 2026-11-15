@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.cloud
 
 import studio.junecity.greenhouse.R
+import studio.junecity.greenhouse.sensors.isLocalRadio
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -103,7 +104,7 @@ class CloudHeartbeatService : Service() {
                 val context = this@CloudHeartbeatService
                 val sensors = CurrentSensorStore(context).load()
                 val healthStore = HeartbeatHealthStore(context)
-                if (sensors.any { it.id.startsWith("shelly:") }) {
+                if (sensors.any { it.isLocalRadio() }) {
                     val limits = AppPreferencesStore(context).load().notifications
                     healthStore.save(sensors.filter { it.isFresh() }, limits.lowTemperatureF, limits.highTemperatureF)
                 }
@@ -114,7 +115,11 @@ class CloudHeartbeatService : Service() {
                     batteryPercent=device.batteryPercent, charging=device.charging,
                     networkType=if (device.wifiConnected) "WIFI" else device.network.uppercase(),
                     wifiSignalStrength=device.signalDbm.takeIf { device.wifiConnected },
-                    sensorCount=sensors.size, sensorProvider=listOfNotNull("GOVEE".takeIf { secure.goveeApiKey()!=null }, "SHELLY".takeIf { sensors.any { s -> s.id.startsWith("shelly:") } }).joinToString(", ").ifBlank { null },
+                    sensorCount = sensors.size, sensorProvider = listOfNotNull(
+                        "GOVEE".takeIf { secure.goveeApiKey() != null },
+                        "SHELLY".takeIf { sensors.any { s -> s.id.startsWith("shelly:") } },
+                        "BLE ESS".takeIf { sensors.any { s -> s.id.startsWith("ess:") } }
+                    ).joinToString(", ").ifBlank { null },
                     cameraStatus=if(packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))"AVAILABLE" else "UNAVAILABLE",
                     lastSensorSyncEpochMs=sensors.maxOfOrNull(GoveeSensor::updatedAtEpochMs),
                     lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME

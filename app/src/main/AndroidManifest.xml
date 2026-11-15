@@ -25,6 +25,13 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.GreenhouseMonitor"
         android:supportsRtl="true">
+        <activity android:name=".widget.WidgetSettingsActivity" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" /></intent-filter>
+        </activity>
+        <receiver android:name=".widget.ClimateWidget" android:exported="false" android:label="@string/app_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/greenhouse_widget" />
+        </receiver>
         <service
             android:name=".cloud.CloudHeartbeatService"
             android:exported="false"

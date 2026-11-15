@@ -631,6 +631,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         if(local)item{
             Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
                 ShellyConnections(state.preferences.activeGreenhouse.id, state.preferences.activeGreenhouse.name, { removed = store.removed(); onSensorsChanged() })
+                EnvironmentalConnection(state.preferences.activeGreenhouse.id) { removed = store.removed(); onSensorsChanged() }
                 if(editKey){
                     Text("Connect your Govee H5179 sensors",color=Color.White)
                     OutlinedTextField(key,{key=it},label={Text("Govee API key")},singleLine=true,visualTransformation=PasswordVisualTransformation(),colors=darkFieldColors(),modifier=Modifier.fillMaxWidth())

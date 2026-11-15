@@ -1,12 +1,13 @@
 package studio.junecity.greenhouse.settings
 
 import android.content.Context
+import studio.junecity.greenhouse.widget.ClimateWidget
 import org.json.JSONArray
 import org.json.JSONObject
 import studio.junecity.greenhouse.model.GoveeSensor
 
 /** The server's latest sensor snapshot, persisted so cloud sync is independent of the UI process. */
-class CurrentSensorStore(context: Context, private val suffix: String = "") {
+class CurrentSensorStore(private val context: Context, private val suffix: String = "") {
     private val preferences = context.getSharedPreferences("greenhouse_current_sensors$suffix", Context.MODE_PRIVATE)
 
     companion object { private val lock = Any() }
@@ -20,6 +21,7 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
 
     fun save(sensors: List<GoveeSensor>) {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString()).apply()
+        ClimateWidget.changed(context)
     }
 
     internal fun colorSlots(): Map<String, Int> = synchronized(lock) {
@@ -40,6 +42,7 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
         if (name.isEmpty() || name.length > 64 || rows.none { it.id == id }) return@synchronized
         preferences.edit().putString("labels", labels().put(id, name).toString())
             .putString("sensors", CurrentSensorCodec.encode(rows.map { if (it.id == id) it.copy(name = name) else it }).toString()).apply()
+        ClimateWidget.changed(context)
     }
 
     fun remove(id: String) = synchronized(lock) {
@@ -62,6 +65,7 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
         editor.putString("sensors", CurrentSensorCodec.encode(active).toString())
             .putString("removed", CurrentSensorCodec.encode(archived).toString())
             .putString("labels", labels().apply { remove(id) }.toString()).apply()
+        ClimateWidget.changed(context)
     }
 
     fun enroll(sensor: GoveeSensor) = synchronized(lock) {
@@ -80,6 +84,7 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
     private fun writeMembership(active: List<GoveeSensor>, archived: List<GoveeSensor>, forgotten: Set<String> = forgottenGovee()) {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(active).toString())
             .putString("removed", CurrentSensorCodec.encode(archived).toString()).putStringSet("forgottenGovee", forgotten).apply()
+        ClimateWidget.changed(context)
     }
 
     internal fun allowedReadings(readings: List<GoveeSensor>): List<GoveeSensor> {
@@ -99,13 +104,17 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
             .putString("removed", (removed ?: JSONArray()).toString())
             .putStringSet("forgottenGovee", CurrentSensorCodec.forgottenIds(forgotten))
             .putString("labels", (labels ?: JSONObject()).toString()).commit())
+        ClimateWidget.changed(context)
     }
 
     fun load(): List<GoveeSensor> = runCatching {
         preferences.getString("sensors", null)?.let { CurrentSensorCodec.decode(JSONArray(it)) }.orEmpty()
     }.getOrDefault(emptyList())
 
-    fun clear() = preferences.edit().clear().apply()
+    fun clear() {
+        preferences.edit().clear().apply()
+        ClimateWidget.changed(context)
+    }
 }
 
 object CurrentSensorCodec {
