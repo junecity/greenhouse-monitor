@@ -288,8 +288,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         preferences.save(p)
         val removed = previous.preferences.greenhouses.any { old -> p.greenhouses.none { it.id == old.id } }
         if (removed) {
-            val sensors = currentSensors.load().inSavedHouses(p)
-            currentSensors.save(sensors)
+            val sensors = currentSensors.update { it.inSavedHouses(p) }
             _state.value = previous.copy(preferences = p, sensors = sensors)
         } else {
             _state.value = previous.copy(preferences = p)

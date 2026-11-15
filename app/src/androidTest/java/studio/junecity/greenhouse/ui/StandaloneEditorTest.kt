@@ -274,8 +274,8 @@ class StandaloneEditorTest {
         val store = CurrentSensorStore(context)
         val second = GreenhouseConfig(id="second",name="Greenhouse 2")
         val at = System.currentTimeMillis()
-        val live = GoveeSensor("shelly:bench","SBHT-103C","Bench",72.0,61.0,true,at,second.id,"Zone 1", batteryPercent=79)
-        val old = live.copy(id="door",name="Door",batteryPercent=10,online=false,updatedAtEpochMs=at-900_000)
+        val live = GoveeSensor("bench","H5179","Bench",72.0,61.0,true,at,second.id,"Zone 1", batteryPercent=79, batteryObservedAt=at)
+        val old = live.copy(id="shelly:door",sku="SBHT-103C",name="Door",batteryPercent=10,batteryObservedAt=null,online=false,updatedAtEpochMs=at-900_000)
         val other = live.copy(id="outside",name="Other house",temperatureF=99.0,greenhouseId="main")
         try {
             prefs.save(AppPreferences(greenhouses=listOf(GreenhouseConfig(),second),activeGreenhouseId=second.id))

@@ -38,12 +38,12 @@ import studio.junecity.greenhouse.settings.*
     var attempt by remember { mutableIntStateOf(0) }
     var status by remember { mutableStateOf("") }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (ShellyBluetooth.allowed(context)) { attempt++; open = true }
+        if (SensorBluetooth.allowed(context)) { attempt++; open = true }
         else status = "Allow Bluetooth scanning in Android permissions to add a Shelly."
     }
     OutlinedButton(onClick = {
-        if (ShellyBluetooth.allowed(context)) { attempt++; open = true }
-        else permission.launch(ShellyBluetooth.permissions)
+        if (SensorBluetooth.allowed(context)) { attempt++; open = true }
+        else permission.launch(SensorBluetooth.permissions)
     }) { Text("Add Shelly Bluetooth sensors", color = DashboardTokens.Amber) }
     if (!open && status.isNotEmpty()) Text(status, color = DashboardTokens.Muted)
     if (!open) return

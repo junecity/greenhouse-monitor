@@ -106,6 +106,8 @@ object CurrentSensorCodec {
                     .put("lightLevel", sensor.lightLevel)
                     .put("batteryPercent", sensor.batteryPercent)
                     .put("batteryLow", sensor.batteryLow)
+                    .put("batteryObservedAt", sensor.batteryObservedAt)
+                    .put("batteryRadioAddress", sensor.batteryRadioAddress)
             )
         }
     }
@@ -123,6 +125,8 @@ object CurrentSensorCodec {
                 greenhouseId = sensor.optString("greenhouseId", "main"),
                 zone = sensor.optString("zone", "Unassigned"),
                 batteryPercent = sensor.opt("batteryPercent")?.toString()?.toIntOrNull()?.takeIf { it in 0..100 },
+                batteryObservedAt = sensor.optLong("batteryObservedAt").takeIf { it > 0L },
+                batteryRadioAddress = sensor.optString("batteryRadioAddress").takeIf { it.isNotBlank() && it != "null" },
                 batteryLow = sensor.opt("batteryLow") as? Boolean,
                 lightLevel = sensor.optString("lightLevel").takeIf { it in setOf("Dark", "Twilight", "Bright") }
             )

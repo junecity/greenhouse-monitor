@@ -11,7 +11,15 @@ import studio.junecity.greenhouse.model.GoveeSensor
 import studio.junecity.greenhouse.settings.*
 
 internal fun CurrentSensorStore.replaceGovee(readings: List<GoveeSensor>) =
-    update { existing -> allowedReadings(readings) + existing.filter { it.isShelly() } }
+    update { existing ->
+        val cached = existing.associateBy { it.id }
+        allowedReadings(readings).map { reading ->
+            val last = cached[reading.id]
+            if (last == null || !reading.sku.equals("H5179", true)) reading
+            else reading.copy(batteryRadioAddress = last.batteryRadioAddress, batteryObservedAt = last.batteryObservedAt,
+                batteryPercent = last.batteryPercent ?: reading.batteryPercent)
+        } + existing.filter { it.isShelly() }
+    }
 
 internal fun CurrentSensorStore.applyShellyPackets(
     packets: Map<String, ShellyAdvertisement>, onUpdated: (GoveeSensor) -> Unit
@@ -27,13 +35,14 @@ internal fun CurrentSensorStore.applyShellyPackets(
 /** One BLE scan serves the whole greenhouse. Only explicitly added addresses enter the inventory. */
 internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, suffix: String) = withContext(Dispatchers.IO) {
     if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return@withContext
+    launch { collectGoveeBatteries(context, owner, suffix) }
     val secure = SecureSettingsStore(context)
     val store = CurrentSensorStore(context, suffix)
     val preferences = AppPreferencesStore(context, suffix)
     val alerts = AlertNotifier(context, suffix)
     HistoryStore(context, suffix).use { history ->
         while (isActive && secure.cloudEnrollment() == owner) {
-            if (!ShellyBluetooth.allowed(context) || store.load().none { it.isShelly() }) {
+            if (!SensorBluetooth.allowed(context) || store.load().none { it.isShelly() }) {
                 delay(4_000)
                 continue
             }

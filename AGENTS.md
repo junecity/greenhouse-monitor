@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.24.1 (59)
+- SensorBluetooth shares filtered Android scanning. GoveeBattery listens for H5179 manufacturer packets on the collector, matches unique radio addresses to enrolled sensors and timestamps battery separately. GoveeBatteryLink in Devices supports permission and explicit address selection. ShellyCollection preserves that metadata across Govee cloud refreshes. CurrentSensorCodec carries it to viewers and backups.
+- 140 JVM tests and three API 35 instrumentation tests passed, including two virtual H5179 formats and viewer rendering. Lint had zero errors. The next hardware check is receipt from the owner's H5179s and delivery to a second physical phone. No cloud deployment or database migration.
+
 ## 2026-11-14 · Greenhouse Studio 2.24.0 (58)
 - ZoneVolumeScreen and VolumePlacement let collectors drag an enrolled sensor onto the projected 3D floor and save its XY coordinates in the existing greenhouse preferences. Lower and Upper use that section’s peak. The viewer displays the collector’s layout. No database or cloud changes.
 - 138 JVM and three API 35 instrumentation tests passed, lint had zero errors. Verified the placement controls on the physical Moto G7. End-to-end delivery of a changed position to a second physical phone remains pending.
