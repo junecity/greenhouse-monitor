@@ -28,7 +28,7 @@ import studio.junecity.greenhouse.data.ZoneClimate
 import studio.junecity.greenhouse.model.*
 import kotlin.math.*
 
-private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:Double, tilt:Double,
+internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:Double, tilt:Double,
                          zoom:Float,pan:Offset, padding:Float) {
     private val c=cos(angle); private val s=sin(angle); private val up=cos(tilt); private val depth=sin(tilt)
     private fun horizontal(x:Double,y:Double)=x*c-y*s
@@ -43,6 +43,11 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
     private val cx=size.width*.5+pan.x-(left+right)*scale*.5
     private val cy=size.height*.5+pan.y-(top+bottom)*scale*.5
     fun point(x:Double,y:Double,z:Double)=Offset((cx+horizontal(x,y)*scale).toFloat(),(cy+vertical(x,y,z)*scale).toFloat())
+    fun floorPoint(screen: Offset): SensorPosition {
+        val horizontal = (screen.x - cx) / scale
+        val vertical = (screen.y - cy) / (scale * depth)
+        return SensorPosition(c * horizontal + s * vertical, c * vertical - s * horizontal)
+    }
 }
 
 @Composable internal fun ZoneVolumeScreen(state:GreenhouseUiState, update:((AppPreferences)->AppPreferences)->Unit, dismiss:()->Unit) {
@@ -68,6 +73,12 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
     }
     val layerPaint = remember { android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG) }
     val editable=state.standalone || state.preferences.cameraMode!=CameraMode.ViewerClient
+    val savedPosition = g.sensorPositions[sensor?.id]
+    var placing by remember(g.id, sensor?.id, editable) { mutableStateOf(false) }
+    var draft by remember(g.id, sensor?.id) { mutableStateOf<SensorPosition?>(null) }
+    var level by remember(g.id, sensor?.id) { mutableStateOf<MountLevel?>(null) }
+    var outside by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(placing) { placing = false }
     var editing by remember {mutableStateOf(false)}
     if(editing) HeightDialog(g,sensor,{editing=false}) {roof,stemRoof,mount ->
         update { prefs -> prefs.copy(greenhouses=prefs.greenhouses.map { house ->
@@ -92,7 +103,14 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
             InsightButton("Close",dismiss)
         }
         Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            for(m in listOf(Metric.Temperature,Metric.Humidity)){
+            if (placing) {
+                MountLevel.entries.forEach { band ->
+                    FilterChip(selected = level == band, onClick = { level = band },
+                        label = { Text(band.name) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = DashboardTokens.Amber,
+                            selectedLabelColor = DashboardTokens.Background, labelColor = Color.White))
+                }
+            } else for(m in listOf(Metric.Temperature,Metric.Humidity)){
                 FilterChip(selected=metric==m,onClick={metric=m},label={Text(m.displayName())},
                     colors=FilterChipDefaults.filterChipColors(selectedContainerColor=DashboardTokens.Amber,selectedLabelColor=DashboardTokens.Background,labelColor=Color.White))
             }
@@ -206,6 +224,7 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                     while(y<g.planWidthFeet){rail(0.0,y,0.0,g.planLengthFeet,y,0.0,strut.copy(alpha=.16f));y+=grid}
                 }
                 for((probe,pt) in positions){
+                    if (placing && probe.sensor.id == sensor?.id) continue
                     val p=probe.position; val v=if(metric==Metric.Humidity)probe.sensor.humidityPercent!! else probe.sensor.temperatureF!!
                     val mounted=p.heightFeet!=null; val color=scale.color(v)
                     if(mounted)drawLine(color.copy(alpha=.5f),camera.point(p.xFeet,p.yFeet,0.0),pt,1.dp.toPx())
@@ -226,31 +245,70 @@ private class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle:
                     }
                 }
             }
-            if(planLayer != null) {
+            if (placing && sensor != null) {
+                val preview = draft?.copy(level = level, heightFeet = savedPosition?.heightFeet.takeIf { level == null })
+                VolumePlacement(g, sensor.name, camera, preview, outside) { point ->
+                    outside = point == null
+                    if (point != null) draft = point
+                }
+            } else if(planLayer != null) {
                 Text("Sensors with unknown heights are shown on the floor plan.",
                     Modifier.align(Alignment.TopStart).padding(10.dp),color=DashboardTokens.Muted,fontSize=12.sp)
             }
-            if(sensors.isEmpty()) Text("Add a sensor to see readings here",Modifier.align(Alignment.Center).background(DashboardTokens.Background).padding(8.dp),color=Color.White)
+            if (!editable && sensors.isNotEmpty()) Text("Place sensors on the greenhouse phone", Modifier.align(Alignment.BottomStart).padding(10.dp), color = DashboardTokens.Muted, fontSize = 12.sp)
+            if(sensors.isEmpty()) Text("Add sensors in Settings → Devices",Modifier.align(Alignment.Center).background(DashboardTokens.Background).padding(8.dp),color=Color.White)
         }
-        ZoneHeatLegend(scale)
-        Row(verticalAlignment=Alignment.CenterVertically) {
-            var menu by remember {mutableStateOf(false)}
-            Box(Modifier.weight(1f)) {
-                TextButton(onClick={menu=true},enabled=sensors.isNotEmpty()) {
-                    Text(sensor?.let { s ->
-                        val position=g.sensorPositions[s.id]
-                        val mount=position?.heightFeet
-                        val value=probes.find{it.sensor.id==s.id}?.sensor?.let{if(metric==Metric.Temperature)it.temperatureF else it.humidityPercent}
-                        "${s.name} ▾  ·  ${formatMetric(value,metric)}  ·  ${mount?.let{planNumber(it)+" ft"} ?: position?.level?.name ?: "Height unset"}" + (s.lightLevel?.let { "  ·  Light: $it" } ?: "")
-                    } ?: "No sensors",color=Color.White)
+        if (placing) {
+            val point = draft
+            val measured = savedPosition?.heightFeet.takeIf { level == null }
+            val fits = point != null && (measured == null || measured <= ZoneClimate.sectionHeight(g, point.yFeet))
+            if (point != null && !fits) Text("Choose Lower or Upper for this shorter section.", color = DashboardTokens.Amber)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(sensor?.name.orEmpty(), Modifier.weight(1f), color = Color.White, maxLines = 2)
+                InsightButton("Cancel") { placing = false }
+                Button(enabled = fits && !outside, onClick = {
+                    if (point != null && sensor != null && editable) {
+                        val position = point.copy(heightFeet = measured, level = level)
+                        update { prefs -> prefs.copy(greenhouses = prefs.greenhouses.map { house ->
+                            if (house.id == g.id && house.containsPoint(position.xFeet, position.yFeet))
+                                house.copy(sensorPositions = house.sensorPositions + (sensor.id to position))
+                            else house
+                        }) }
+                        placing = false
+                    }
+                }, colors = ButtonDefaults.buttonColors(containerColor = DashboardTokens.Amber, contentColor = DashboardTokens.Background)) {
+                    Text("Save position")
                 }
-                DropdownMenu(expanded=menu,onDismissRequest={menu=false}){sensors.forEach{s->
-                    DropdownMenuItem(text={Text(s.name)},onClick={selected=s.id;menu=false})
-                }}
             }
-            if(editable) InsightButton("Set height"){editing=true}
+        } else {
+            ZoneHeatLegend(scale)
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                var menu by remember {mutableStateOf(false)}
+                Box(Modifier.weight(1f)) {
+                    TextButton(onClick={menu=true},enabled=sensors.isNotEmpty()) {
+                        Text(sensor?.let { s ->
+                            val position=g.sensorPositions[s.id]
+                            val mount=position?.heightFeet
+                            val value=probes.find{it.sensor.id==s.id}?.sensor?.let{if(metric==Metric.Temperature)it.temperatureF else it.humidityPercent}
+                            "${s.name} ▾  ·  ${formatMetric(value,metric)}  ·  ${mount?.let{planNumber(it)+" ft"} ?: position?.level?.name ?: "Height unset"}" + (s.lightLevel?.let { "  ·  Light: $it" } ?: "")
+                        } ?: "No sensors",color=Color.White)
+                    }
+                    DropdownMenu(expanded=menu,onDismissRequest={menu=false}){sensors.forEach{s->
+                        DropdownMenuItem(text={Text(s.name)},onClick={selected=s.id;menu=false})
+                    }}
+                }
+                if(editable) {
+                    if (sensor != null) InsightButton("Place sensor") {
+                        draft = savedPosition
+                        level = savedPosition?.level
+                        outside = false
+                        placing = true
+                    }
+                    InsightButton("Set height"){editing=true}
+                }
+            }
+            Text(insight,color=DashboardTokens.Amber,fontSize=14.sp,lineHeight=17.sp,modifier=Modifier.fillMaxWidth().padding(bottom=4.dp))
         }
-        Text(insight,color=DashboardTokens.Amber,fontSize=14.sp,lineHeight=17.sp,modifier=Modifier.fillMaxWidth().padding(bottom=4.dp))
     }
 }
 

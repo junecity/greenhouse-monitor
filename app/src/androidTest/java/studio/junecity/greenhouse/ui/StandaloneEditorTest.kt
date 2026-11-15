@@ -924,6 +924,53 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun placeEnrolledSensorOn3dFloorAndPreserveMount() {
+        val store = AppPreferencesStore(instrumentation.targetContext, "_3d_placement_fixture")
+        val other = SensorPosition(3.0, 2.0, 1.0)
+        val house = GreenhouseConfig(shape = GreenhouseShape.TShape, heightFeet = 8.0, attachedHeightFeet = 12.0,
+            sensorPositions = mapOf("other" to other))
+        val sensor = GoveeSensor("new", "Shelly", "Stem probe")
+        try {
+            store.save(AppPreferences(greenhouses = listOf(house)))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    activity.setContent {
+                        val prefs = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(store.load()) }
+                        ZoneVolumeScreen(GreenhouseUiState(standalone = true, sensors = listOf(sensor), preferences = prefs.value),
+                            { save -> prefs.value = save(prefs.value).also(store::save) }, {})
+                    }
+                }
+                click("Place sensor")
+                val bounds = Rect().also { find("3D sensor placement floor").getBoundsInScreen(it) }
+                val density = instrumentation.targetContext.resources.displayMetrics.density
+                val camera = Projection(house, 12.0, androidx.compose.ui.unit.IntSize(bounds.width(), bounds.height()),
+                    -.56, .44, 1f, androidx.compose.ui.geometry.Offset.Zero, 12 * density)
+                fun at(x: Double, y: Double, z: Double = 0.0) = camera.point(x, y, z).let {
+                    it.x / bounds.width() to it.y / bounds.height()
+                }
+                gesture(bounds, listOf(.1f to .03f, at(2.0, 18.0)))
+                find("Drop inside the greenhouse floor")
+                assertFalse(store.load().activeGreenhouse.sensorPositions.containsKey(sensor.id))
+                gesture(bounds, listOf(.1f to .03f, at(8.0, 18.0)))
+                click("Upper")
+                click("Save position")
+                find("Place sensor")
+                val saved = store.load().activeGreenhouse
+                val point = saved.sensorPositions.getValue(sensor.id)
+                assertEquals(8.0, point.xFeet, .15)
+                assertEquals(18.0, point.yFeet, .15)
+                assertEquals(MountLevel.Upper, point.level)
+                assertEquals(9.0, studio.junecity.greenhouse.data.ZoneClimate.mountingHeight(saved, point)!!, .01)
+                assertEquals(other, saved.sensorPositions["other"])
+                click("Place sensor")
+                gesture(bounds, listOf(at(8.0, 18.0, 9.0), at(7.0, 12.0, 9.0)))
+                click("Cancel")
+                assertEquals(saved, store.load().activeGreenhouse)
+            }
+        } finally { store.clear() }
+    }
+
     @Test fun dragChooseUpperAndRefineWithOneDistance() {
         val store = AppPreferencesStore(instrumentation.targetContext, "_drag_mount_fixture")
         val sensor = GoveeSensor("fixture", "H5179", "Stem probe")

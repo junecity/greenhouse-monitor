@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.24.0 (58)
+- ZoneVolumeScreen and VolumePlacement let collectors drag an enrolled sensor onto the projected 3D floor and save its XY coordinates in the existing greenhouse preferences. Lower and Upper use that section’s peak. The viewer displays the collector’s layout. No database or cloud changes.
+- 138 JVM and three API 35 instrumentation tests passed, lint had zero errors. Verified the placement controls on the physical Moto G7. End-to-end delivery of a changed position to a second physical phone remains pending.
+
 ## 2026-11-14 · Greenhouse Studio 2.23.1 (57)
 - ShellyBeacon decodes BTHome battery percentage and the Display model’s low-battery flag. CurrentSensorCodec carries both optional fields in the existing inventory, backup and viewer snapshot. Dashboard and Devices use SensorBatteryLabel. Keep missing readings distinct from a depleted battery and from phone health.
 - On the Moto G7 the enrolled Shelly H&T ZB reported 100% in Devices. 138 JVM and three API 35 instrumentation tests passed, including a restored server snapshot rendered on the viewer dashboard. Lint had zero errors. Physical Display and second-phone checks remain pending.
