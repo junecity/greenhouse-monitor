@@ -785,3 +785,10 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Foreground and background Govee discovery exclude forgotten devices until the user selects one from the account under Add a Govee sensor again. Shelly sensors use normal Bluetooth enrollment. Backup and snapshot metadata carry Govee exclusions without a schema migration.
 - 145 JVM tests passed, lint returned zero errors, and nine API 35 backup tests passed. The Devices cancel/confirm and clean enrollment UI test passed on a fresh emulator profile after dismissing Android’s first-use immersive prompt. No physical handsets, live provider rediscovery or two-phone propagation were tested.
 - Verified signer continuity and published the plain APK to build-out and the stable Drive link. Drive metadata matched the local size of 87,125,728 bytes. Local SHA-256 7dc04f32c60ad9335477f3f92aee4a9f70354d47f4b30c68f77b7d1f86612fd2.
+
+## 2026-11-15 · Greenhouse Studio 2.29.0 (67) — Daytime water storage
+
+- Open Energy → Water storage to enter US gallons, choose a nearby sensor or the greenhouse average, and compare tonight’s heating cost with and without water storage. Daylight energy escaping, stored heat at sunset and heat delivered during heating demand are shown separately. The calculation reports sampled daylight coverage and exposes its passive heat-exchange assumptions under How this works.
+- Added WaterHeat and WaterHeatDialog, connected them to NightHeatingContent, and scoped the inputs through HeatingStore. WaterHeatTest covers thermal bounds and behavior. HeatingForecastTest covers the actual Android screen, scenario editing, save, reopen and greenhouse isolation.
+- 149 JVM tests and three API 35 heating tests passed. Android lint reported zero errors. Checked the Android screenshot in build-out/2.29.0-qa/water-storage.png with fixture readings. Physical greenhouse savings and device behavior were not measured.
+- Signed APK updated in build-out and on the existing Drive download. Uploaded size matched 87,240,948 bytes. Local SHA-256 4fc4e3560792995f74110aa21fbd610d1709092b6b35037300864de34dd46423.

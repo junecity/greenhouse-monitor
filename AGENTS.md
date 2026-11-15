@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.29.0 (67)
+- Energy → Water storage uses WaterHeat, HeatingStore, NightHeatingContent and WaterHeatDialog to compare observed daylight heat loss, potential heat retained by water at sunset, overnight heat delivery and estimated fuel savings. The baseline uses whole-house readings. A selected sensor models the barrel location. Scenario inputs are local to each enrolled greenhouse.
+- Passive exchange assumes water starts at the learned nighttime temperature with a 12-hour time constant. Heat delivery is capped by simultaneous forecast demand. Air readings cannot establish measured barrel temperature or realized savings. No database or cloud migration.
+- Passed 149 JVM tests, three API 35 heating instrumentation tests and lint with zero errors. HeatingForecastTest verifies the Energy entry point and saved gallon/sensor selections. Physical barrel calibration and physical handset validation are pending.
+
 ## 2026-11-15 · Greenhouse Studio 2.28.2 (66)
 - Settings → Devices on a collecting phone can permanently forget a current or archived sensor. StageScreens clears setup, zone, position and alert state. Historical observations remain. CurrentSensorStore tracks forgotten Govee IDs through CustomerBackup and GreenhouseBackupStore so automatic collection cannot re-enroll them. GoveeReenrollment enables deliberate re-add. Shelly uses standard scan or manual enrollment.
 - 145 JVM tests, nine API 35 backup cases and one isolated API 35 Devices workflow passed. Lint reported zero errors. Live Govee discovery, physical Shelly re-enrollment and second-phone synchronization still need hardware verification.

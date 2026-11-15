@@ -40,6 +40,13 @@ internal class HeatingStore(context: Context, owner: CloudEnrollment?, greenhous
             .remove("$namespace.price").apply()
     }
 
+    fun waterGallons() = prefs.getFloat("$namespace.waterGallons", 55f).toDouble()
+    fun waterSensorId(): String? = prefs.getString("$namespace.waterSensor", null)
+    fun saveWaterSetup(gallons: Double, sensorId: String?) {
+        require(gallons.isFinite() && gallons in 0.1..1_000_000.0)
+        prefs.edit().putFloat("$namespace.waterGallons", gallons.toFloat()).putString("$namespace.waterSensor", sensorId).apply()
+    }
+
     fun history(zip: String): List<ThermalPoint> {
         val raw = prefs.getString("$namespace.$zip.points", null) ?: return emptyList()
         return runCatching {

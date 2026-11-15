@@ -16,6 +16,47 @@ class HeatingForecastTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    @Test fun compareWaterStorageFromEnergy() {
+        val context = instrumentation.targetContext
+        val house = GreenhouseConfig(id = "water-ui-" + java.util.UUID.randomUUID())
+        val store = HeatingStore(context, null, house.id)
+        val zone = java.time.ZoneOffset.UTC
+        val now = System.currentTimeMillis()
+        // Place the fixture at a longitude with sunset in the past hour, independent of test time.
+        val hour = now / HEATING_HOUR * HEATING_HOUR
+        val date = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val solar = mapOf(date to SolarDay(hour - 10 * HEATING_HOUR, hour),
+            date.plusDays(1) to SolarDay(hour + 12 * HEATING_HOUR, hour + 24 * HEATING_HOUR))
+        val weather = WeatherReading("06382", "Test", 40.0, "Clear", now, zone = zone, solarDays = solar,
+            hourlyOutdoorF = (-12..24).associate { hour + it * HEATING_HOUR to 40.0 })
+        val history = (0..120).map { HistoryReading("s", "Bench", 80.0, 50.0, hour - it * HEATING_HOUR / 12) }
+        val state = GreenhouseUiState(weather = weather, history = history,
+            sensors = listOf(GoveeSensor("s", "H5179", "Bench", greenhouseId = house.id)),
+            preferences = AppPreferences(greenhouses = listOf(house), activeGreenhouseId = house.id))
+        val training = (0..4).map { ThermalPoint(date.minusDays(1), hour - 24 * HEATING_HOUR + it * HEATING_HOUR/4,
+            60.0, 40.0, listOf("s")) }
+        compose.activityRule.scenario.onActivity { a ->
+            a.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            a.setContent { NightHeatingContent(state, store, {}, training) }
+        }
+        compose.onNodeWithText("Water storage").performClick()
+        compose.waitUntil(8000) { compose.onAllNodesWithText("Stored at sunset").fetchSemanticsNodes().isNotEmpty() }
+        val image = instrumentation.uiAutomation.takeScreenshot()
+        try {
+            java.io.File(context.cacheDir, "qa-water-storage.png").outputStream().use {
+                image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+        } finally { image.recycle() }
+        val field = compose.onNodeWithText("Total water (US gallons)")
+        field.performScrollTo().performTextReplacement("110")
+        compose.onNodeWithText("Barrel location", substring = true).performScrollTo().performClick()
+        compose.onNodeWithText("Bench").performClick()
+        compose.onNodeWithText("Save setup").performScrollTo().performClick()
+        assertEquals("s", HeatingStore(context, null, house.id).waterSensorId())
+        assertEquals(110.0, HeatingStore(context, null, house.id).waterGallons(), 0.0)
+        assertEquals(55.0, HeatingStore(context, null, house.id + "-other").waterGallons(), 0.0)
+    }
+
     @Test fun liveFuelAndWeatherFeeds() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("liveEnergy") == "true")
         for (fuel in EnergyUnit.entries) {

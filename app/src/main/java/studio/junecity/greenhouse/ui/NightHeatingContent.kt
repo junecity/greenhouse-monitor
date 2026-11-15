@@ -70,6 +70,7 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
     val weather = state.weather
     var settings by remember(store) { mutableStateOf(store.settings()) }
     var editing by remember(store) { mutableStateOf(false) }
+    var waterOpen by remember(store) { mutableStateOf(false) }
     var detail by remember { mutableStateOf(false) }
     val now = System.currentTimeMillis()
     val learned = remember(points) { learnedTemperature(points) }
@@ -88,6 +89,7 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
     MaterialTheme(colorScheme = darkColorScheme(primary = DashboardTokens.Amber, onPrimary = DashboardTokens.Background,
         surface = DashboardTokens.Panel, onSurface = DashboardTokens.White, onSurfaceVariant = DashboardTokens.Muted,
         secondaryContainer = DashboardTokens.Amber, onSecondaryContainer = DashboardTokens.Background)) {
+        if (waterOpen) WaterHeatDialog(state, store, learned, nights.firstOrNull(), settings.unit, coefficient, rate) { waterOpen = false }
         Surface(modifier = Modifier.fillMaxSize(),
             shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, DashboardTokens.PanelEdge),
             color = DashboardTokens.Panel, contentColor = DashboardTokens.White) {
@@ -98,6 +100,7 @@ internal fun NightHeatingContent(state: GreenhouseUiState, store: HeatingStore, 
                         Text("${house.name}  ·  ${if (validWeather) weather.location else "ZIP $zip"}",
                             color = DashboardTokens.Muted, fontSize = 14.sp)
                     }
+                    TextButton(onClick = { waterOpen = true }) { Text("Water storage", color = DashboardTokens.Amber) }
                 }
                 HorizontalDivider(color = DashboardTokens.Divider)
                 Column(Modifier.verticalScroll(rememberScrollState()).fillMaxWidth().padding(vertical = 6.dp),
