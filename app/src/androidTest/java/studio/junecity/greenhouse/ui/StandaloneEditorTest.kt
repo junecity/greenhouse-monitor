@@ -57,13 +57,22 @@ class StandaloneEditorTest {
                 find("192 CFM")
                 click("Fan 1 High")
                 find("224 CFM")
-                click("Set direction")
+                click("Edit height & direction")
                 val bounds = Rect().also { find("Fan direction floor plan").getBoundsInScreen(it) }
                 gesture(bounds, listOf(.50f to .50f))
-                find("Tap where the fan blows.")
+                find("Tap where the fan blows or enter a direction.")
                 gesture(bounds, listOf(.65f to .50f))
                 click("Apply")
-                find("Aim · 90°")
+                find("5 ft high · 90°")
+                click("Edit height & direction")
+                enterFanField("Fan height in feet", "99")
+                find("Use 0–8 ft for this section.")
+                enterFanField("Fan height in feet", "6.5")
+                enterFanField("Fan direction in degrees", "999")
+                find("Enter 0–360°.")
+                enterFanField("Fan direction in degrees", "225")
+                click("Apply")
+                find("6.5 ft high · 225°")
                 click("Save setup")
                 find("FAN")
             }
@@ -72,9 +81,12 @@ class StandaloneEditorTest {
             store.importJson(json)
             val restored = store.load().greenhouses
             assertEquals(FanSpeed.High, restored.first().circulationFans[0].speed)
-            assertEquals(90.0, restored.first().circulationFans[0].aim!!.degrees, 1.0)
+            assertEquals(225.0, restored.first().circulationFans[0].aim!!.degrees, 0.0)
+            assertEquals(6.5, restored.first().airCirculation().placed.first().heightFeet, 0.0)
             assertEquals(CirculationFan(), restored.first().circulationFans[1])
             assertEquals(houses[1], restored[1])
+            json.getJSONArray("greenhouses").getJSONObject(0).getJSONArray("circulationFans").getJSONObject(0).remove("heightFeet")
+            assertEquals(5.0, store.decode(json).activeGreenhouse.circulationFans[0].heightFeet, 0.0)
             json.getJSONArray("greenhouses").getJSONObject(0).remove("circulationFans")
             store.importJson(json)
             assertEquals(houses, store.load().greenhouses)
@@ -946,6 +958,34 @@ class StandaloneEditorTest {
         assertNotEquals(heat.color(65.0), ZoneHeatScale.Humidity.color(65.0))
     }
 
+    @Test fun volumeEditorUsesAttachedHeightAndPreservesFanLocation() {
+        val position = NormalizedPosition(.5, .8)
+        val fan = CirculationFan(FanSpeed.Low, FanAim(position, 20.0))
+        val house = GreenhouseConfig(shape = GreenhouseShape.TShape, heightFeet = 7.0, attachedHeightFeet = 12.0,
+            circulationFans = listOf(CirculationFan(), fan))
+        val prefs = androidx.compose.runtime.mutableStateOf(AppPreferences(greenhouses = listOf(house)))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                activity.setContent {
+                    ZoneVolumeScreen(GreenhouseUiState(standalone = true, preferences = prefs.value),
+                        { update -> prefs.value = update(prefs.value) }, {})
+                }
+            }
+            click("Fans")
+            click("Edit Fan 2")
+            enterFanField("Fan height in feet", "13")
+            find("Use 0–12 ft for this section.")
+            enterFanField("Fan height in feet", "9.5")
+            enterFanField("Fan direction in degrees", "360")
+            click("Apply")
+            click("Fans")
+            find("Fan 2 · Low · 0° · 9.5 ft high")
+            assertEquals(listOf(CirculationFan(), fan.copy(aim = FanAim(position, 0.0), heightFeet = 9.5)),
+                prefs.value.activeGreenhouse.circulationFans)
+        }
+    }
+
     @Test fun volumeAnimatesSavedFansAndStopsBothWhenOff() {
         val aim1 = FanAim(NormalizedPosition(.50, .20), 180.0)
         val aim2 = FanAim(NormalizedPosition(.40, .80), 0.0)
@@ -978,7 +1018,7 @@ class StandaloneEditorTest {
             if (motionEnabled) assertTrue("Moving blades and traveling arrows", changedPixels() > 12)
             screenshot("3d-circulation")
             click("Fans")
-            find("Modeled airflow · mounted 5 ft above floor")
+            find("Fan 1 · High · 180° · 5 ft high")
             click("Hide fans")
             click("Fans")
             click("Show fans")
@@ -1380,6 +1420,16 @@ class StandaloneEditorTest {
             val required = android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
             assertEquals("Window has the immersive and hidden navigation flags", required, actual and required)
         }
+    }
+
+    private fun enterFanField(label: String, value: String) {
+        var node: AccessibilityNodeInfo? = find(label)
+        while (node != null && !node.isEditable) node = node.parent
+        val field = requireNotNull(node) { "No editable field for $label" }
+        check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
+        }))
+        instrumentation.waitForIdleSync()
     }
 
     private fun screenshot(name:String) {

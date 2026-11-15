@@ -22,6 +22,8 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
 import studio.junecity.greenhouse.data.SpatialSample
 import studio.junecity.greenhouse.data.ZoneClimate
@@ -75,6 +77,21 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
     }
     val layerPaint = remember { android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG) }
     val editable=state.standalone || state.preferences.cameraMode!=CameraMode.ViewerClient
+    var editingFan by remember(g.id) { mutableStateOf<Int?>(null) }
+    editingFan?.takeIf { editable }?.let { index ->
+        Dialog(onDismissRequest = { editingFan = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(Modifier.fillMaxWidth(.96f).fillMaxHeight(.94f), shape = RoundedCornerShape(20.dp), color = DashboardTokens.Panel) {
+                FanDirectionEditor(g, g.circulationFans, index, { editingFan = null }) { fan ->
+                    update { prefs -> prefs.copy(greenhouses = prefs.greenhouses.map { house ->
+                        if (house.id != g.id) house else house.copy(circulationFans = house.circulationFans.mapIndexed { i, other ->
+                            if (i == index) other.copy(aim = fan.aim, heightFeet = fan.heightFeet) else other
+                        })
+                    }) }
+                    editingFan = null
+                }
+            }
+        }
+    }
     val savedPosition = g.sensorPositions[sensor?.id]
     var placing by remember(g.id, sensor?.id, editable) { mutableStateOf(false) }
     var draft by remember(g.id, sensor?.id) { mutableStateOf<SensorPosition?>(null) }
@@ -117,7 +134,7 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
                     colors=FilterChipDefaults.filterChipColors(selectedContainerColor=DashboardTokens.Amber,selectedLabelColor=DashboardTokens.Background,labelColor=Color.White))
             }
             Spacer(Modifier.weight(1f))
-            if (!placing) VolumeFanMenu(fans, showFans) { showFans = it }
+            if (!placing) VolumeFanMenu(fans, showFans, if (editable) { index -> editingFan = index } else null) { showFans = it }
             InsightButton("Fit",::fit)
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp))

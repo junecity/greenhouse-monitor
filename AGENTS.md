@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.27.0 (63)
+- FanAirflowDialog's per-fan editor accepts mounting height in feet and a horizontal bearing clockwise from plan top. Collectors can also open the same editor from ZoneVolumeScreen → Fans. Direct numeric aiming preserves the saved floor position. Dashboard edits require Apply and Save setup, while Apply in the 3D editor saves immediately.
+- CirculationFan, DirectedFan and AppPreferencesStore carry the optional persisted heightFeet through current house preferences, backup and server snapshots. Legacy fan records default to 5 ft. FanMapOverlay uses each mount height for its hub and arrow. Floor projection uses the same XY and bearing. No database or cloud migration.
+- 145 JVM and four API 35 instrumentation tests passed, including local persistence, legacy fallback, floor-plan colors, animation and a 9.5 ft mount in the 12 ft T section. Lint returned zero errors. The signed APK was installed on the Moto. Live propagation to a second handset remains untested.
+
 ## 2026-11-14 · Greenhouse Studio 2.26.1 (62)
 - Both installed fans have a fixed 5 ft horizontal discharge height. VolumeFans supplies FanMapOverlay to ZoneVolumeScreen and the live Zones HeatMap in StageScreens. Use the floor-plan transform for 2D and the elevated projection with a floor reference line for 3D. Keep current fan settings out of historical Replay.
 - Passed 145 JVM and three API 35 instrumentation tests. The Moto G7 showed both saved Low fans (9° and 174°) in both views after the upgrade. Physical second-phone viewing is pending. No settings migration or backend change.

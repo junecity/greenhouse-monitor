@@ -5,7 +5,10 @@ import kotlin.math.*
 /** Fractions are scenario assumptions for two equal circulation fans, not hardware commands. */
 enum class FanSpeed(val flowFraction: Double) { Off(0.0), Low(0.5), Medium(0.75), High(1.0) }
 
-data class CirculationFan(val speed: FanSpeed = FanSpeed.Medium, val aim: FanAim? = null)
+const val DEFAULT_FAN_HEIGHT_FEET = 5.0
+
+data class CirculationFan(val speed: FanSpeed = FanSpeed.Medium, val aim: FanAim? = null,
+    val heightFeet: Double = DEFAULT_FAN_HEIGHT_FEET)
 
 /** Clockwise from the top of the saved plan. The axes have physical dimensions in feet. */
 data class FanAim(val origin: NormalizedPosition, val degrees: Double)
@@ -34,7 +37,7 @@ internal fun GreenhouseConfig.estimatedVolumeFt3(): Double {
 
 internal data class DirectedFan(val index: Int, val speed: FanSpeed, val x: Double, val y: Double,
     val dx: Double, val dy: Double, val heading: Double, val wallFeet: Double, val outlet: FanFlow,
-    val acrossJunction: Boolean)
+    val acrossJunction: Boolean, val heightFeet: Double)
 
 internal data class DischargeMomentum(val x: Double, val y: Double) {
     val newtons get() = hypot(x, y)
@@ -69,7 +72,7 @@ internal fun GreenhouseConfig.airCirculation(fans: List<CirculationFan> = circul
         val crosses = junction >= 0 && junction < wall - 1e-8 &&
             x + dx * junction > max(stemLeftFeet, crossbarLeftFeet) &&
             x + dx * junction < min(stemLeftFeet + attachedWidthFeet, crossbarLeftFeet + lengthFeet)
-        DirectedFan(index, fan.speed, x, y, dx, dy, aim.degrees, wall, outlets[index], crosses)
+        DirectedFan(index, fan.speed, x, y, dx, dy, aim.degrees, wall, outlets[index], crosses, fan.heightFeet)
     }
     return AirCirculation(estimatedVolumeFt3(), outlets, placed)
 }

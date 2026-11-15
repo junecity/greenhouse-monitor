@@ -27,7 +27,7 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
     }
     private fun encodeFans(fans: List<CirculationFan>) = JSONArray().apply {
         fans.forEach { fan ->
-            val row = JSONObject().put("speed", fan.speed.name)
+            val row = JSONObject().put("speed", fan.speed.name).put("heightFeet", fan.heightFeet)
             fan.aim?.let { row.put("x", it.origin.x).put("y", it.origin.y).put("degrees", it.degrees) }
             put(row)
         }
@@ -43,7 +43,8 @@ class AppPreferencesStore(context:Context,private val suffix:String=""){
             if (x in 0.0..1.0 && y in 0.0..1.0 && angle >= 0 && angle < 360)
                 FanAim(NormalizedPosition(x, y), angle) else null
         }
-        CirculationFan(speed, aim)
+        val height = row?.optDouble("heightFeet")?.takeIf { it in 0.0..480.0 } ?: DEFAULT_FAN_HEIGHT_FEET
+        CirculationFan(speed, aim, height)
     }
 
     // Same physical range that the corner editor accepts, including fractional custom plans.

@@ -26,18 +26,20 @@ import studio.junecity.greenhouse.model.DirectedFan
 import studio.junecity.greenhouse.model.FanSpeed
 import kotlin.math.*
 
-private const val FAN_MOUNT_FEET = 5
-
-@Composable internal fun VolumeFanMenu(fans: List<DirectedFan>, visible: Boolean, setVisible: (Boolean) -> Unit) {
+@Composable internal fun VolumeFanMenu(fans: List<DirectedFan>, visible: Boolean, onEdit: ((Int) -> Unit)?, setVisible: (Boolean) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         InsightButton("Fans") { open = true }
         DropdownMenu(open, onDismissRequest = { open = false }) {
-            Text("Modeled airflow · mounted ${FAN_MOUNT_FEET} ft above floor", Modifier.padding(horizontal = 14.dp, vertical = 5.dp))
-            fans.forEach { Text("Fan ${it.index + 1} · ${it.speed.name} · ${it.heading.roundToInt() % 360}°",
+            Text("Modeled airflow", Modifier.padding(horizontal = 14.dp, vertical = 5.dp))
+            fans.forEach { Text("Fan ${it.index + 1} · ${it.speed.name} · ${planNumber(it.heading)}° · ${planNumber(it.heightFeet)} ft high",
                 Modifier.padding(horizontal = 14.dp, vertical = 3.dp),
                 color = if (it.index == 0) DashboardTokens.Amber else DashboardTokens.Blue) }
-            if (fans.size < 2) Text("Place and aim fans in Dashboard → FAN.", Modifier.padding(14.dp))
+            if (onEdit != null) {
+                for (index in 0..1) DropdownMenuItem(text = { Text("Edit Fan ${index + 1}") },
+                    onClick = { open = false; onEdit(index) })
+            }
+            if (fans.size < 2 && onEdit == null) Text("Place and aim fans in Dashboard → FAN.", Modifier.padding(14.dp))
             if (fans.isNotEmpty()) DropdownMenuItem(text = { Text(if (visible) "Hide fans" else "Show fans") },
                 onClick = { setVisible(!visible); open = false })
         }
@@ -69,7 +71,7 @@ private const val FAN_MOUNT_FEET = 5
         val time = seconds.doubleValue
         val radius = 10.dp.toPx()
         for (fan in fans) {
-            val height = FAN_MOUNT_FEET.toDouble()
+            val height = fan.heightFeet
             val origin = project(fan.x, fan.y, height)
             val floor = project(fan.x, fan.y, 0.0)
             val tip = project(fan.x + fan.dx * fan.wallFeet, fan.y + fan.dy * fan.wallFeet, height)
