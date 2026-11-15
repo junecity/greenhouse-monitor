@@ -252,7 +252,8 @@ private val ProEdge=DashboardTokens.PanelEdge
                         fontWeight=FontWeight.ExtraBold, modifier=Modifier.padding(start=if(portrait)0.dp else d(28f)))
                     Spacer(Modifier.weight(1f))
                     val viewer = !state.standalone && state.preferences.cameraMode == CameraMode.ViewerClient
-                    PhoneHealthBadge(if (viewer) state.serverStatus else status, viewer, state.standalone, portrait, now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
+                    val showRemoteHealth = viewer && current != AppScreen.Settings
+                    PhoneHealthBadge(if (showRemoteHealth) state.serverStatus else status, showRemoteHealth, state.standalone || (viewer && current == AppScreen.Settings), portrait, now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
                     if (!portrait) {
                         Box(Modifier.padding(horizontal=d(22f)).width(d(1f)).height(d(42f)).background(ProEdge))
                         Text(now.format(DateTimeFormatter.ofPattern("MMM d, h:mm a")),color=Color.White,fontSize=t(18f))

@@ -1319,6 +1319,70 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun settingsUpdatesOnEmulatedCarrierHandoff() {
+        assumeTrue(android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("sdk_gphone"))
+        val provider = studio.junecity.greenhouse.data.AndroidDeviceStatusProvider(instrumentation.targetContext)
+        assumeTrue(provider.current().wifiConnected)
+        val state = GreenhouseUiState(preferences = AppPreferences(cameraMode = CameraMode.ViewerClient))
+        fun wifi(enabled: Boolean) {
+            val command = if (enabled) "svc wifi enable" else "svc wifi disable"
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(ui.executeShellCommand(command)).use { it.readBytes() }
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                activity.setContent {
+                    val status = androidx.compose.runtime.produceState(provider.current()) {
+                        provider.networkChanges().collect { value = provider.current() }
+                    }
+                    ApprovedFrame(AppScreen.Settings, status.value, java.time.LocalDateTime.now(), {},
+                        Modifier.fillMaxSize(), state = state) { _, _ -> }
+                }
+            }
+            try {
+                find("Wi-Fi")
+                wifi(false)
+                find("Cellular")
+            } finally {
+                wifi(true)
+            }
+            find("Wi-Fi")
+        }
+    }
+
+    @Test fun settingsSeparatesPhoneTransportFromServerHeartbeat() {
+        val state = GreenhouseUiState(preferences = AppPreferences(cameraMode = CameraMode.ViewerClient))
+        val local = androidx.compose.runtime.mutableStateOf(DeviceStatus(90, false, true, "Wi-Fi"))
+        val server = androidx.compose.runtime.mutableStateOf(studio.junecity.greenhouse.cloud.RegisteredDevice(
+            "test-server", "tenant", CloudDeviceRole.GreenhouseServer, online = true,
+            lastSeenAtEpochMs = System.currentTimeMillis()))
+        val verified = androidx.compose.runtime.mutableStateOf(true)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                activity.setContent {
+                    ApprovedFrame(AppScreen.Settings, local.value, java.time.LocalDateTime.now(), {},
+                        Modifier.fillMaxSize(), state = state) { _, text ->
+                        Column { studio.junecity.greenhouse.cloud.ServerConnectionStatus(server.value, verified.value, text) }
+                    }
+                }
+            }
+            find("This phone")
+            find("Wi-Fi")
+            find("Greenhouse server online")
+            scenario.onActivity { local.value = DeviceStatus(90, false, false, "Cellular") }
+            find("Cellular")
+            find("Greenhouse server online")
+            scenario.onActivity { server.value = server.value.copy(online = false) }
+            find("Greenhouse server offline")
+            find("Cellular")
+            scenario.onActivity { server.value = server.value.copy(online = true); verified.value = false }
+            find("Server status unavailable")
+            scenario.onActivity { server.value = server.value.copy(online = false, lastSeenAtEpochMs = null); verified.value = true }
+            find("Waiting for first heartbeat")
+        }
+    }
+
     @Test fun serverReportAndSensorAssignmentsSurviveSync() {
         val context = instrumentation.targetContext
         val store = CurrentSensorStore(context, "_server_health_fixture")

@@ -7,13 +7,30 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import android.os.BatteryManager
 import studio.junecity.greenhouse.model.*
 
 interface DeviceStatusProvider { fun current(): DeviceStatus }
 
 class AndroidDeviceStatusProvider(private val context: Context) : DeviceStatusProvider {
+    fun networkChanges() = callbackFlow<Unit> {
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                trySend(Unit)
+            }
+            override fun onLost(network: Network) { trySend(Unit) }
+        }
+        manager.registerDefaultNetworkCallback(callback)
+        trySend(Unit)
+        awaitClose { manager.unregisterNetworkCallback(callback) }
+    }.conflate()
+
     override fun current(): DeviceStatus {
         val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1

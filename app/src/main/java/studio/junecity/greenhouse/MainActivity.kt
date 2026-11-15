@@ -109,6 +109,11 @@ class MainActivity : ComponentActivity() {
                     status = device.current()
                 }
             }
+            LaunchedEffect(device) {
+                lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    device.networkChanges().collect { status = device.current() }
+                }
+            }
             LaunchedEffect(state.preferences.cameraMode, cloudEnrollmentRevision) {
                 val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
                 if (state.preferences.cameraMode == CameraMode.CameraServer && enrollment == null && cloudConfiguration.getOrNull() == null && cloudConfiguration.isSuccess) {

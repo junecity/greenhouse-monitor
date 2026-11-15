@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.33.1 (74)
+- ApprovedFrame and PhoneHealthBadge label the viewer's local network in Settings. Other monitoring headers retain remote battery, radio and version details. MainActivity observes Android's default-network changes while visible through AndroidDeviceStatusProvider.
+- CloudDeviceManagementPanel shows backend heartbeat status and last contact separately from pairing. A failed inventory refresh invalidates the cached online claim. No backend or schema changes. 158 JVM tests and three API 35 emulator checks passed, including switching Wi-Fi off and back on. Physical carrier and customer server status were not verified.
+
 ## 2026-11-15 · Greenhouse Studio 2.33.0 (73)
 - Display Settings can pin ClimateWidget with or without a paired server. The launcher callback binds the allocated widget to the original enrollment. The Android widget picker still offers individual sensor and metric configuration.
 - ServerHealth snapshots and CloudHeartbeatService report the server build. PhoneHealthBadge warns about a reported mismatch. CloudDeviceManagementPanel compares individual servers with the client, including older numeric version names where the device inventory supplies them.

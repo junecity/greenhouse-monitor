@@ -20,9 +20,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-internal fun PhoneHealthBadge(status: DeviceStatus?, remote: Boolean, standalone: Boolean, compact: Boolean, nowMs: Long) {
-    var details by remember(remote, standalone) { mutableStateOf(false) }
-    val subject = if (standalone) "Phone" else "Server"
+internal fun PhoneHealthBadge(status: DeviceStatus?, remote: Boolean, thisPhone: Boolean, compact: Boolean, nowMs: Long) {
+    var details by remember(remote, thisPhone) { mutableStateOf(false) }
+    val subject = if (thisPhone) "This phone" else "Server"
     val percent = status?.batteryPercent?.let { "$it%" } ?: "—"
     val signal = status?.signalDbm
     // Approximate strength bars. The detail panel always gives the reported dBm.
@@ -64,7 +64,7 @@ internal fun PhoneHealthBadge(status: DeviceStatus?, remote: Boolean, standalone
         Text(if (signal != null && !compact) "$network $signal dBm" else network, color=tint, fontSize=if(compact) 11.sp else 13.sp)
     }
     if (details) AlertDialog(onDismissRequest={details=false}, containerColor=DashboardTokens.Panel,
-        title={Text(if (standalone) "Phone status" else "Greenhouse server", color=Color.White)},
+        title={Text(if (thisPhone) "This phone" else "Greenhouse server", color=Color.White)},
         text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if (status == null) Text("Waiting for a health report from the paired greenhouse phone.", color=DashboardTokens.Muted)
             else {

@@ -205,13 +205,26 @@ fun CloudServerPairingPanel(
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
+    var inventoryVerified by remember(gateway) { mutableStateOf(false) }
+    var refreshError by remember(gateway) { mutableStateOf<String?>(null) }
+
+    suspend fun refreshDevices(api: AuthenticatedCloudGateway) {
+        try {
+            devices = api.devices()
+            inventoryVerified = true
+        } catch (failure: Exception) {
+            inventoryVerified = false
+            throw failure
+        }
+    }
+
     suspend fun createInvitation(
         greenhouseId: String? = null,
         greenhouseName: String? = null,
         replaceServerDeviceId: String? = null
     ) {
         val api = requireNotNull(gateway)
-        devices = api.devices()
+        refreshDevices(api)
         val serverNumber = devices.count { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled } + 1
         invitation = api.createServerInvitation(
             greenhouseId = greenhouseId ?: "greenhouse-${UUID.randomUUID()}",
@@ -235,20 +248,20 @@ fun CloudServerPairingPanel(
         if (gateway == null) return@LaunchedEffect
         busy = true
         runCatching {
-            devices = gateway.devices()
+            refreshDevices(gateway)
             pendingRequest = gateway.pendingServerPairings().firstOrNull()
             val selectedGreenhouse = enrollment?.greenhouseId.orEmpty()
             val knownServer = connectivityServerCandidates(devices, selectedGreenhouse).isNotEmpty()
             if (pendingRequest == null && !knownServer) createInvitation()
-        }.onFailure { message = accountErrorMessage(it) }
+        }.onFailure { refreshError = accountErrorMessage(it) }
         busy = false
         while (true) {
             val invite = invitation
             expiresInSeconds = invite?.let { ((it.expiresAtEpochMs - System.currentTimeMillis()) / 1_000L).coerceAtLeast(0L) } ?: 0L
             runCatching {
-                devices = gateway.devices()
+                refreshDevices(gateway)
                 pendingRequest = gateway.pendingServerPairings().firstOrNull()
-            }.onFailure { message = accountErrorMessage(it) }
+            }.onSuccess { refreshError = null }.onFailure { refreshError = accountErrorMessage(it) }
             if (invite != null && expiresInSeconds == 0L && pendingRequest == null && !approved) {
                 runCatching { createInvitation() }.onFailure { message = accountErrorMessage(it) }
             }
@@ -296,7 +309,7 @@ fun CloudServerPairingPanel(
                             busy = true
                             runCatching {
                                 gateway.setDeviceConnected(server.device.id, false)
-                                devices = gateway.devices(); invitation = null; pendingRequest = null; approved = false; confirmDisconnect = false
+                                refreshDevices(gateway); invitation = null; pendingRequest = null; approved = false; confirmDisconnect = false
                                 message = null
                             }.onFailure { message = accountErrorMessage(it) }
                             busy = false
@@ -315,7 +328,7 @@ fun CloudServerPairingPanel(
                             busy = true
                             runCatching {
                                 gateway.setDeviceEnabled(server.device.id, false)
-                                devices = gateway.devices()
+                                refreshDevices(gateway)
                                 invitation = null; pendingRequest = null; approved = false; confirmRevoke = false
                                 message = null
                             }.onFailure { message = accountErrorMessage(it) }
@@ -347,13 +360,12 @@ fun CloudServerPairingPanel(
                 }
             }
             invitation == null && activeServer != null -> {
-                Text("Greenhouse server connected", color = DashboardTokens.Green, fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
-                Text("Server ${activeServer.device.id.takeLast(8)} · ${if (activeServer.device.online) "Online" else "Authorized"}", color = Color.White, fontSize = t(17f), fontWeight = FontWeight.Bold)
+                ServerConnectionStatus(activeServer.device, inventoryVerified, t)
                 ServerVersionRow(activeServer.device, d, t) {
                     scope.launch {
                         runCatching {
                             gateway.requestServerUpdate(activeServer.device.id)
-                            devices = gateway.devices()
+                            refreshDevices(gateway)
                         }.onFailure { message = accountErrorMessage(it) }
                     }
                 }
@@ -382,7 +394,7 @@ fun CloudServerPairingPanel(
                         busy = true
                         runCatching {
                             gateway.setDeviceConnected(server.device.id, true)
-                            devices = gateway.devices()
+                            refreshDevices(gateway)
                             message = null
                         }.onFailure { message = accountErrorMessage(it) }
                         busy = false
@@ -427,8 +439,26 @@ fun CloudServerPairingPanel(
                 }
             }
         }
-        message?.let { Text(it, color = DashboardTokens.Danger, fontSize = t(15f), lineHeight = t(20f)) }
+        (message ?: refreshError)?.let { Text(it, color = DashboardTokens.Danger, fontSize = t(15f), lineHeight = t(20f)) }
     }
+}
+
+@Composable
+internal fun ServerConnectionStatus(server: RegisteredDevice, verified: Boolean, t: (Float) -> TextUnit) {
+    val title = when {
+        !verified -> "Server status unavailable"
+        server.online -> "Greenhouse server online"
+        server.lastSeenAtEpochMs == null -> "Waiting for first heartbeat"
+        else -> "Greenhouse server offline"
+    }
+    Text(title, color = if (verified && server.online) DashboardTokens.Green else DashboardTokens.Amber,
+        fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
+    val lastSeen = server.lastSeenAtEpochMs?.let {
+        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+            .format(java.util.Date(it))
+    }
+    Text(listOfNotNull("Paired · ${server.id.takeLast(8)}", lastSeen?.let { "Last heartbeat $it" }).joinToString(" · "),
+        color = Color.White, fontSize = t(17f), fontWeight = FontWeight.Bold)
 }
 
 @Composable
