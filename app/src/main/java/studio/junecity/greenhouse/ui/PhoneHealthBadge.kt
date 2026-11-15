@@ -36,12 +36,14 @@ internal fun PhoneHealthBadge(status: DeviceStatus?, remote: Boolean, standalone
         DateTimeFormatter.ofPattern("MMM d, h:mm a").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(it))
     }
     val battery = if (status?.charging == true) "$percent charging" else percent
+    val version = studio.junecity.greenhouse.cloud.compareServerVersion(status?.appVersion, status?.appVersionCode)
+    val versionDiffers = remote && version in setOf(studio.junecity.greenhouse.cloud.ServerVersion.Older, studio.junecity.greenhouse.cloud.ServerVersion.Newer)
     val summary = if (status == null) "$subject · Awaiting report"
         else "$subject · Battery $battery · $network · " + (signal?.let { "$it dBm" } ?: "Signal unavailable") +
             if (old && updated != null) " · Last reported $updated" else ""
     Row(Modifier.fillMaxHeight().clickable { details = true }.semantics { contentDescription = summary },
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(if (old) "$subject · Last seen" else subject, color=DashboardTokens.Muted, fontSize=if(compact) 11.sp else 13.sp)
+        Text(if (versionDiffers) "Version mismatch" else if (old) "$subject · Last seen" else subject, color=DashboardTokens.Muted, fontSize=if(compact) 11.sp else 13.sp)
         if (status != null) {
             Canvas(Modifier.size(17.dp, 10.dp)) {
                 val w = size.width * .84f
@@ -66,6 +68,8 @@ internal fun PhoneHealthBadge(status: DeviceStatus?, remote: Boolean, standalone
         text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if (status == null) Text("Waiting for a health report from the paired greenhouse phone.", color=DashboardTokens.Muted)
             else {
+                if (remote) Text("Client ${studio.junecity.greenhouse.BuildConfig.VERSION_NAME} · Server ${status.appVersion ?: "version unavailable"}",
+                    color = if (versionDiffers) DashboardTokens.Amber else Color.White)
                 Text("Battery · $battery", color=Color.White)
                 Text("Connection · $network", color=Color.White)
                 Text("Signal · " + (signal?.let { "$it dBm" } ?: "Unavailable"), color=Color.White)

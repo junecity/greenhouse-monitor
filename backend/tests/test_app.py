@@ -379,6 +379,48 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual("SERVER_INVITATION", fake.puts[0]["Item"]["sk"])
         self.assertEqual(app.SERVER_PAIRING_SECONDS, fake.puts[0]["Item"]["expiresAt"] - fake.puts[0]["Item"]["createdAt"])
 
+    def test_scoped_update_requests_delivered_only_to_matching_older_server(self):
+        owner = {"accountId": "account-existing", "tenantId": "tenant-existing"}
+        client = "client-12345678"
+        servers = ["server-12345678", "server-23456789"]
+        records = {("USER#cognito-subject", "ACCOUNT"): owner,
+                   (f"DEVICE#{client}", "METADATA"): {**owner, "enabled": True, "role": "VIEWER_CLIENT"}}
+        for server in servers:
+            records[(f"DEVICE#{server}", "METADATA")] = {
+                **owner, "role": "GREENHOUSE_SERVER", "enabled": True, "deviceId": server,
+                "appVersion": "2.33.0", "appVersionCode": 73}
+        fake = FakeTable(records)
+        app.table = fake
+        def request():
+            return app.handler(event(f"/v1/devices/{servers[0]}/update-request", device_id=client,
+                                     body={"versionCode": 74}), None)["statusCode"]
+        def beat(server, build):
+            return app.handler(event(f"/v1/devices/{server}/heartbeat", device_id=server,
+                                     body={"appVersionCode": build, "sensorConnectionHealthy": True}), None)
+        self.assertEqual(202, request())
+        self.assertEqual(f"DEVICE#{servers[0]}", fake.updates[-1]["Key"]["pk"])
+        server = records[(f"DEVICE#{servers[0]}", "METADATA")]
+        values = fake.updates[-1]["ExpressionAttributeValues"]
+        server.update(requestedUpdateCode=values[":target"], updateUntil=values[":expires"])
+        self.assertEqual({"requestedUpdateCode": 74}, json.loads(beat(servers[0], 73)["body"]))
+        self.assertEqual(204, beat(servers[1], 73)["statusCode"])
+        self.assertEqual(204, beat(servers[0], 74)["statusCode"])
+        fake.query_items = [records[(f"DEVICE#{s}", "METADATA")] for s in servers]
+        rows = json.loads(app.handler(event("/v1/devices", method="GET", device_id=client), None)["body"])["devices"]
+        self.assertEqual([74, None], [row["requestedUpdateCode"] for row in rows])
+        self.assertEqual([73, 73], [row["appVersionCode"] for row in rows])
+        server["updateUntil"] = 1
+        self.assertEqual(204, beat(servers[0], 73)["statusCode"])
+        server["communicationSuspended"] = True
+        self.assertEqual(403, request())
+        server.update(communicationSuspended=False, enabled=False)
+        self.assertEqual(403, request())
+        server.update(enabled=True, appVersionCode=72)
+        self.assertEqual(409, request())
+        server.update(accountId="different-account", appVersionCode=73)
+        self.assertEqual(403, request())
+        self.assertEqual(1, len(fake.updates))
+
     def test_disconnect_preserves_credentials_while_revoke_invalidates_them(self):
         fake = FakeTable({
             ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},

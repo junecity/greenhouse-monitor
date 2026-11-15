@@ -21,7 +21,8 @@ data class RegisteredDevice(
     val online: Boolean = false,
     val lastSeenAtEpochMs: Long? = null,
     val communicationSuspended: Boolean = false,
-    val clientRole: String? = null
+    val clientRole: String? = null,
+    val appVersion: String? = null, val appVersionCode: Int? = null, val requestedUpdateCode: Int? = null
 )
 
 /** An account-level client can select among several greenhouse servers. */
@@ -181,6 +182,6 @@ interface GreenhouseCloudGateway {
     suspend fun entitlement(): EntitlementSnapshot
     suspend fun createRemoteStreamingSession(greenhouseId: String, viewerDeviceId: String): RemoteStreamingSession
     suspend fun endRemoteStreamingSession(sessionId: String)
-    suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat)
+    suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): Int?
 }
 

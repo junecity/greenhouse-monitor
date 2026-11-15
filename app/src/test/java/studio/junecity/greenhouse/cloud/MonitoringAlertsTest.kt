@@ -67,7 +67,7 @@ class MonitoringAlertsTest {
 
     private class RecordingGateway : GreenhouseCloudGateway {
         var heartbeat: GreenhouseHeartbeat? = null
-        override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat) { this.heartbeat = heartbeat }
+        override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): Int? { this.heartbeat = heartbeat; return null }
         override suspend fun createPairingChallenge(serverDeviceId: String) = error("unused")
         override suspend fun claimPairingChallenge(displayCode: String, viewerDeviceId: String) = error("unused")
         override suspend fun entitlement() = error("unused")

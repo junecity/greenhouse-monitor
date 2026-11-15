@@ -355,16 +355,63 @@ def list_devices(principal: Principal):
         if item.get("tenantId") != principal.tenant_id:
             continue
         primary = table.get_item(Key={"pk": f"DEVICE#{item['deviceId']}", "sk": "METADATA"}, ConsistentRead=True).get("Item", item)
+        if primary.get("tenantId") != principal.tenant_id or primary.get("accountId") != principal.account_id:
+            continue
         last_heartbeat = int(primary.get("lastHeartbeat", 0))
         devices.append({
             "id": item["deviceId"], "tenantId": item["tenantId"], "role": item["role"],
             "enabled": bool(primary.get("enabled")), "communicationSuspended": bool(primary.get("communicationSuspended")),
             "clientRole": primary.get("clientRole"), "greenhouseId": item.get("greenhouseId"),
+            "appVersion": primary.get("appVersion"), "appVersionCode": primary.get("appVersionCode"),
+            "requestedUpdateCode": pending_update(primary, now, primary.get("appVersionCode")),
             "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
             "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
             "online": bool(primary.get("enabled")) and not primary.get("communicationSuspended") and last_heartbeat > 0 and now - last_heartbeat <= 180,
         })
     return response(200, {"devices": sorted(devices, key=lambda value: value["createdAtEpochMs"])})
+
+
+# Builds before 73 do not understand the heartbeat update notice.
+FIRST_UPDATE_RECEIVER = 73
+
+
+def pending_update(device, now, installed):
+    target = int(device.get("requestedUpdateCode", 0))
+    if (installed and FIRST_UPDATE_RECEIVER <= installed < target
+            and device.get("enabled") and not device.get("communicationSuspended")
+            and device.get("updateUntil", 0) > now):
+        return target
+    return None
+
+
+def request_server_update(event, principal: Principal, device_id: str):
+    require_device_id(device_id)
+    require_client_requester(principal)
+    server = get_owned("DEVICE", device_id, principal.tenant_id)
+    if server.get("accountId") != principal.account_id or server.get("role") != "GREENHOUSE_SERVER":
+        raise AccessDenied("not_found")
+    if not server.get("enabled") or server.get("communicationSuspended"):
+        raise AccessDenied("device_disabled")
+    body = json.loads(event.get("body") or "{}")
+    target = body.get("versionCode") if isinstance(body, dict) else None
+    if type(target) is not int or not FIRST_UPDATE_RECEIVER < target <= 2_100_000_000:
+        return response(400, {"error": "invalid_update_version"})
+    installed = int(server.get("appVersionCode", 0))
+    if not FIRST_UPDATE_RECEIVER <= installed < target:
+        return response(409, {"error": "server_not_eligible"})
+    now = int(datetime.now(timezone.utc).timestamp())
+    table.update_item(
+        Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
+        UpdateExpression="SET requestedUpdateCode=:target, updateUntil=:expires",
+        ConditionExpression=("tenantId=:tenant AND accountId=:account AND #role=:server AND enabled=:yes "
+                             "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:no) "
+                             "AND appVersionCode=:installed"),
+        ExpressionAttributeNames={"#role": "role"},
+        ExpressionAttributeValues={":target": target, ":expires": now + 7 * 86400,
+                                   ":tenant": principal.tenant_id, ":account": principal.account_id,
+                                   ":server": "GREENHOUSE_SERVER", ":yes": True, ":no": False, ":installed": installed},
+    )
+    return response(202, {"requestedUpdateCode": target})
 
 
 def set_device_state(event, principal: Principal, device_id: str):
@@ -1036,6 +1083,13 @@ def heartbeat(event, principal: Principal, device_id: str):
         ":adminEntity": "DEVICE",
         ":adminSort": f"{int(device.get('createdAt', now)):020d}#{device_id}",
     }
+    installed = body.get("appVersionCode")
+    if type(installed) is int and 0 < installed <= 2_100_000_000:
+        set_parts.append("appVersionCode=:build")
+        expression_values[":build"] = installed
+    else:
+        installed = None
+        remove_parts.append("appVersionCode")
     if app_version:
         set_parts.append("appVersion=:appVersion")
         expression_values[":appVersion"] = app_version
@@ -1110,7 +1164,8 @@ def heartbeat(event, principal: Principal, device_id: str):
         "ConditionExpression": "attribute_not_exists(pk)",
     }} for alert in alert_records)
     table.meta.client.transact_write_items(TransactItems=transaction)
-    return response(204, {})
+    target = pending_update(device, now, installed)
+    return response(200, {"requestedUpdateCode": target}) if target else response(204, {})
 
 
 def handler(event, _context):
@@ -1150,6 +1205,8 @@ def handler(event, _context):
             return list_devices(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "state":
             return set_device_state(event, principal, parts[2])
+        if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "update-request":
+            return request_server_update(event, principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "connection":
             return set_device_connection(event, principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "pairing-challenges":

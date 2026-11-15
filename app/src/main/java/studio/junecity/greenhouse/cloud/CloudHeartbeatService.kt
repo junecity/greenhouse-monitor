@@ -109,8 +109,9 @@ class CloudHeartbeatService : Service() {
                     healthStore.save(sensors.filter { it.isFresh() }, limits.lowTemperatureF, limits.highTemperatureF)
                 }
                 val health = healthStore.load()
-                val device = AndroidDeviceStatusProvider(context).current()
-                HeartbeatReporter(gateway).report(MonitoringHealth(
+                val device = AndroidDeviceStatusProvider(context).current().copy(
+                    appVersion = BuildConfig.VERSION_NAME, appVersionCode = BuildConfig.VERSION_CODE)
+                val requestedUpdate = HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature,
                     batteryPercent=device.batteryPercent, charging=device.charging,
                     networkType=if (device.wifiConnected) "WIFI" else device.network.uppercase(),
@@ -125,6 +126,7 @@ class CloudHeartbeatService : Service() {
                     lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
                 ))
                 ServerHeartbeatReceipt.record(enrollment.deviceId)
+                runCatching { ServerUpdateNotice.sync(context, enrollment.deviceId, requestedUpdate) }
                 // A slow backup must never block the next heartbeat or overlap another upload.
                 if (backup?.isActive != true) {
                     backup?.join()

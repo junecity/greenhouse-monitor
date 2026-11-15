@@ -70,7 +70,7 @@ class HeartbeatReporter(
     private val gateway: GreenhouseCloudGateway,
     private val nowEpochMs: () -> Long = System::currentTimeMillis
 ) {
-    suspend fun report(health: MonitoringHealth) = gateway.reportHeartbeat(
+    suspend fun report(health: MonitoringHealth): Int? = gateway.reportHeartbeat(
         GreenhouseHeartbeat(
             serverDeviceId = health.serverDeviceId,
             greenhouseId = health.greenhouseId,

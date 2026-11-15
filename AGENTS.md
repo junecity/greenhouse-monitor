@@ -1,4 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
+
+## 2026-11-15 · Greenhouse Studio 2.33.0 (73)
+- Display Settings can pin ClimateWidget with or without a paired server. The launcher callback binds the allocated widget to the original enrollment. The Android widget picker still offers individual sensor and metric configuration.
+- ServerHealth snapshots and CloudHeartbeatService report the server build. PhoneHealthBadge warns about a reported mismatch. CloudDeviceManagementPanel compares individual servers with the client, including older numeric version names where the device inventory supplies them.
+- backend/src/app.py accepts a scoped update request per enabled server. A heartbeat from build 73 or later can deliver the request for seven days. ServerUpdateNotice opens the normal release page for user-approved installation and deduplicates notices. Older servers require a manual first upgrade. No database migration.
+- Passed 158 Android JVM tests, 81 mocked backend tests and four API 35 emulator cases. Lint reported zero errors. The AWS session expired, so the device-directory API changes and update requests await deployment to the dedicated greenhouse stack. Live delivery across physical phones remains unverified. APK published to the existing Drive file.
 ## 2026-11-15 · Greenhouse Studio 2.32.1 (72)
 - WidgetSettingsActivity allows enrolled clients to place a widget before server data arrives. The default follows the current greenhouse. ClimateWidget keeps per-enrollment display choices across standalone/paired transitions, applies source-specific house and sensor choices only within the original source, and waits for a matching snapshot before showing paired readings.
 - EnvironmentalRadioTest exercises placement, transitions, cached-data isolation and sign-out in a real API 35 app-widget host. Both widget tests and 157 JVM tests passed. Lint reported zero errors. Physical launchers and live two-phone delivery remain unverified.

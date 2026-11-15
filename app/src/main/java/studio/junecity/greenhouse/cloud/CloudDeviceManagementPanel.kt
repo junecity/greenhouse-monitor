@@ -142,6 +142,9 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
                             DeviceAction("Pair Again", true, d, t) { perform { invitation = gateway.createServerInvitation(requireNotNull(item.device.greenhouseId), "Greenhouse ${index + 1}", item.device.id) } }
                         }
                     }
+                    if (item.device.enabled) ServerVersionRow(item.device, d, t) {
+                        perform { gateway.requestServerUpdate(item.device.id) }
+                    }
                 }
                 DeviceAction("Add Server", true, d, t, Modifier.fillMaxWidth()) {
                     perform {
@@ -346,6 +349,14 @@ fun CloudServerPairingPanel(
             invitation == null && activeServer != null -> {
                 Text("Greenhouse server connected", color = DashboardTokens.Green, fontSize = t(22f), fontWeight = FontWeight.ExtraBold)
                 Text("Server ${activeServer.device.id.takeLast(8)} · ${if (activeServer.device.online) "Online" else "Authorized"}", color = Color.White, fontSize = t(17f), fontWeight = FontWeight.Bold)
+                ServerVersionRow(activeServer.device, d, t) {
+                    scope.launch {
+                        runCatching {
+                            gateway.requestServerUpdate(activeServer.device.id)
+                            devices = gateway.devices()
+                        }.onFailure { message = accountErrorMessage(it) }
+                    }
+                }
                 Text("Disconnect temporarily, revoke its credentials, or replace it without losing greenhouse settings.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(d(10f))) {
                     DeviceAction("Replace Server", false, d, t, Modifier.fillMaxWidth()) {
@@ -499,4 +510,28 @@ private fun DeviceAction(
             contentPadding = PaddingValues(horizontal = d(18f), vertical = d(10f))
         ) { labelText(Color.White) }
     }
+}
+
+@Composable
+private fun ServerVersionRow(device: RegisteredDevice, d: (Float) -> Dp, t: (Float) -> TextUnit, request: () -> Unit) {
+    val client = studio.junecity.greenhouse.BuildConfig.VERSION_NAME
+    val clientCode = studio.junecity.greenhouse.BuildConfig.VERSION_CODE
+    val comparison = compareServerVersion(device.appVersion, device.appVersionCode)
+    val detail = when (comparison) {
+        ServerVersion.Unknown -> "Awaiting server version"
+        ServerVersion.Same -> "Versions match"
+        ServerVersion.Newer -> "Update this client"
+        ServerVersion.Older -> when {
+            device.requestedUpdateCode != null && device.requestedUpdateCode >= clientCode -> "Update requested · approve on server phone"
+            device.appVersionCode == null || device.appVersionCode < 73 -> "Install the update on this server phone"
+            device.communicationSuspended -> "Reconnect to request an update"
+            else -> "Server update available"
+        }
+    }
+    Text("Client $client  ·  Server ${device.appVersion ?: "—"}\n$detail",
+        color = if (comparison == ServerVersion.Older || comparison == ServerVersion.Newer) DashboardTokens.Amber else DashboardTokens.Muted,
+        fontSize = t(15f))
+    if (comparison == ServerVersion.Older && (device.appVersionCode ?: 0) >= 73 &&
+        (device.requestedUpdateCode ?: 0) < clientCode && !device.communicationSuspended)
+        DeviceAction("Request server update", false, d, t, Modifier.fillMaxWidth(), onClick = request)
 }

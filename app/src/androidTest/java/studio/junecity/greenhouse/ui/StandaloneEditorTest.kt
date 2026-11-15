@@ -1324,7 +1324,7 @@ class StandaloneEditorTest {
         val store = CurrentSensorStore(context, "_server_health_fixture")
         val viewer = CurrentSensorStore(context, "_viewer_health_fixture")
         val reportedAt = System.currentTimeMillis()
-        val server = DeviceStatus(42, true, true, "Wi-Fi", -67, reportedAt)
+        val server = DeviceStatus(42, true, true, "Wi-Fi", -67, reportedAt, "2.32.1", 72)
         val ids = listOf("d", "a", "b", "c", "g")
         val sensors = ids.map { GoveeSensor(it, "H5179", "Sensor $it", 70.0, 75.0, true, reportedAt) }
         try {
@@ -1351,6 +1351,7 @@ class StandaloneEditorTest {
                     }
                 }
                 find("42%")
+                find("Version mismatch")
                 find("Wi-Fi -67 dBm")
                 screenshot("server-battery-signal")
                 click("Server · Battery 42% charging · Wi-Fi · -67 dBm")

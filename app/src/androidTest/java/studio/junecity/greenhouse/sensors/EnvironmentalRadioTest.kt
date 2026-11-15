@@ -150,6 +150,14 @@ class EnvironmentalRadioTest {
             instrumentation.uiAutomation.adoptShellPermissionIdentity(android.Manifest.permission.BIND_APPWIDGET)
             try { assertTrue(manager.bindAppWidgetIdIfAllowed(id, ComponentName(context, ClimateWidget::class.java))) }
             finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
+            // Launchers can pin without opening the configuration Activity.
+            val callback = Intent("studio.junecity.greenhouse.widget.PINNED")
+                .setData(android.net.Uri.Builder().scheme("greenhouse-widget").authority("pin")
+                    .appendQueryParameter("scope", owner.widgetScope()).build())
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            ClimateWidget().onReceive(context, callback)
+            assertWidget(R.id.widget_time, "Waiting for server readings")
+            assertEquals(owner.widgetScope(), ClimateWidget.settings(context, id).getString("scope", null))
             val intent = Intent(context, WidgetSettingsActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             ActivityScenario.launch<WidgetSettingsActivity>(intent).use {
                 compose.onNodeWithText("Current greenhouse").assertExists()

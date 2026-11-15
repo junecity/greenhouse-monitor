@@ -46,7 +46,38 @@ class ClimateWidget : AppWidgetProvider() {
     override fun onDeleted(context: Context, ids: IntArray) {
         ids.forEach { context.deleteSharedPreferences("climate_widget_$it") }
     }
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != PINNED) {
+            super.onReceive(context, intent)
+            return
+        }
+        val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        val owner = SecureSettingsStore(context).cloudEnrollment() ?: return
+        if (!owner.ownsWidget(intent.data?.getQueryParameter("scope"))) return
+        val manager = AppWidgetManager.getInstance(context)
+        if (manager.getAppWidgetInfo(id)?.provider != ComponentName(context, ClimateWidget::class.java)) return
+        val options = settings(context, id)
+        if (!options.contains("scope")) options.edit().putString("scope", owner.widgetScope()).apply()
+        render(context, id)
+    }
+
     companion object {
+        private const val PINNED = "studio.junecity.greenhouse.widget.PINNED"
+
+        internal fun requestPin(context: Context): Boolean {
+            val owner = SecureSettingsStore(context).cloudEnrollment() ?: return false
+            val manager = AppWidgetManager.getInstance(context)
+            if (!manager.isRequestPinAppWidgetSupported) return false
+            val component = ComponentName(context, ClimateWidget::class.java)
+            val data = android.net.Uri.Builder().scheme("greenhouse-widget").authority("pin")
+                .appendPath(java.util.UUID.randomUUID().toString()).appendQueryParameter("scope", owner.widgetScope()).build()
+            val intent = Intent(PINNED, data).setComponent(component)
+            // The launcher supplies the allocated widget ID in the success callback.
+            val mutable = if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            val success = PendingIntent.getBroadcast(context, 0, intent, mutable or PendingIntent.FLAG_ONE_SHOT)
+            return manager.requestPinAppWidget(component, null, success)
+        }
+
         internal fun settings(context: Context, id: Int) = context.getSharedPreferences("climate_widget_$id", Context.MODE_PRIVATE)
         internal fun viewerReady(context: Context, owner: CloudEnrollment): Boolean =
             owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient() ||

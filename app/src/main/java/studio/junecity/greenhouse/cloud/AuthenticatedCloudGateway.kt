@@ -49,6 +49,11 @@ class AuthenticatedCloudGateway(
         request("POST", "/v1/devices", JSONObject().put("deviceId", config.deviceId).put("role", "VIEWER_CLIENT"))
     )
 
+    suspend fun requestServerUpdate(deviceId: String) {
+        request("POST", "/v1/devices/${segment(deviceId)}/update-request",
+            JSONObject().put("versionCode", studio.junecity.greenhouse.BuildConfig.VERSION_CODE))
+    }
+
     suspend fun currentDevice(): RegisteredDevice = CloudJsonCodec.device(request("GET", "/v1/devices/current"))
 
     suspend fun devices(): List<AccountDevice> {
@@ -146,8 +151,8 @@ class AuthenticatedCloudGateway(
         requestOrNull("DELETE", "/v1/stream-sessions/${segment(sessionId)}")
     }
 
-    override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat) {
-        requestOrNull(
+    override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): Int? {
+        return requestOrNull(
             "POST", "/v1/devices/${segment(heartbeat.serverDeviceId)}/heartbeat",
             JSONObject().put("greenhouseId", heartbeat.greenhouseId)
                 .put("recordedAtEpochMs", heartbeat.recordedAtEpochMs)
@@ -163,7 +168,8 @@ class AuthenticatedCloudGateway(
                 .put("lastSensorSyncEpochMs", heartbeat.lastSensorSyncEpochMs)
                 .put("lastDataUploadEpochMs", heartbeat.lastDataUploadEpochMs)
                 .put("appVersion", heartbeat.appVersion)
-        )
+                .put("appVersionCode", studio.junecity.greenhouse.BuildConfig.VERSION_CODE)
+        )?.optInt("requestedUpdateCode")?.takeIf { it > 0 }
     }
 
     suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
@@ -314,7 +320,9 @@ object CloudJsonCodec {
         CloudDeviceRole.valueOf(if (json.getString("role") == "GREENHOUSE_SERVER") "GreenhouseServer" else "ViewerClient"),
         json.optBoolean("enabled", true), json.optNullableString("greenhouseId"),
         json.optBoolean("online", false), json.optLongOrNull("lastSeenAtEpochMs"),
-        json.optBoolean("communicationSuspended", false), json.optNullableString("clientRole")
+        json.optBoolean("communicationSuspended", false), json.optNullableString("clientRole"),
+        json.optNullableString("appVersion"), json.optInt("appVersionCode").takeIf { it > 0 },
+        json.optInt("requestedUpdateCode").takeIf { it > 0 }
     )
 
     fun entitlement(json: JSONObject): EntitlementSnapshot {
