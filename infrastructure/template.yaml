@@ -3,6 +3,14 @@ Transform: AWS::Serverless-2016-10-31
 Description: Dedicated Greenhouse Monitor backend foundation. Not deployed by this repository.
 
 Parameters:
+  CameraArchiveSalesMode:
+    Type: String
+    Default: LicenseTest
+    AllowedValues: [LicenseTest, Production]
+  EnableCameraArchive:
+    Type: String
+    Default: "false"
+    AllowedValues: ["false", "true"]
   EnvironmentName:
     Type: String
     Default: dev
@@ -29,6 +37,7 @@ Parameters:
     Default: studio.junecity.greenhouse
 
 Conditions:
+  CameraArchiveEnabled: !Equals [!Ref EnableCameraArchive, "true"]
   HasGooglePlaySecret: !Not [!Equals [!Ref GooglePlayCredentialsSecretArn, '']]
 
 Globals:
@@ -48,6 +57,42 @@ Globals:
         OFFLINE_TIMEOUT_SECONDS: !Ref OfflineTimeoutSeconds
 
 Resources:
+  CameraArchiveBucket:
+    Type: AWS::S3::Bucket
+    Condition: CameraArchiveEnabled
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireCameraClips
+            Prefix: movies/
+            Status: Enabled
+            ExpirationInDays: 7
+  CameraArchiveTransportPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CameraArchiveEnabled
+    Properties:
+      Bucket: !Ref CameraArchiveBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt CameraArchiveBucket.Arn, !Sub '${CameraArchiveBucket.Arn}/*']
+            Condition:
+              Bool: {aws:SecureTransport: "false"}
   UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -199,11 +244,23 @@ Resources:
       Environment:
         Variables:
           GOOGLE_PLAY_CREDENTIALS_SECRET_ID: !Ref GooglePlayCredentialsSecretArn
+          CAMERA_ARCHIVE_SALES_MODE: !Ref CameraArchiveSalesMode
+          CAMERA_ARCHIVE_BUCKET: !If [CameraArchiveEnabled, !Ref CameraArchiveBucket, ""]
           PLAY_TEST_ACCOUNT_IDS: !Ref PlayTestAccountIds
           GOOGLE_PLAY_PACKAGE_NAME: !Ref GooglePlayPackageName
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable
+        - !If
+          - CameraArchiveEnabled
+          - Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt CameraArchiveBucket.Arn
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+                Resource: !Sub '${CameraArchiveBucket.Arn}/movies/*'
+          - !Ref AWS::NoValue
         # SAM's DynamoDBCrudPolicy does not include transactional writes.
         # Account bootstrap, device registration, pairing, revocation, and
         # incident persistence all depend on atomic multi-item operations.

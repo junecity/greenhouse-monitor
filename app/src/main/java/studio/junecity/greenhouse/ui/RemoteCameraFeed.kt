@@ -71,6 +71,7 @@ private fun LegacyRemoteCameraFeed(
     onStatus: (Boolean, String?) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
+    val samples = LocalCameraSamples.current
     val pairing = remember { CameraPairingStore(context).load() }
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var preferredHost by remember { mutableStateOf(pairing?.localHost) }
@@ -90,6 +91,7 @@ private fun LegacyRemoteCameraFeed(
             val result = withContext(Dispatchers.IO) { fetchFrame(pairing, preferredHost) }
             result.onSuccess {
                 bitmap = it.bitmap
+                samples?.offer { it.bitmap }
                 preferredHost = it.host
                 connected = true
                 message = "Encrypted live view"

@@ -6,6 +6,8 @@ import androidx.compose.runtime.*
 import studio.junecity.greenhouse.cloud.*
 import studio.junecity.greenhouse.ui.VideoSubscriptionDialog
 import studio.junecity.greenhouse.ui.VideoPurchaseSheet
+import studio.junecity.greenhouse.ui.CameraSamples
+import studio.junecity.greenhouse.ui.LocalCameraSamples
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
@@ -42,6 +44,7 @@ class TimedLiveViewInstrumentedTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ReopenCameraChannel(context).use { fixture ->
             val liveViews = AtomicInteger()
+            val samples = CameraSamples()
             val deviceReply = JSONObject("""{"id":"viewer-device","role":"VIEWER_CLIENT","enabled":true,"greenhouseId":null}""")
             // The old Android decoder treated this response as a greenhouse named "null".
             assertEquals("null", deviceReply.optString("greenhouseId"))
@@ -55,18 +58,19 @@ class TimedLiveViewInstrumentedTest {
             fun openClient(house: String) = ActivityScenario.launch(MainActivity::class.java).also { scenario ->
                 scenario.onActivity { activity ->
                     activity.setContent {
-                        TimedLiveView(Modifier.fillMaxSize(), { it.sp }, { live, _ ->
+                        CompositionLocalProvider(LocalCameraSamples provides samples) { TimedLiveView(Modifier.fillMaxSize(), { it.sp }, { live, _ ->
                             if (live) liveViews.incrementAndGet()
                         }) { report ->
                             CloudWebRtcViewer(fixture.enrollment.copy(greenhouseId = house), fixture.api, { it.dp }, { it.sp },
                                 Modifier.fillMaxSize(), report, fixture::signalingTransport)
-                        }
+                        } }
                     }
                 }
             }
             openClient(fixture.enrollment.greenhouseId).use {
                 click("Live View · 15s")
                 waitFor(25_000, "First viewer received no decoded frame") { liveViews.get() == 1 }
+                assertTrue("Decoded viewer image unavailable", runBlocking { samples.next() } != null)
             }
             assertTrue("First view did not release its session", fixture.firstDelete.await(5, java.util.concurrent.TimeUnit.SECONDS))
             openClient(restoredHouse).use {
@@ -157,7 +161,7 @@ class TimedLiveViewInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 VideoPurchaseSheet("Renews monthly", "USD 2.49", false, false, true,
-                    { actions.add("later") }, { actions.add("restore") }, { actions.add("buy") })
+                    { actions.add("later") }, { actions.add("restore") }, onBuy = { actions.add("buy") })
             } }
             waitFor { find("USD 2.49 / month") != null }
             click("Subscribe")
@@ -168,7 +172,7 @@ class TimedLiveViewInstrumentedTest {
     }
 
     private fun click(text: String) {
-        waitFor {
+        waitFor(12000, "Could not tap $text") {
             var node = find(text)
             while (node != null && !node.isClickable) node = node.parent
             node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true

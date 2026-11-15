@@ -13,6 +13,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
+from camera_archive import archive
 from alerts import new_alert
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
@@ -861,14 +862,18 @@ def end_stream_session(principal: Principal, session_id: str):
     return response(204, {})
 
 
+def play_catalog(account_id, product_id):
+    return {
+        "productId": product_id, "basePlanId": "monthly",
+        "accountBinding": hashlib.sha256(("greenhouse-play:" + account_id).encode()).hexdigest(),
+    }
+
+
 def play_test_checkout(account_id: str) -> dict | None:
     testers = os.environ.get("PLAY_TEST_ACCOUNT_IDS", "").split(",")
     if account_id not in testers or not os.environ.get("GOOGLE_PLAY_CREDENTIALS_SECRET_ID"):
         return None
-    return {
-        "productId": "premium_monthly", "basePlanId": "monthly",
-        "accountBinding": hashlib.sha256(("greenhouse-play:" + account_id).encode()).hexdigest(),
-    }
+    return play_catalog(account_id, "premium_monthly")
 
 
 def entitlement(principal: Principal):
@@ -1129,6 +1134,9 @@ def handler(event, _context):
             return register_client_device(event, principal) if role == "VIEWER_CLIENT" else register_server_device(event, principal)
         if method == "GET" and parts == ["v1", "devices", "current"]:
             return current_device(principal)
+        if len(parts) == 5 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "recordings":
+            return archive(event, principal, require_resource_id(parts[2]), parts[4], method,
+                           table=table, get_owned=get_owned, checkout_for=play_test_checkout, catalog_for=play_catalog, response=response)
         if device_authenticated and not (
             (method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "stream-sessions") or
             (method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat") or

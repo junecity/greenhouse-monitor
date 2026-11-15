@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.cloud
 
+import okhttp3.RequestBody.Companion.asRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -89,6 +90,27 @@ class AuthenticatedCloudGateway(
     override suspend fun claimPairingChallenge(displayCode: String, viewerDeviceId: String) = CloudJsonCodec.device(
         request("POST", "/v1/pairing-challenges/claim", JSONObject().put("pairingCode", displayCode).put("viewerDeviceId", viewerDeviceId))
     )
+
+    suspend fun archiveRequest(house: String, action: String, body: JSONObject? = null): JSONObject =
+        request(if (body == null) "GET" else "POST", "/v1/greenhouses/${segment(house)}/recordings/${segment(action)}", body)
+
+    suspend fun uploadMovie(house: String, file: java.io.File) = withContext(Dispatchers.IO) {
+        val digest = java.security.MessageDigest.getInstance("MD5")
+        file.inputStream().use { input ->
+            val bytes = ByteArray(65536)
+            while (true) {
+                val count = input.read(bytes)
+                if (count < 0) break
+                digest.update(bytes, 0, count)
+            }
+        }
+        val md5 = android.util.Base64.encodeToString(digest.digest(), android.util.Base64.NO_WRAP)
+        val permit = archiveRequest(house, "upload", JSONObject().put("bytes", file.length()).put("md5", md5))
+        val upload = Request.Builder().url(permit.getString("url")).header("Content-MD5", md5)
+            .put(file.asRequestBody("video/mp4".toMediaType())).build()
+        check(upload.url.isHttps)
+        client.newCall(upload).execute().use { check(it.isSuccessful) { "Upload failed. Retry in Playback." } }
+    }
 
     suspend fun videoCheckout(): VideoCheckout {
         val result = request("GET", "/v1/entitlement")

@@ -22,13 +22,17 @@ data class CameraStreamProfile(val width:Int,val height:Int,val framesPerSecond:
 object CameraFrameHub {
     private val latest = AtomicReference<ByteArray?>(null)
     fun current(): ByteArray? = latest.get()
-    fun analyzer(profile:CameraStreamProfile): ImageAnalysis.Analyzer {
+    fun analyzer(profile:CameraStreamProfile, onJpeg: (ByteArray, Int) -> Unit = { _, _ -> }): ImageAnalysis.Analyzer {
         val lastFrame=AtomicLong(0)
         return ImageAnalysis.Analyzer { image ->
             try {
                 val now=System.nanoTime()
                 val previous=lastFrame.get()
-                if(now-previous>=profile.minimumFrameIntervalNs&&lastFrame.compareAndSet(previous,now))latest.set(image.toJpeg(profile))
+                if(now-previous>=profile.minimumFrameIntervalNs&&lastFrame.compareAndSet(previous,now)){
+                    val jpeg = image.toJpeg(profile)
+                    latest.set(jpeg)
+                    onJpeg(jpeg, image.imageInfo.rotationDegrees)
+                }
             } finally { image.close() }
         }
     }

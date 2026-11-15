@@ -16,7 +16,7 @@ import studio.junecity.greenhouse.cloud.PlayCatalog
 
 /** The camera owner remains outside the dialog. Returning from Play never starts a stream. */
 @Composable
-internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, onDismiss: () -> Unit) {
+internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHouse: String? = null, onDismiss: () -> Unit) {
     val activity = LocalActivity.current ?: return
     val scope = rememberCoroutineScope()
     var catalog by remember { mutableStateOf<PlayCatalog?>(null) }
@@ -30,7 +30,12 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, onDismiss: 
 
     LaunchedEffect(api) {
         try {
-            val access = api.videoCheckout()
+            val access = if (archiveHouse == null) api.videoCheckout() else {
+                val offer = api.archiveRequest(archiveHouse, "access").optJSONObject("checkout")
+                studio.junecity.greenhouse.cloud.VideoCheckout(false, offer?.let {
+                    PlayCatalog(it.getString("productId"), it.getString("basePlanId"), it.getString("accountBinding"))
+                })
+            }
             catalog = access.catalog.takeUnless { access.disabled }
             if (catalog == null) {
                 message = if (access.disabled) "Camera access is disabled for this account."
@@ -58,9 +63,10 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, onDismiss: 
                     message = "This purchase belongs to a different greenhouse account."
                     return
                 }
-                api.verifyVideoPurchase(plan.productId, purchase.purchaseToken)
+                if (archiveHouse == null) api.verifyVideoPurchase(plan.productId, purchase.purchaseToken)
+                else check(api.archiveRequest(archiveHouse, "verify", org.json.JSONObject().put("purchaseToken", purchase.purchaseToken)).getBoolean("active"))
                 verified = true
-                message = "Purchase verified. Close to start Live View."
+                message = if (archiveHouse == null) "Purchase verified. Close to start Live View." else "Cloud recording is available for this greenhouse."
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { message = "Could not verify your purchase. Use Restore purchase to retry." }
         }
@@ -128,7 +134,7 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, onDismiss: 
     }
 
     VideoPurchaseSheet(message, offer?.pricingPhases?.pricingPhaseList?.singleOrNull()?.formattedPrice,
-        busy, verified, catalog != null, onDismiss, { reconnect++ }) {
+        busy, verified, catalog != null, onDismiss, { reconnect++ }, title = if (archiveHouse == null) "Premium Live View" else "Cloud recording") {
         val item = details ?: return@VideoPurchaseSheet
         val selected = offer ?: return@VideoPurchaseSheet
         val plan = catalog ?: return@VideoPurchaseSheet
@@ -147,9 +153,9 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, onDismiss: 
 
 @Composable
 internal fun VideoPurchaseSheet(message: String, price: String?, busy: Boolean, verified: Boolean,
-                               canRestore: Boolean, onDismiss: () -> Unit, onRestore: () -> Unit, onBuy: () -> Unit) {
+                               canRestore: Boolean, onDismiss: () -> Unit, onRestore: () -> Unit, title: String = "Premium Live View", onBuy: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, containerColor = DashboardTokens.Panel,
-        title = { Text("Premium Live View", color = Color.White) },
+        title = { Text(title, color = Color.White) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (price != null && !verified) Text("$price / month", color = DashboardTokens.Amber)

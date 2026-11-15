@@ -33,6 +33,7 @@ import android.os.Build
 import android.util.Size
 
 @Composable fun FrontCameraFeed(d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier=Modifier,streamQuality:CameraStreamQuality=CameraStreamQuality.Balanced,onStatus:(Boolean,String?)->Unit={_,_->}){
+    val samples = LocalCameraSamples.current
     val context=LocalContext.current
     val lifecycleOwner=LocalLifecycleOwner.current
     val previewView = remember(context) {
@@ -66,7 +67,12 @@ import android.util.Size
                 val cameraProvider=future.get();provider=cameraProvider
                 val selector=when{cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)->CameraSelector.DEFAULT_FRONT_CAMERA;cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)->CameraSelector.DEFAULT_BACK_CAMERA;else->error("No camera available")}
                 val preview=Preview.Builder().build().also{it.surfaceProvider=previewView.surfaceProvider}
-                val analysis=ImageAnalysis.Builder().setTargetResolution(Size(profile.width,profile.height)).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build().also{it.setAnalyzer(analysisExecutor,CameraFrameHub.analyzer(profile))}
+                val analysis=ImageAnalysis.Builder().setTargetResolution(Size(profile.width,profile.height)).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build().also{it.setAnalyzer(analysisExecutor,CameraFrameHub.analyzer(profile) { jpeg, rotation ->
+                    samples?.offer {
+                        val raw = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+                        android.graphics.Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }, true)
+                    }
+                })}
                 boundCases = arrayOf(preview, analysis)
                 cameraProvider.unbindAll();cameraProvider.bindToLifecycle(lifecycleOwner,selector,preview,analysis)
                 active=true;message="Live front camera";onStatus(true,null)

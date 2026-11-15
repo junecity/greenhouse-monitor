@@ -69,7 +69,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
-@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={},onHistoryDay:suspend (Long)->List<HistoryReading> = { emptyList() },onSensorsChanged:()->Unit={}){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric,onHistoryDay);AppScreen.Cameras->CameraContent(state,d,stageText);AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored,onSensorsChanged);else->Unit}}}
+@Composable fun StageScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,onMetric:(Metric)->Unit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onMoveSensor:(String,Double,Double)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onRefreshWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,modifier:Modifier=Modifier,openSensors:Boolean=false,onRestored:()->Unit={},onVolume:()->Unit={},onHistoryDay:suspend (Long)->List<HistoryReading> = { emptyList() },onSensorsChanged:()->Unit={}){ApprovedFrame(state.screen,status,now,onNavigate,modifier,standalone=state.standalone){d,t->val stageText:(Float)->androidx.compose.ui.unit.TextUnit={value->t(value*.72f)};when(state.screen){AppScreen.Zones->ZonesContent(state,d,stageText,onMetric,onMoveSensor,onVolume);AppScreen.History->HistoryContent(state,d,stageText,onMetric,onHistoryDay);AppScreen.Cameras->CameraContent(state,d,stageText){quality->onUpdatePreferences{it.copy(cameraStreamQuality=quality)}};AppScreen.Settings->SettingsContent(state,d,t,onRefresh,onSaveKey,onAssignZone,onSaveZip,onRefreshWeather,onUpdateGreenhouse,onUpdatePreferences,openSensors,onRestored,onSensorsChanged);else->Unit}}}
 
 @Composable private fun MetricControls(active:Metric,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onMetric:(Metric)->Unit){val labels=listOf(Triple(Metric.Temperature,"Temperature",DashboardIcon.Thermometer),Triple(Metric.Humidity,"Humidity",DashboardIcon.Droplet),Triple(Metric.Vpd,"VPD",DashboardIcon.Gauge),Triple(Metric.DewPoint,"Dew Point",DashboardIcon.Droplet));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){labels.forEach{(m,label,icon)->val selected=m==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onMetric(m)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else if(m==Metric.Humidity||m==Metric.DewPoint)DashboardTokens.Blue else Color.White,Modifier.size(d(26f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
@@ -268,46 +268,8 @@ import kotlin.math.roundToInt
     }
 }
 
-@Composable private fun CameraContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit){
-    val context=LocalContext.current
-    val cloudEnrollment=remember{SecureSettingsStore(context).cloudEnrollment()}
-    if(state.standalone){
-        CameraMessage("No greenhouse camera","Pair a server in Settings → Connectivity to use Live View.",d,t)
-        return
-    }
-    var selectedTab by remember{mutableIntStateOf(0)}
-    var permissionGranted by remember{mutableStateOf(ContextCompat.checkSelfPermission(context,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)}
-    var cameraActive by remember{mutableStateOf(false)}
-    var cameraMessage by remember{mutableStateOf<String?>(null)}
-    val permissionLauncher=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){permissionGranted=it;cameraMessage=if(it)null else "Camera permission denied"}
-    LaunchedEffect(state.preferences.cameraMode){if(state.preferences.cameraMode==CameraMode.CameraServer&&!permissionGranted)permissionLauncher.launch(Manifest.permission.CAMERA)}
-    Column(Modifier.fillMaxSize()){
-        CameraControls(selectedTab,d,t){selectedTab=it}
-        Spacer(Modifier.height(d(16f)))
-        Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(d(16f))){
-            NeonPanel(Modifier.weight(.70f).fillMaxHeight()){
-                when(selectedTab){
-                    0->if(state.preferences.cameraMode==CameraMode.ViewerClient)RemoteCameraFeed(d,t,Modifier.fillMaxSize()){active,message->cameraActive=active;cameraMessage=message} else if(permissionGranted)LiveCameraPreview(d,t,state.preferences.cameraStreamQuality){active,message->cameraActive=active;cameraMessage=message}else CameraMessage("Camera permission required","Allow camera access to open the front camera.",d,t){permissionLauncher.launch(Manifest.permission.CAMERA)}
-                    1->CameraMessage("No recordings yet","Playback will show saved camera recordings when recording storage is configured.",d,t)
-                    2->CameraMessage("Timelapse not configured","Timelapse capture needs an interval and storage destination.",d,t)
-                    else->CameraMessage(if(state.preferences.cameraMode==CameraMode.CameraServer)"Greenhouse Server" else "Viewer Client",if(state.preferences.cameraMode==CameraMode.CameraServer)"This phone may publish its front camera after secure streaming is configured." else "This phone is view-only and will not request camera access.",d,t)
-                }
-            }
-            NeonPanel(Modifier.weight(.30f).fillMaxHeight()){
-                Column(Modifier.padding(d(18f))){
-                    Text(listOf(if(state.preferences.cameraMode==CameraMode.CameraServer)"Greenhouse Server" else "Viewer Client","Playback","Timelapse","Camera settings")[selectedTab],color=Color.White,fontSize=t(21f),fontWeight=FontWeight.Bold)
-                    Spacer(Modifier.height(d(12f)))
-                    val status=when(selectedTab){0->if(state.preferences.cameraMode==CameraMode.ViewerClient)when{cameraActive->"Encrypted remote feed active";cameraMessage!=null->cameraMessage!!;else->"Connecting to greenhouse…"} else when{!permissionGranted->"Permission required";cameraActive->"Front camera active";cameraMessage!=null->cameraMessage!!;else->"Starting front camera…"};1->"No saved recordings";2->"Not configured";else->if(cloudEnrollment!=null)"Automatic camera connection" else if(state.preferences.cameraMode==CameraMode.CameraServer)"Camera server settings" else "Viewer pairing settings"}
-                    Text(status,color=if(cameraActive&&selectedTab==0)DashboardTokens.Green else Color(0xFFFFB23F),fontSize=t(18f))
-                    Text(if(state.preferences.cameraMode==CameraMode.CameraServer)"The front camera opens only for an authorized Live View request and is encrypted before it leaves this phone." else if(cloudEnrollment!=null)"Live View uses the greenhouse server already paired to this account. No second camera scan is required." else "The viewer tries the paired local address first, then the remote router address.",color=DashboardTokens.Muted,fontSize=t(13f),modifier=Modifier.padding(top=d(12f)))
-                }
-            }
-        }
-    }
-}
-@Composable private fun CameraMessage(title:String,body:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onClick:(()->Unit)?=null){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){DashboardIconView(DashboardIcon.Camera,Color.White,Modifier.size(d(72f)));Text(title,color=Color.White,fontSize=t(22f),fontWeight=FontWeight.Bold);Text(body,color=DashboardTokens.Muted,fontSize=t(14f),textAlign=TextAlign.Center,modifier=Modifier.padding(d(12f)));if(onClick!=null)ActionButton("Allow Camera",d,t,onClick)}}}
-@Composable private fun LiveCameraPreview(d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,quality:CameraStreamQuality,onStatus:(Boolean,String?)->Unit){FrontCameraFeed(d,t,Modifier.fillMaxSize(),quality,onStatus)}
-@Composable private fun CameraControls(active:Int,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSelect:(Int)->Unit){val tabs=listOf(Triple("Live View",DashboardIcon.Video,0),Triple("Playback",DashboardIcon.Play,1),Triple("Timelapse",DashboardIcon.Calendar,2),Triple("Settings",DashboardIcon.Settings,3));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){tabs.forEach{(label,icon,i)->val selected=i==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onSelect(i)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else Color.White,Modifier.size(d(27f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
+@Composable internal fun CameraMessage(title:String,body:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onClick:(()->Unit)?=null){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally){DashboardIconView(DashboardIcon.Camera,Color.White,Modifier.size(d(72f)));Text(title,color=Color.White,fontSize=t(22f),fontWeight=FontWeight.Bold);Text(body,color=DashboardTokens.Muted,fontSize=t(14f),textAlign=TextAlign.Center,modifier=Modifier.padding(d(12f)));if(onClick!=null)ActionButton("Allow Camera",d,t,onClick)}}}
+@Composable internal fun CameraControls(active:Int,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onSelect:(Int)->Unit){val tabs=listOf(Triple("Live View",DashboardIcon.Video,0),Triple("Playback",DashboardIcon.Play,1),Triple("Timelapse",DashboardIcon.Calendar,2),Triple("Settings",DashboardIcon.Settings,3));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(d(16f))){tabs.forEach{(label,icon,i)->val selected=i==active;Row(Modifier.weight(1f).height(d(72f)).background(if(selected)DashboardTokens.Amber else Color(0x90001317),RoundedCornerShape(d(28f))).border(d(2f),if(selected)DashboardTokens.AmberBright else DashboardTokens.PanelEdge,RoundedCornerShape(d(28f))).clickable{onSelect(i)},horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){DashboardIconView(icon,if(selected)DashboardTokens.Background else Color.White,Modifier.size(d(27f)));Spacer(Modifier.width(d(10f)));Text(label,color=if(selected)DashboardTokens.Background else Color.White,fontSize=t(18f),fontWeight=FontWeight.Bold)}}}}
 
 private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIcon.Sliders),Energy(DashboardIcon.Flame),Connectivity(DashboardIcon.Wifi),Camera(DashboardIcon.Camera),Alerts(DashboardIcon.Bell),Devices(DashboardIcon.Signal),Display(DashboardIcon.Resize),Backup(DashboardIcon.Download),}
 @Composable private fun visibleCategories(state:GreenhouseUiState):List<SettingsCategory>{
@@ -580,6 +542,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 
 @Composable private fun ConnectivitySettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSave:(String)->Unit){
     LazyColumn(Modifier.fillMaxSize().padding(d(16f)),verticalArrangement=Arrangement.spacedBy(d(12f))){
+        if (state.standalone) item { Text("Add a greenhouse phone for live video, short clips and timelapses. Your sensors already work on this phone.", color=DashboardTokens.Muted, fontSize=16.sp) }
         item { CloudServerPairingPanel(d,t,Modifier.fillMaxWidth()) }
         if(!state.standalone)item { ActionButton("Sync readings",d,t,onRefresh) }
     }

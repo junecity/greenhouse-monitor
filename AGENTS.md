@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.28.0 (64)
+- Cameras → Live View saves up to 15 seconds. A viewer records the remaining time in its explicitly opened session. The greenhouse phone's Timelapse samples every five seconds for five minutes. CameraLibraryScreen, CameraSamples and CameraMovies share the existing CameraX/JPEG or decoded WebRTC output and store silent MP4s under the phone's private enrollment/greenhouse directory. Leaving capture or backgrounding cancels the unfinished take. Standalone users find the pairing invitation under Settings → Connectivity.
+- Camera archive routes in app.py and camera_archive.py, AuthenticatedCloudGateway and the Play dialog support a separate account-bound storage product. One-minute clips originate on the authorized server. The private seven-day S3 archive is opt-in. See docs/AWS_DEPLOYMENT.md before enabling it. No production billing or infrastructure deployment in this release.
+- 145 Android JVM tests, five API 35 camera instrumentation tests, 80 backend tests and template validation passed. Android lint reported zero errors. Release APK passed capture, decode, playback, timelapse, deletion and viewer reconnect tests on an ARM emulator with a front camera. Live Google Play, AWS storage and a physical phone pair remain unverified.
+
 ## 2026-11-14 · Greenhouse Studio 2.27.0 (63)
 - FanAirflowDialog's per-fan editor accepts mounting height in feet and a horizontal bearing clockwise from plan top. Collectors can also open the same editor from ZoneVolumeScreen → Fans. Direct numeric aiming preserves the saved floor position. Dashboard edits require Apply and Save setup, while Apply in the 3D editor saves immediately.
 - CirculationFan, DirectedFan and AppPreferencesStore carry the optional persisted heightFeet through current house preferences, backup and server snapshots. Legacy fan records default to 5 ft. FanMapOverlay uses each mount height for its hub and arrow. Floor projection uses the same XY and bearing. No database or cloud migration.

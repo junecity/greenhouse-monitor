@@ -39,7 +39,8 @@ def parse_subscription(payload: dict, expected_product_id: str) -> dict:
     }
 
 
-def verify_google_play_purchase(product_id: str, purchase_token: str, *, test_account_binding: str | None = None) -> dict:
+def verify_google_play_purchase(product_id: str, purchase_token: str, *, test_account_binding: str | None = None,
+                                account_binding: str | None = None, require_test_purchase: bool = True) -> dict:
     package_name = os.environ.get("GOOGLE_PLAY_PACKAGE_NAME", "")
     secret_id = os.environ.get("GOOGLE_PLAY_CREDENTIALS_SECRET_ID", "")
     if not package_name or not secret_id:
@@ -66,11 +67,12 @@ def verify_google_play_purchase(product_id: str, purchase_token: str, *, test_ac
             raise GooglePlayVerificationError("google_play_verification_failed")
         payload = result.json()
         verified = parse_subscription(payload, product_id)
-        if test_account_binding is not None and verified["active"]:
+        bound_account = test_account_binding or account_binding
+        if bound_account is not None and verified["active"]:
             monthly = any(item.get("productId") == product_id and
                           (item.get("offerDetails") or {}).get("basePlanId") == "monthly"
                           for item in payload.get("lineItems", []))
-            if not monthly or not verified["testPurchase"] or verified["accountBinding"] != test_account_binding:
+            if not monthly or verified["testPurchase"] != require_test_purchase or verified["accountBinding"] != bound_account:
                 raise GooglePlayVerificationError("purchase_not_eligible")
             if verified["acknowledgementState"] == "ACKNOWLEDGEMENT_STATE_PENDING":
                 ack_url = (
