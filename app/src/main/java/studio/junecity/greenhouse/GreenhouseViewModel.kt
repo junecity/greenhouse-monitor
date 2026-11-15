@@ -201,6 +201,8 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         viewModelScope.launch { fetchServerSnapshot(silent) }
     }
 
+    private val eveningWatch = studio.junecity.greenhouse.data.EveningColdWatch(getApplication())
+
     private suspend fun fetchServerSnapshot(silent: Boolean): Boolean {
         selectStores()
         val enrollment = secure.cloudEnrollment() ?: return true
@@ -237,6 +239,12 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 goveeConnected = syncedSensors.any { it.isFresh() },
                 message = if (silent) _state.value.message else "Synchronized from greenhouse server"
             )
+            val syncedSettings = _state.value.preferences
+            withContext(Dispatchers.IO) {
+                runCatching { HistoryStore(getApplication(), suffix).use {
+                    eveningWatch.check(it, syncedSensors, syncedSettings, enrollment.deviceId)
+                } }
+            }
             loadHistory()
             refreshWeather(true)
             return true

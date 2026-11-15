@@ -39,6 +39,7 @@ internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, su
     val secure = SecureSettingsStore(context)
     val store = CurrentSensorStore(context, suffix)
     val preferences = AppPreferencesStore(context, suffix)
+    val coldWatch = studio.junecity.greenhouse.data.EveningColdWatch(context)
     val alerts = AlertNotifier(context, suffix)
     HistoryStore(context, suffix).use { history ->
         while (isActive && secure.cloudEnrollment() == owner) {
@@ -64,6 +65,14 @@ internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, su
                                 history.insert(sensor)
                                 alerts.evaluate(sensor)
                                 changed = true
+                            }
+                            if (changed && packets.values.any { it.beacon.light == "Twilight" || it.beacon.light == "Dark" }) {
+                                // An unavailable advisory must never interrupt radio collection or heartbeat reporting.
+                                try { coldWatch.check(history, all, preferences.load(), owner?.deviceId ?: suffix) }
+                                catch (e: Exception) {
+                                    if (e is CancellationException) throw e
+                                    android.util.Log.w("EveningColdWatch", "Advisory unavailable: ${e.javaClass.simpleName}")
+                                }
                             }
                             if (all.none { it.isShelly() }) break
                             if (changed && owner?.role == CloudDeviceRole.GreenhouseServer) {

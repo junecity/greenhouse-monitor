@@ -22,13 +22,17 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
         val readings = JSONArray().also { array -> HistoryStore(context, historySuffix).use { it.recent(1_500) }.asReversed().forEach { reading ->
             array.put(JSONObject().put("sensorId", reading.sensorId).put("sensorName", reading.sensorName)
                 .put("temperatureF", reading.temperatureF).put("humidityPercent", reading.humidityPercent)
-                .put("timestampEpochMs", reading.timestampEpochMs))
+                .put("timestampEpochMs", reading.timestampEpochMs).put("lightLevel", reading.lightLevel))
         } }
         // Group by sensor to keep six months within the existing bounded snapshot transport.
         val daily = JSONArray()
         HistoryStore(context, historySuffix).use { it.dailyReadings() }.groupBy { it.sensorId }.forEach { (id, rows) ->
             val samples = JSONArray()
-            rows.forEach { samples.put(JSONArray().put(it.timestampEpochMs).put(it.temperatureF).put(it.humidityPercent)) }
+            rows.forEach { row ->
+                val point = JSONArray().put(row.timestampEpochMs).put(row.temperatureF).put(row.humidityPercent)
+                row.lightLevel?.let(point::put)
+                samples.put(point)
+            }
             daily.put(JSONObject().put("id", id).put("name", rows.last().sensorName).put("samples", samples))
         }
         return JSONObject().put("dailyLast", daily).put("schema", 2).put("preferences", preferences.exportJson()).put("zones", zoneValues)
@@ -55,7 +59,7 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
             (0 until array.length()).map { index ->
                 val row = array.getJSONObject(index)
                 HistoryReading(row.getString("sensorId"), row.getString("sensorName"),
-                    row.getDouble("temperatureF"), row.getDouble("humidityPercent"), row.getLong("timestampEpochMs"))
+                    row.getDouble("temperatureF"), row.getDouble("humidityPercent"), row.getLong("timestampEpochMs"), row.optString("lightLevel").takeIf { it in setOf("Dark", "Twilight", "Bright") })
             }
         }
         val daily = buildList {
@@ -67,7 +71,7 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
                 val points = group.getJSONArray("samples")
                 for (j in 0 until points.length()) {
                     val point = points.getJSONArray(j)
-                    add(HistoryReading(id, name, point.getDouble(1), point.getDouble(2), point.getLong(0)))
+                    add(HistoryReading(id, name, point.getDouble(1), point.getDouble(2), point.getLong(0), point.optString(3).takeIf { it in setOf("Dark", "Twilight", "Bright") }))
                 }
             }
         }

@@ -9,14 +9,15 @@ import studio.junecity.greenhouse.model.HistoryReading
 import studio.junecity.greenhouse.model.DAY_MS
 import studio.junecity.greenhouse.model.HISTORY_DAYS
 
-class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOpenHelper(context, "greenhouse_history$suffix.db", null, 3) {
+class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOpenHelper(context, "greenhouse_history$suffix.db", null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE readings(id INTEGER PRIMARY KEY AUTOINCREMENT, sensor_id TEXT NOT NULL, sensor_name TEXT NOT NULL, temperature REAL NOT NULL, humidity REAL NOT NULL, recorded_at INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE readings(id INTEGER PRIMARY KEY AUTOINCREMENT, sensor_id TEXT NOT NULL, sensor_name TEXT NOT NULL, temperature REAL NOT NULL, humidity REAL NOT NULL, recorded_at INTEGER NOT NULL, light TEXT)")
         db.execSQL("CREATE INDEX readings_time ON readings(recorded_at DESC)")
         db.execSQL("CREATE UNIQUE INDEX readings_sensor_time ON readings(sensor_id, recorded_at)")
         createDailyIndex(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 4) db.execSQL("ALTER TABLE readings ADD COLUMN light TEXT")
         if(oldVersion<2){
             db.execSQL("DELETE FROM readings WHERE id NOT IN (SELECT MIN(id) FROM readings GROUP BY sensor_id, recorded_at)")
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS readings_sensor_time ON readings(sensor_id, recorded_at)")
@@ -48,18 +49,18 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
 
     fun dailyReadings(): List<HistoryReading> {
         val firstDay = System.currentTimeMillis() / DAY_MS - HISTORY_DAYS + 1
-        return readableDatabase.rawQuery("""SELECT r.sensor_id,r.sensor_name,r.temperature,r.humidity,r.recorded_at
+        return readableDatabase.rawQuery("""SELECT r.sensor_id,r.sensor_name,r.temperature,r.humidity,r.recorded_at,r.light
             FROM daily_last d JOIN readings r ON r.sensor_id=d.sensor_id AND r.recorded_at=d.recorded_at
             WHERE d.day BETWEEN ? AND ? ORDER BY d.day,d.sensor_id""",
             arrayOf(firstDay.toString(), (firstDay + HISTORY_DAYS - 1).toString())).use { cursor ->
             buildList { while (cursor.moveToNext()) add(HistoryReading(cursor.getString(0), cursor.getString(1),
-                cursor.getDouble(2), cursor.getDouble(3), cursor.getLong(4))) }
+                cursor.getDouble(2), cursor.getDouble(3), cursor.getLong(4), cursor.getString(5))) }
         }
     }
 
     fun insert(sensor: GoveeSensor) {
         val temperature=sensor.temperatureF ?: return; val humidity=sensor.humidityPercent ?: return
-        writableDatabase.insertWithOnConflict("readings",null,ContentValues().apply{put("sensor_id",sensor.id);put("sensor_name",sensor.name);put("temperature",temperature);put("humidity",humidity);put("recorded_at",sensor.updatedAtEpochMs)},SQLiteDatabase.CONFLICT_IGNORE)
+        writableDatabase.insertWithOnConflict("readings",null,ContentValues().apply{put("sensor_id",sensor.id);put("sensor_name",sensor.name);put("temperature",temperature);put("humidity",humidity);put("light",sensor.lightLevel);put("recorded_at",sensor.updatedAtEpochMs)},SQLiteDatabase.CONFLICT_IGNORE)
         prune(writableDatabase)
     }
     fun recent(limit:Int=200):List<HistoryReading> = readRows(null, null, limit.toString())
@@ -74,13 +75,16 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
     fun dayReadings(day: Long): List<HistoryReading> =
         readRows("recorded_at >= ? AND recorded_at < ?", arrayOf((day * DAY_MS).toString(), ((day + 1) * DAY_MS).toString()), null)
 
+    internal fun sensorReadingsSince(id: String, since: Long) =
+        readRows("sensor_id = ? AND recorded_at >= ?", arrayOf(id, since.toString()), null).asReversed()
+
     fun weekReadings():List<HistoryReading> = readRows("recorded_at >= ?",
         arrayOf((System.currentTimeMillis() - 7L * 24 * 3_600_000).toString()), null)
 
     private fun readRows(selection:String?, args:Array<String>?, limit:String?):List<HistoryReading>{
         val result=mutableListOf<HistoryReading>()
-        val cursor=readableDatabase.query("readings",arrayOf("sensor_id","sensor_name","temperature","humidity","recorded_at"),selection,args,null,null,"recorded_at DESC",limit)
-        try { while(cursor.moveToNext()) result+=HistoryReading(cursor.getString(0),cursor.getString(1),cursor.getDouble(2),cursor.getDouble(3),cursor.getLong(4)) } finally { cursor.close() }
+        val cursor=readableDatabase.query("readings",arrayOf("sensor_id","sensor_name","temperature","humidity","recorded_at","light"),selection,args,null,null,"recorded_at DESC",limit)
+        try { while(cursor.moveToNext()) result+=HistoryReading(cursor.getString(0),cursor.getString(1),cursor.getDouble(2),cursor.getDouble(3),cursor.getLong(4),cursor.getString(5)) } finally { cursor.close() }
         return result
     }
     fun importReadings(readings:List<HistoryReading>, merge: Boolean = false){
@@ -91,16 +95,32 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
                 db.delete("daily_last",null,null)
                 db.delete("readings",null,null)
             }
-            readings.forEach{reading->
-                db.insertWithOnConflict("readings",null,ContentValues().apply{put("sensor_id",reading.sensorId);put("sensor_name",reading.sensorName);put("temperature",reading.temperatureF);put("humidity",reading.humidityPercent);put("recorded_at",reading.timestampEpochMs)},SQLiteDatabase.CONFLICT_IGNORE)
-            }
+            writeRows(db) { insert -> readings.forEach(insert) }
             if (merge) prune(db)
             db.setTransactionSuccessful()
         }finally{db.endTransaction()}
     }
     fun visitReadings(visit: (HistoryReading) -> Unit) {
-        readableDatabase.rawQuery("SELECT sensor_id,sensor_name,temperature,humidity,recorded_at FROM readings ORDER BY id", null).use { rows ->
-            while (rows.moveToNext()) visit(HistoryReading(rows.getString(0), rows.getString(1), rows.getDouble(2), rows.getDouble(3), rows.getLong(4)))
+        readableDatabase.rawQuery("SELECT sensor_id,sensor_name,temperature,humidity,recorded_at,light FROM readings ORDER BY id", null).use { rows ->
+            while (rows.moveToNext()) visit(HistoryReading(rows.getString(0), rows.getString(1), rows.getDouble(2), rows.getDouble(3), rows.getLong(4),rows.getString(5)))
+        }
+    }
+
+    private fun writeRows(db: SQLiteDatabase, read: ((HistoryReading) -> Unit) -> Unit) {
+        db.compileStatement("""INSERT OR IGNORE INTO readings(sensor_id,sensor_name,temperature,humidity,recorded_at,light)
+            VALUES(?,?,?,?,?,?)""").use { insert ->
+            read { row ->
+                insert.bindString(1, row.sensorId)
+                insert.bindString(2, row.sensorName)
+                insert.bindDouble(3, row.temperatureF)
+                insert.bindDouble(4, row.humidityPercent)
+                insert.bindLong(5, row.timestampEpochMs)
+                if (row.lightLevel == null) insert.bindNull(6) else insert.bindString(6, row.lightLevel)
+                if (insert.executeInsert() == -1L && row.lightLevel != null) {
+                    db.execSQL("UPDATE readings SET light=? WHERE sensor_id=? AND recorded_at=? AND light IS NULL",
+                        arrayOf<Any>(row.lightLevel, row.sensorId, row.timestampEpochMs))
+                }
+            }
         }
     }
 
@@ -109,16 +129,7 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
         val db = writableDatabase
         db.beginTransaction()
         try {
-            db.compileStatement("INSERT OR IGNORE INTO readings(sensor_id,sensor_name,temperature,humidity,recorded_at) VALUES(?,?,?,?,?)").use { insert ->
-                read { row ->
-                    insert.bindString(1, row.sensorId)
-                    insert.bindString(2, row.sensorName)
-                    insert.bindDouble(3, row.temperatureF)
-                    insert.bindDouble(4, row.humidityPercent)
-                    insert.bindLong(5, row.timestampEpochMs)
-                    insert.executeInsert()
-                }
-            }
+            writeRows(db, read)
             db.execSQL("CREATE TABLE IF NOT EXISTS backup_restore(id INTEGER PRIMARY KEY, metadata TEXT NOT NULL)")
             db.execSQL("INSERT OR REPLACE INTO backup_restore VALUES(1, ?)", arrayOf(metadata))
             db.setTransactionSuccessful()

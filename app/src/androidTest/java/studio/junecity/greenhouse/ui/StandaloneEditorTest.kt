@@ -868,7 +868,7 @@ class StandaloneEditorTest {
         val now = System.currentTimeMillis()
         val oldDay = now / DAY_MS - 145
         val early = HistoryReading("bench", "Bench", 55.0, 81.0, oldDay * DAY_MS + 2000)
-        val late = early.copy(temperatureF = 62.0, timestampEpochMs = early.timestampEpochMs + 60_000)
+        val late = early.copy(temperatureF = 62.0, timestampEpochMs = early.timestampEpochMs + 60_000, lightLevel = "Bright")
         try {
             context.deleteDatabase(dbName)
             context.deleteDatabase("greenhouse_history$viewer.db")
@@ -1358,6 +1358,43 @@ class StandaloneEditorTest {
                 find("Signal · -67 dBm")
             }
         } finally { store.clear(); viewer.clear() }
+    }
+
+    @Test fun temperatureHistoryOpensShellyLightTransition() {
+        val now = java.time.ZonedDateTime.now()
+        val morning = now.withHour(7).withMinute(0).withSecond(0).withNano(0)
+        val evening = now.withHour(18).withMinute(0).withSecond(0).withNano(0)
+        val transition = listOf(morning.minusDays(1), evening.minusDays(1), morning, evening)
+            .last { it.isBefore(now.minusHours(1)) }
+        val brightening = transition.hour == 7
+        val whenMs = transition.toInstant().toEpochMilli()
+        val sensor = GoveeSensor("shelly:test", "SBHT-103C", "Display bench", 62.0, 70.0, true, whenMs)
+        val history = (-10..60 step 5).map { minute ->
+            val bright = (minute >= 0) == brightening
+            HistoryReading(sensor.id, sensor.name, 60.0 + minute / 10.0, 70.0, whenMs + minute * 60_000,
+                if (bright) "Bright" else "Twilight")
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                activity.setContent {
+                    StageScreen(GreenhouseUiState(screen = AppScreen.History, sensors = listOf(sensor), history = history),
+                        DeviceStatus(80,true,true), now.toLocalDateTime(),
+                        {}, {}, {}, {}, {_,_,_->}, {_,_->}, {}, {}, {_,_,_->}, {}, Modifier.fillMaxSize())
+                }
+            }
+            find("Light history for Display bench")
+            screenshot("light-history")
+            click("Light ▾")
+            val title = if (brightening) "Morning light" else "Evening dimming"
+            click("$title · ${chartTime(whenMs, "MMM d, h:mm a")}")
+            find(if (brightening) "Morning warm-up" else "Evening cooling")
+            find("First hour after the light changed")
+            find("Display bench")
+            screenshot("light-transition")
+            click("Close")
+            find("Light history for Display bench")
+        }
     }
 
     @Test fun sensorColorsMatchAcrossZonesAndHistory() {

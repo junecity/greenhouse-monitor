@@ -108,7 +108,7 @@ data class DeviceStatus(
 const val HISTORY_DAYS = 180
 const val DAY_MS = 86_400_000L
 
-data class HistoryReading(val sensorId:String,val sensorName:String,val temperatureF:Double,val humidityPercent:Double,val timestampEpochMs:Long)
+data class HistoryReading(val sensorId:String,val sensorName:String,val temperatureF:Double,val humidityPercent:Double,val timestampEpochMs:Long, val lightLevel: String? = null)
 data class NotificationPreferences(val masterEnabled:Boolean=true,val popupsEnabled:Boolean=false,val soundEnabled:Boolean=false,val vibrationEnabled:Boolean=false,val repeatedAlerts:Boolean=false,val repeatMinutes:Int=30,val snoozedUntilEpochMs:Long=0,val temperatureAlerts:Boolean=true,val humidityAlerts:Boolean=true,val offlineAlerts:Boolean=true,val connectionAlerts:Boolean=false,val lowTemperatureF:Double=45.0,val highTemperatureF:Double=95.0,val lowHumidity:Double=30.0,val highHumidity:Double=85.0,val recoveryMargin:Double=2.0)
 object DataSyncIntervals {
     val minutes = listOf(1, 5, 10, 15)

@@ -37,13 +37,13 @@ class CustomerBackupTest {
         notifications = NotificationPreferences(lowTemperatureF = 42.0, recoveryMargin = 3.0))
     private val sensor = GoveeSensor("probe", "H5179", "Bench", 71.0, 75.0, true, System.currentTimeMillis(),house.id,"Zone 2")
 
-    private fun seed(): Pair<ByteArray,List<HistoryReading>> {
+    private fun seed(withLight: Boolean = false): Pair<ByteArray,List<HistoryReading>> {
         secure.saveCloudEnrollment(enrollment)
         prefs.save(settings)
         zones.assign(sensor.id, sensor.zone)
         current.save(listOf(sensor))
         ForecastAlerts(context).save(rules)
-        val rows = (1..2200).map { HistoryReading(sensor.id,sensor.name,70.0,80.0,sensor.updatedAtEpochMs - it) }
+        val rows = (1..2200).map { HistoryReading(sensor.id,sensor.name,70.0,80.0,sensor.updatedAtEpochMs - it, if (withLight && it % 2 == 0) "Bright" else null) }
         HistoryStore(context,"_standalone").use { it.importReadings(rows) }
         val stream = ByteArrayOutputStream()
         assertEquals(rows.size,CustomerBackup(context,enrollment).write(stream, scope))
@@ -51,7 +51,7 @@ class CustomerBackupTest {
     }
 
     @Test fun restoreIntoReplacementMergesFullHistoryAndPersists() {
-        val (file,rows) = seed()
+        val (file,rows) = seed(withLight = true)
         val fresh = sensor.copy(updatedAtEpochMs = sensor.updatedAtEpochMs + 1000, temperatureF = 78.0)
         val replacement = enrollment.copy(deviceId = "replacement-client")
         secure.saveCloudEnrollment(replacement)
@@ -134,6 +134,14 @@ class CustomerBackupTest {
             assertEquals("other",zones.zone("probe"))
             HistoryStore(context,"_standalone").use { assertEquals(1,it.recent().size); assertNull(it.pendingRestore()) }
         }
+    }
+
+    @Test fun olderGzipBackupStillRestores() {
+        val (bytes, rows) = seed()
+        "GHBACK02".toByteArray().copyInto(bytes)
+        HistoryStore(context, "_standalone").use { it.clear() }
+        assertEquals(rows.size, CustomerBackup(context,enrollment).restore(bytes.inputStream(), charArrayOf(), scope))
+        HistoryStore(context, "_standalone").use { assertEquals(rows, it.recent(rows.size)) }
     }
 
     @Test fun olderEncryptedFileRequiresOriginalPassword() {

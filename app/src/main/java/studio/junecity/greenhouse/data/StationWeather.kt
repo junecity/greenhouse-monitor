@@ -30,6 +30,18 @@ internal fun stationHours(response: JSONObject, now: Long): Map<Long, StationHou
 
 internal class StationWeather(context: Context) {
     private val cache = context.getSharedPreferences("heating_station_weather", Context.MODE_PRIVATE)
+    internal fun cachedTemperatures(zip: String): Pair<java.time.ZoneId, Map<Long, Double>>? {
+        val saved = cache.getString(zip, null)?.let(::JSONObject) ?: return null
+        val zone = saved.optString("zone").takeIf(String::isNotBlank)?.let(java.time.ZoneId::of) ?: return null
+        val rows = saved.optJSONArray("hours") ?: return null
+        return zone to buildMap {
+            for (i in 0 until rows.length()) {
+                val row = rows.getJSONArray(i)
+                put(row.getLong(0), row.getDouble(1))
+            }
+        }
+    }
+
     private fun nearbyStation(lat: Double, lon: Double): String? {
         val point = String.format(Locale.US, "%.4f,%.4f", lat, lon)
         val url = JSONObject(publicEnergyData("https://api.weather.gov/points/$point"))
@@ -72,7 +84,7 @@ internal class StationWeather(context: Context) {
                 }
                 val data = JSONArray()
                 hours.forEach { (hour, obs) -> data.put(JSONArray().put(hour).put(obs.temperatureF).put(obs.lastReportMs)) }
-                cache.edit().putString(key, JSONObject().put("station", id).put("checked", now)
+                cache.edit().putString(key, JSONObject().put("station", id).put("zone", weather.zone.id).put("checked", now)
                     .put("hours", data).toString()).apply()
             }
         }

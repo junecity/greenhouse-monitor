@@ -34,7 +34,7 @@ internal suspend fun verifiedBackupScope(context: Context, enrollment: CloudEnro
 
 internal class LegacyPasswordRequired : IOException("This older backup requires its original password.")
 
-/** GHBACK02 uses a checksummed gzip payload. GHBACK01 remains readable with its original password. */
+/** GHBACK03 optionally records the Shelly light state. Both earlier formats remain readable. */
 internal class CustomerBackup(private val context: Context, private val enrollment: CloudEnrollment?) {
     private val suffix = if (enrollment.isStandaloneClient()) "_standalone" else ""
     private val preferences = AppPreferencesStore(context, suffix)
@@ -63,12 +63,13 @@ internal class CustomerBackup(private val context: Context, private val enrollme
             stream.write(bytes)
             if (scope.kind != "viewer") HistoryStore(context, suffix).use { db ->
                 db.visitReadings { row ->
-                    stream.writeByte(1)
+                    stream.writeByte(if (row.lightLevel == null) 1 else 2)
                     stream.writeUTF(row.sensorId)
                     stream.writeUTF(row.sensorName)
                     stream.writeDouble(row.temperatureF)
                     stream.writeDouble(row.humidityPercent)
                     stream.writeLong(row.timestampEpochMs)
+                    row.lightLevel?.let(stream::writeUTF)
                     count++
                 }
             }
@@ -83,7 +84,7 @@ internal class CustomerBackup(private val context: Context, private val enrollme
         val envelope = DataInputStream(input.buffered())
         val header = ByteArray(MAGIC.size).also(envelope::readFully)
         val decrypted = when {
-            header.contentEquals(LOCAL_FORMAT) -> GZIPInputStream(envelope)
+            header.contentEquals(LOCAL_FORMAT) || header.contentEquals(LEGACY_GZIP) -> GZIPInputStream(envelope)
             header.contentEquals(MAGIC) -> {
                 if (password.isEmpty()) throw LegacyPasswordRequired()
                 val salt = ByteArray(16).also(envelope::readFully)
@@ -105,9 +106,10 @@ internal class CustomerBackup(private val context: Context, private val enrollme
                 HistoryStore(context, suffix).use { db ->
                     db.mergeBackup(meta.toString()) { insert ->
                         var marker = stream.readUnsignedByte()
-                        while (marker == 1) {
+                        while (marker == 1 || (marker == 2 && header.contentEquals(LOCAL_FORMAT))) {
                             require(scope.kind != "viewer")
-                            val row = HistoryReading(stream.readUTF(),stream.readUTF(),stream.readDouble(),stream.readDouble(),stream.readLong())
+                            val row = HistoryReading(stream.readUTF(),stream.readUTF(),stream.readDouble(),stream.readDouble(),stream.readLong(),
+                                if (marker == 2) stream.readUTF().also { require(it in setOf("Dark","Twilight","Bright")) } else null)
                             require(row.sensorId.isNotBlank() && row.temperatureF.isFinite() && row.humidityPercent in 0.0..100.0 && row.timestampEpochMs > 0)
                             insert(row)
                             count++
@@ -169,7 +171,8 @@ internal class CustomerBackup(private val context: Context, private val enrollme
     }
 
     private companion object {
-        val LOCAL_FORMAT = "GHBACK02".toByteArray(Charsets.US_ASCII)
+        val LEGACY_GZIP = "GHBACK02".toByteArray(Charsets.US_ASCII)
+        val LOCAL_FORMAT = "GHBACK03".toByteArray(Charsets.US_ASCII)
         val MAGIC = "GHBACK01".toByteArray(Charsets.US_ASCII)
         const val MAX_META = 2 * 1024 * 1024
         val restoreLock = Any()

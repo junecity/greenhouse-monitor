@@ -251,6 +251,7 @@ import kotlin.math.roundToInt
                     key(hours) {
                         SensorTrendChart(series,metric,start,end,cursor,{ cursor=it },Modifier.fillMaxWidth().weight(1f), daily = daily)
                     }
+                    if (metric == Metric.Temperature && !daily) LightHistoryStrip(state, series, start, end) { cursor = it }
                 }
             }
             NeonPanel(Modifier.weight(.30f).fillMaxHeight()) {

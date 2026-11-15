@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.31.0 (70)
+- History → Temperature shows observed Shelly Display Dark/Twilight/Bright periods and a selectable first-hour temperature response for each sensor. LightHistory and LightHistoryStrip require sustained transitions, preserve gaps, and compare distinct dates with similar starting indoor and outdoor observations.
+- HistoryStore schema 4 adds nullable light to raw samples. GreenhouseBackupStore carries it with existing raw and daily snapshots. CustomerBackup writes GHBACK03 and reads GHBACK01/02. Existing historical light cannot be reconstructed.
+- EveningColdWatch on the collector or a syncing viewer evaluates one local quiet advisory per enrollment/house/evening. Requires fresh readings, enabled temperature alerts, and at least three comparable prior evenings with at least two thirds crossing the low limit. StationWeather supplies cached observed outdoor temperatures. The notification is supplementary to threshold alerts.
+- Passed 154 JVM tests, 13 API 35 instrumentation tests and lint with zero errors. Hardware BLE light changes, two physical phones and prediction performance on real evenings are pending. Release notes and artifact in CHANGELOG.
+
 ## 2026-11-15 · Greenhouse Studio 2.30.1 (69)
 - All six production notifications in AlertNotifier, ForecastAlerts, CloudAlertService, CloudHeartbeatService and CloudCameraServerService use the shared monochrome ic_notification_greenhouse vector. Use this drawable for new app notifications.
 - 150 JVM tests passed. An isolated API 35 Android profile verified the posted forecast alert's icon resource and daily reminder delivery. Lint had zero errors. Appearance on the owner's physical phone is pending.
