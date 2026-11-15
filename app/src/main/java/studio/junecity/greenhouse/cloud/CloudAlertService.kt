@@ -33,7 +33,7 @@ object CloudAlertPollingPolicy {
 }
 
 private const val OFFLINE_TITLE = "Greenhouse server offline"
-private const val CRITICAL_CHANNEL = "greenhouse_cloud_critical"
+private val CRITICAL_CHANNEL = TemperatureSound.Existing.channelId
 
 internal fun clearRecoveredOfflineAlerts(notifications: NotificationManager, alerts: List<MonitoringAlert>) {
     val currentIds = alerts.filter { it.type == MonitoringAlertType.ServerOffline }.map { it.id.hashCode() }.toSet()
@@ -54,10 +54,8 @@ class CloudAlertService : Service() {
         super.onCreate()
         notifications = getSystemService(NotificationManager::class.java)
         notifications.createNotificationChannel(NotificationChannel(SERVICE_CHANNEL, "Greenhouse cloud alerts", NotificationManager.IMPORTANCE_LOW))
-        notifications.createNotificationChannel(NotificationChannel(CRITICAL_CHANNEL, "Critical greenhouse alerts", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Critical temperature and server-offline safety alerts"
-            enableVibration(true)
-        })
+        CriticalAlarm.recover(this)
+        TemperatureSound.Existing.channel(this)
         notifications.createNotificationChannel(NotificationChannel(HIGH_CHANNEL, "Greenhouse equipment alerts", NotificationManager.IMPORTANCE_HIGH))
         val notification = NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_greenhouse)
@@ -88,7 +86,7 @@ class CloudAlertService : Service() {
                 val inbox = result.getOrThrow()
                 val alerts = inbox.alerts
                 if (inbox.complete) clearRecoveredOfflineAlerts(notifications, alerts)
-                alerts.forEach(::showAlert)
+                alerts.forEach { showAlert(it, enrollment.role) }
             } else {
                 failures++
             }
@@ -96,7 +94,7 @@ class CloudAlertService : Service() {
         }
     }
 
-    private fun showAlert(alert: MonitoringAlert) {
+    private fun showAlert(alert: MonitoringAlert, role: CloudDeviceRole) {
         val notificationId = alert.id.hashCode()
         val openApp = studio.junecity.greenhouse.data.AlertDestination.pending(
             this, notificationId, alert.greenhouseId, null, true, alert.occurredAtEpochMs
@@ -109,9 +107,7 @@ class CloudAlertService : Service() {
                 .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_NOTIFICATION_ID, notificationId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val channel = if (alert.priority == MonitoringAlertPriority.Critical || alert.type == MonitoringAlertType.ServerOffline) {
-            CRITICAL_CHANNEL
-        } else HIGH_CHANNEL
+        val channel = alertChannel(this, alert, role)
         val title = when (alert.type) {
             MonitoringAlertType.CriticalTemperature -> "Critical greenhouse temperature"
             MonitoringAlertType.ServerOffline -> OFFLINE_TITLE
@@ -134,6 +130,9 @@ class CloudAlertService : Service() {
             .setOngoing(alert.requiresAcknowledgement)
             .setOnlyAlertOnce(true)
         if (!alert.requiresAcknowledgement) builder.setDeleteIntent(acknowledge)
+        if (role == CloudDeviceRole.ViewerClient && alert.type == MonitoringAlertType.CriticalTemperature &&
+            CriticalAlarm.enabled(this) && notifications.activeNotifications.none { it.id == notificationId && it.tag == null } &&
+            CriticalAlarm.play(this, notifications.getNotificationChannel(channel))) builder.setSilent(true)
         val notification = builder.build()
         runCatching { notifications.notify(notificationId, notification) }
     }
@@ -145,6 +144,13 @@ class CloudAlertService : Service() {
         private const val SERVICE_CHANNEL = "greenhouse_cloud_alert_service"
         private const val HIGH_CHANNEL = "greenhouse_cloud_high"
         private const val SERVICE_NOTIFICATION_ID = 4174
+
+        internal fun alertChannel(context: Context, alert: MonitoringAlert, role: CloudDeviceRole): String = when {
+            role == CloudDeviceRole.ViewerClient && alert.type == MonitoringAlertType.CriticalTemperature ->
+                TemperatureSound.selected(context).channel(context).id
+            alert.priority == MonitoringAlertPriority.Critical || alert.type == MonitoringAlertType.ServerOffline -> CRITICAL_CHANNEL
+            else -> HIGH_CHANNEL
+        }
 
         fun sync(context: Context, enabled: Boolean) {
             val intent = Intent(context, CloudAlertService::class.java)

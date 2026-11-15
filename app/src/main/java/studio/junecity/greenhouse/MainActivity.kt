@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        studio.junecity.greenhouse.cloud.CriticalAlarm.recover(this)
         forecastOpen = intent.action == studio.junecity.greenhouse.data.ForecastAlerts.OPEN_FORECAST
         alert = studio.junecity.greenhouse.data.AlertDestination.from(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)

@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.34.0 (75)
+- Client Settings → Alerts includes CriticalSoundSettings for paired viewers. TemperatureSound retains the legacy notification default and adds two bundled tones plus an Android-customizable channel. CloudAlertService applies the choice only to critical temperature events on the client.
+- CriticalAlarm uses a brief opt-in alarm-volume override, checks Android notification/DND policy, and restores the preceding alarm volume unless the user adjusted it. MainActivity and the alert service check for interrupted restoration on startup. The ordinary remote alert and acknowledgment flow remain available. No cloud changes.
+- 158 JVM tests and three API 35 emulator sound tests passed, lint zero errors. Physical loudness and overnight live delivery remain unverified.
+
 ## 2026-11-15 · Greenhouse Studio 2.33.1 (74)
 - ApprovedFrame and PhoneHealthBadge label the viewer's local network in Settings. Other monitoring headers retain remote battery, radio and version details. MainActivity observes Android's default-network changes while visible through AndroidDeviceStatusProvider.
 - CloudDeviceManagementPanel shows backend heartbeat status and last contact separately from pairing. A failed inventory refresh invalidates the cached online claim. No backend or schema changes. 158 JVM tests and three API 35 emulator checks passed, including switching Wi-Fi off and back on. Physical carrier and customer server status were not verified.
