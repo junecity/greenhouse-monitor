@@ -799,3 +799,9 @@ All meaningful changes must be recorded here, newest first. Each entry should in
 - Added persistent sensor color assignments with a legacy four-color starting palette, additional accents and backup/restore. Dashboard labels, Devices, Zones markers and rows, History, Compare and Replay use the same identities. Temperature and humidity retain their own heat gradients.
 - 150 JVM tests passed, including a 50-sensor rendered-color uniqueness and stability check. Eleven API 35 instrumentation tests passed, including a server report with a different viewer battery/network, tap-through, sensor membership and snapshot restore, Zones/History rendered colors and nine customer-backup cases. Lint returned zero errors. Screenshots with fixtures in build-out/2.30.0-qa. Physical two-phone delivery and carrier-specific signal availability remain unverified.
 - Verified the existing signing certificate and uploaded the plain configured APK to the existing Drive link. Verified uploaded size of 87,361,368 bytes against local file. Local SHA-256 55422cd7a0bc7010728abb93cd4bac452c42c16cabee06fd624627be2ecf7589.
+
+## 2026-11-15 · Greenhouse Studio 2.30.1 (69) — Notification tray icon
+
+- Added a monochrome glasshouse with wireless arcs to sensor, forecast and cloud alerts and ongoing monitoring and camera service notifications. Updated the existing forecast delivery test to check the posted icon.
+- Passed 150 JVM tests and Android lint (0 errors). The forecast test skipped on the enrolled emulator profile, then passed on an isolated API 35 profile. The owner’s physical tray was not observed.
+- Verified APK signature and stable Drive metadata for the 84,808,516-byte configured APK. SHA-256 8fc5301bf1245d2da6cb281445d6ed58e143d794fb3c76d226fa185ebe6b9dfd.

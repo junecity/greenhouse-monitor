@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.data
 
+import studio.junecity.greenhouse.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -20,7 +21,7 @@ class AlertNotifier(private val context:Context,private val suffix:String=""){
         val condition=condition(sensor,p);val key="condition_${sensor.id}";val previous=state.getString(key,null);if(condition==null){if(previous!=null)state.edit().remove(key).apply();return}
         val last=state.getLong("sent_${sensor.id}",0);val due=previous!=condition||p.repeatedAlerts&&now-last>=p.repeatMinutes*60_000L
         state.edit().putString(key,condition).apply();if(!due)return
-        val channel=if(p.popupsEnabled)"greenhouse_alerts" else "greenhouse_quiet";val builder=NotificationCompat.Builder(context,channel).setSmallIcon(android.R.drawable.ic_dialog_alert).setContentTitle(listOfNotNull(settings.greenhouses.find { it.id == sensor.greenhouseId }?.name, sensor.zone.takeUnless { it == "Unassigned" },sensor.name).joinToString(" · "))
+        val channel=if(p.popupsEnabled)"greenhouse_alerts" else "greenhouse_quiet";val builder=NotificationCompat.Builder(context,channel).setSmallIcon(R.drawable.ic_notification_greenhouse).setContentTitle(listOfNotNull(settings.greenhouses.find { it.id == sensor.greenhouseId }?.name, sensor.zone.takeUnless { it == "Unassigned" },sensor.name).joinToString(" · "))
             .setContentIntent(AlertDestination.pending(context,sensor.id.hashCode(),sensor.greenhouseId,sensor.id,false,now)).setContentText(condition).setAutoCancel(true).setOnlyAlertOnce(!p.repeatedAlerts)
         if(p.soundEnabled)builder.setDefaults(NotificationCompat.DEFAULT_SOUND);if(p.vibrationEnabled)builder.setVibrate(longArrayOf(0,250,150,250)) else builder.setVibrate(longArrayOf(0))
         runCatching{manager.notify(sensor.id.hashCode(),builder.build());state.edit().putLong("sent_${sensor.id}",now).apply()}

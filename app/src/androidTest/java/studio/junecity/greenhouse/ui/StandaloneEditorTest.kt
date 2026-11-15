@@ -120,6 +120,8 @@ class StandaloneEditorTest {
                 manager.activeNotifications.any { it.tag == key }
             } != null
             assertTrue("Android posted the forecast alert", awaitDelivery(tag))
+            assertEquals(studio.junecity.greenhouse.R.drawable.ic_notification_greenhouse,
+                manager.activeNotifications.single { it.tag == tag }.notification.smallIcon.resId)
             manager.cancel(tag, 7311)
             SystemClock.sleep(300)
             alerts.evaluate(weather)

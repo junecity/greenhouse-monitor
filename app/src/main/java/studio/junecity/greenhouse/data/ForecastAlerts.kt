@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.data
 
+import studio.junecity.greenhouse.R
 import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -124,7 +125,7 @@ class ForecastAlerts(private val context: Context) {
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val open = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle(title).setContentText(body)
+            .setSmallIcon(R.drawable.ic_notification_greenhouse).setContentTitle(title).setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body)).setContentIntent(open).setAutoCancel(true).build()
         return try { manager.notify(tag, 7311, notification); true } catch (_: SecurityException) { false }
     }

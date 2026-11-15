@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.cloud
 
+import studio.junecity.greenhouse.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -59,7 +60,7 @@ class CloudAlertService : Service() {
         })
         notifications.createNotificationChannel(NotificationChannel(HIGH_CHANNEL, "Greenhouse equipment alerts", NotificationManager.IMPORTANCE_HIGH))
         val notification = NotificationCompat.Builder(this, SERVICE_CHANNEL)
-            .setSmallIcon(android.R.drawable.presence_online)
+            .setSmallIcon(R.drawable.ic_notification_greenhouse)
             .setContentTitle("Greenhouse alert monitoring active")
             .setContentText("Checking greenhouse alerts")
             .setOngoing(true).setOnlyAlertOnce(true).build()
@@ -121,7 +122,7 @@ class CloudAlertService : Service() {
             "The monitoring service has missed the greenhouse server’s heartbeat."
         } else alert.message
         val builder = NotificationCompat.Builder(this, channel)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(R.drawable.ic_notification_greenhouse)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))

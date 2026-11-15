@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.cloud
 
+import studio.junecity.greenhouse.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -57,7 +58,7 @@ class CloudCameraServerService : Service() {
 
     private fun showNotification(message: String, cameraActive: Boolean) {
         val notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.presence_video_online)
+            .setSmallIcon(R.drawable.ic_notification_greenhouse)
             .setContentTitle("Greenhouse camera ready")
             .setContentText(message)
             .setOngoing(true).setOnlyAlertOnce(true).build()

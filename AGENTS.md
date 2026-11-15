@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.30.1 (69)
+- All six production notifications in AlertNotifier, ForecastAlerts, CloudAlertService, CloudHeartbeatService and CloudCameraServerService use the shared monochrome ic_notification_greenhouse vector. Use this drawable for new app notifications.
+- 150 JVM tests passed. An isolated API 35 Android profile verified the posted forecast alert's icon resource and daily reminder delivery. Lint had zero errors. Appearance on the owner's physical phone is pending.
+
 ## 2026-11-15 · Greenhouse Studio 2.30.0 (68)
 - PhoneHealthBadge in the shared header uses AndroidDeviceStatusProvider on the collecting phone and the latest serverHealth in the authenticated greenhouse snapshot on a viewer. Tap for charging, signal in dBm and sample time. Older snapshots lack telemetry. Wi-Fi RSSI also uses the existing heartbeat contract. No backend migration.
 - CurrentSensorStore retains ID-to-color slots and includes them in backups and viewer snapshots. SensorReadings supplies identity accents across the dashboard, map, list and chart screens. Reserve earlier slots when adding a sensor or reviewing history. Metric heat colors remain independent.

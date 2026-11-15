@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.cloud
 
+import studio.junecity.greenhouse.R
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -70,7 +71,7 @@ class CloudHeartbeatService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Greenhouse cloud monitoring", NotificationManager.IMPORTANCE_LOW))
         val notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.presence_online)
+            .setSmallIcon(R.drawable.ic_notification_greenhouse)
             .setContentTitle("Greenhouse monitoring active")
             .setContentText("Reporting server health securely")
             .setOngoing(true).setOnlyAlertOnce(true).build()
