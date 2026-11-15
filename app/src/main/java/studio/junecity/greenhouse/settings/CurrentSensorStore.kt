@@ -40,12 +40,28 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
         writeMembership(rows.filterNot { it.id == id }, removed().filterNot { it.id == id } + sensor)
     }
 
+    // Govee lists every device on the provider account during routine discovery.
+    fun forgottenGovee(): Set<String> = preferences.getStringSet("forgottenGovee", emptySet()).orEmpty().toSet()
+
+    fun excludedIds(): Set<String> = forgottenGovee() + removed().map { it.id }
+
+    fun forget(sensor: GoveeSensor) = synchronized(lock) {
+        val id = sensor.id
+        val active = load().filterNot { it.id == id }
+        val archived = removed().filterNot { it.id == id }
+        val editor = preferences.edit()
+        if (sensor.sku.equals("H5179", true)) editor.putStringSet("forgottenGovee", forgottenGovee() + id)
+        editor.putString("sensors", CurrentSensorCodec.encode(active).toString())
+            .putString("removed", CurrentSensorCodec.encode(archived).toString())
+            .putString("labels", labels().apply { remove(id) }.toString()).apply()
+    }
+
     fun enroll(sensor: GoveeSensor) = synchronized(lock) {
         val rows = load()
         if (rows.any { it.id == sensor.id }) return@synchronized
         val archived = removed()
         val label = labels().optString(sensor.id, sensor.name)
-        writeMembership(rows + sensor.copy(name = label), archived.filterNot { it.id == sensor.id })
+        writeMembership(rows + sensor.copy(name = label), archived.filterNot { it.id == sensor.id }, forgottenGovee() - sensor.id)
     }
 
     fun addBack(id: String) = synchronized(lock) {
@@ -53,25 +69,26 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
         enroll(sensor.copy(online = false))
     }
 
-    private fun writeMembership(active: List<GoveeSensor>, archived: List<GoveeSensor>) {
+    private fun writeMembership(active: List<GoveeSensor>, archived: List<GoveeSensor>, forgotten: Set<String> = forgottenGovee()) {
         preferences.edit().putString("sensors", CurrentSensorCodec.encode(active).toString())
-            .putString("removed", CurrentSensorCodec.encode(archived).toString()).apply()
+            .putString("removed", CurrentSensorCodec.encode(archived).toString()).putStringSet("forgottenGovee", forgotten).apply()
     }
 
     internal fun allowedReadings(readings: List<GoveeSensor>): List<GoveeSensor> {
-        val excluded = removed().mapTo(hashSetOf()) { it.id }
+        val excluded = excludedIds()
         val labels = labels()
         return readings.filterNot { it.id in excluded }.map { it.copy(name = labels.optString(it.id, it.name)) }
     }
 
     internal fun writeBackup(meta: JSONObject, inventory: (List<GoveeSensor>) -> List<GoveeSensor> = { it }) = synchronized(lock) {
         meta.put("sensors", CurrentSensorCodec.encode(inventory(load()))).put("removedSensors", CurrentSensorCodec.encode(removed()))
-            .put("sensorLabels", labels())
+            .put("sensorLabels", labels()).put("forgottenGovee", JSONArray(forgottenGovee().toList()))
     }
 
-    internal fun restore(sensors: List<GoveeSensor>, removed: JSONArray?, labels: JSONObject?) = synchronized(lock) {
+    internal fun restore(sensors: List<GoveeSensor>, removed: JSONArray?, labels: JSONObject?, forgotten: JSONArray? = null) = synchronized(lock) {
         check(preferences.edit().putString("sensors", CurrentSensorCodec.encode(sensors).toString())
             .putString("removed", (removed ?: JSONArray()).toString())
+            .putStringSet("forgottenGovee", CurrentSensorCodec.forgottenIds(forgotten))
             .putString("labels", (labels ?: JSONObject()).toString()).commit())
     }
 
@@ -83,7 +100,13 @@ class CurrentSensorStore(context: Context, private val suffix: String = "") {
 }
 
 object CurrentSensorCodec {
+    internal fun forgottenIds(array: JSONArray?): Set<String> =
+        if (array == null) emptySet() else (0 until array.length()).map { index ->
+            (array.get(index) as String).also { require(it.isNotBlank()) }
+        }.toSet()
+
     fun validateManagement(meta: JSONObject) {
+        forgottenIds(meta.optJSONArray("forgottenGovee"))
         meta.optJSONArray("removedSensors")?.let { decode(it) }
         meta.optJSONObject("sensorLabels")?.let { labels ->
             require(labels.keys().asSequence().all { labels.get(it) is String && labels.getString(it).length in 1..64 })

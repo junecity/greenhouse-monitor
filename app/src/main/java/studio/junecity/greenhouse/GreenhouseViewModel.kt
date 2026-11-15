@@ -157,7 +157,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             try {
                 val credential = SensorProviderCredential.ApiKey(key)
                 val prefs = _state.value.preferences
-                val collected = govee.collectReadings(credential, prefs, storage.sensors.load(), storage.sensors.removed().mapTo(hashSetOf()) { it.id }, storage.zones::zone)
+                val collected = govee.collectReadings(credential, prefs, storage.sensors.load(), storage.sensors.excludedIds(), storage.zones::zone)
                 if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return@launch
                 val latest = _state.value.preferences
                 val sensors = storage.sensors.replaceGovee(collected.withCurrentAssignments(latest, storage.zones::zone))

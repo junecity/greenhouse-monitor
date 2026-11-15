@@ -62,6 +62,8 @@ import studio.junecity.greenhouse.cloud.CloudServerPairingPanel
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.settings.CurrentSensorStore
 import studio.junecity.greenhouse.settings.SecureSettingsStore
+import studio.junecity.greenhouse.data.AlertNotifier
+import studio.junecity.greenhouse.settings.ZoneAssignmentStore
 import studio.junecity.greenhouse.data.SpatialInterpolator
 import studio.junecity.greenhouse.model.*
 import java.time.Instant
@@ -568,6 +570,9 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     var showRemoved by remember(store) { mutableStateOf(false) }
     var editing by remember(store) { mutableStateOf<GoveeSensor?>(null) }
     var positioning by remember(store) { mutableStateOf<GoveeSensor?>(null) }
+    var forgetting by remember(store) { mutableStateOf<GoveeSensor?>(null) }
+    var searchingGovee by remember(store) { mutableStateOf(false) }
+    var forgotten by remember(store) { mutableStateOf(store.forgottenGovee()) }
     positioning?.let { sensor ->
         state.preferences.greenhouses.find { it.id==sensor.greenhouseId }?.let { house ->
             SensorPositionDialog(house,sensor,{positioning=null}) { point ->
@@ -584,11 +589,36 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         if (local && secure.cloudEnrollment() == owner) {
             action()
             removed = store.removed()
+            forgotten = store.forgottenGovee()
             onSensorsChanged()
         }
     }
+    forgetting?.let { sensor ->
+        AlertDialog(onDismissRequest = { forgetting = null }, containerColor = DashboardTokens.PanelRaised,
+            title = { Text("Permanently remove ${sensor.name}?", color = Color.White) },
+            text = { Text("This clears its label, zone and map position. Past readings stay in History. You can set it up again in Devices.", color = DashboardTokens.Muted) },
+            dismissButton = { TextButton(onClick = { forgetting = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = {
+                change {
+                    store.forget(sensor)
+                    val suffix = if (state.standalone) "_standalone" else ""
+                    ZoneAssignmentStore(context, suffix).forget(sensor.id)
+                    AlertNotifier(context, suffix).forgetSensor(sensor.id)
+                    onPrefs?.invoke { prefs ->
+                        prefs.copy(sensorGreenhouseIds = prefs.sensorGreenhouseIds - sensor.id,
+                            greenhouses = prefs.greenhouses.map { it.copy(sensorPositions = it.sensorPositions - sensor.id) })
+                    }
+                }
+                expanded = null
+                forgetting = null
+            }) { Text("Permanently remove", color = DashboardTokens.Danger) } })
+    }
+    if (searchingGovee) GoveeReenrollment(secure.sensorKey(owner), forgotten, { searchingGovee = false }) { sensor ->
+        change { store.enroll(sensor.copy(greenhouseId = state.preferences.activeGreenhouse.id)) }
+        onRefresh()
+    }
     editing?.let { sensor ->
-        SensorLabelDialog(sensor.name, onClose = { editing = null },
+        SensorLabelDialog(sensor.name, onForget = { editing = null; forgetting = sensor }, onClose = { editing = null },
             onSave = { label -> change { store.rename(sensor.id, label) }; editing = null },
             onRemove = { change { store.remove(sensor.id) }; expanded = null; editing = null })
     }
@@ -608,6 +638,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                     }
                 }else{
                     ActionButton(if(state.goveeConnected)"Manage Govee" else "Add Govee sensors",d,t){editKey=true}
+                    if (state.goveeConnected && forgotten.isNotEmpty()) TextButton(onClick = { searchingGovee = true }) { Text("Add a Govee sensor again", color = DashboardTokens.Amber) }
                     if(state.goveeConnected) TextButton(onClick=onRefresh){Text("Find Govee sensors",color=DashboardTokens.Amber)}
                 }
                 state.message?.let{Text(it,color=DashboardTokens.Muted)}
@@ -643,6 +674,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
             if (showRemoved) items(removed, key = { "removed-${it.id}" }) { sensor ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(sensor.name, Modifier.weight(1f), color = Color.White)
+                    TextButton(onClick = { forgetting = sensor }) { Text("Forget", color = DashboardTokens.Danger) }
                     TextButton(onClick = { change { store.addBack(sensor.id) } }) { Text("Add back", color = DashboardTokens.Amber) }
                 }
             }
@@ -659,7 +691,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
         }
     }
 }
-@Composable internal fun SensorLabelDialog(name: String, onClose: () -> Unit, onSave: (String) -> Unit, onRemove: () -> Unit) {
+@Composable internal fun SensorLabelDialog(name: String, onForget: () -> Unit, onClose: () -> Unit, onSave: (String) -> Unit, onRemove: () -> Unit) {
     var label by remember(name) { mutableStateOf(name) }
     var confirming by remember { mutableStateOf(false) }
     AlertDialog(onDismissRequest = onClose, containerColor = DashboardTokens.PanelRaised,
@@ -669,6 +701,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
             else Column {
                 OutlinedTextField(label, { label = it.take(64) }, singleLine = true, colors = darkFieldColors(),
                     label = { Text("Sensor label") }, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = onForget) { Text("Permanently remove", color = DashboardTokens.Danger) }
                 TextButton(onClick = { confirming = true }) { Text("Remove sensor", color = DashboardTokens.Danger) }
             }
         },

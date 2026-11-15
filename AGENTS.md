@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.28.2 (66)
+- Settings → Devices on a collecting phone can permanently forget a current or archived sensor. StageScreens clears setup, zone, position and alert state. Historical observations remain. CurrentSensorStore tracks forgotten Govee IDs through CustomerBackup and GreenhouseBackupStore so automatic collection cannot re-enroll them. GoveeReenrollment enables deliberate re-add. Shelly uses standard scan or manual enrollment.
+- 145 JVM tests, nine API 35 backup cases and one isolated API 35 Devices workflow passed. Lint reported zero errors. Live Govee discovery, physical Shelly re-enrollment and second-phone synchronization still need hardware verification.
+
 ## 2026-11-15 · Greenhouse Studio 2.28.1 (65)
 - SensorReadings owns the ID-based four-color Zones palette and shared sidebar rows. SensorTrendChart, StageScreens and ZoneInsights reuse it for historical traces, comparison pickers, replay and reports. The heat field retains its metric scale. Zone rows use SpatialInterpolator's selected metric.
 - Zones uses equally sized tools and collapses them to a menu in narrow panes. History places the latest or selected value beside the sensor label and range. No settings or database migration.

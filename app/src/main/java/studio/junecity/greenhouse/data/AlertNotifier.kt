@@ -11,6 +11,10 @@ import kotlin.math.roundToInt
 class AlertNotifier(private val context:Context,private val suffix:String=""){
     private val manager=context.getSystemService(NotificationManager::class.java);private val state=context.getSharedPreferences("alert_state$suffix",Context.MODE_PRIVATE)
     init{manager.createNotificationChannel(NotificationChannel("greenhouse_quiet","Greenhouse status",NotificationManager.IMPORTANCE_LOW));manager.createNotificationChannel(NotificationChannel("greenhouse_alerts","Greenhouse alerts",NotificationManager.IMPORTANCE_HIGH))}
+    fun forgetSensor(id: String) {
+        manager.cancel(id.hashCode())
+        state.edit().remove("condition_$id").remove("sent_$id").apply()
+    }
     fun evaluate(sensor:GoveeSensor){
         val settings=AppPreferencesStore(context,suffix).load();val p=settings.notifications;val now=System.currentTimeMillis();if(!p.masterEnabled||now<p.snoozedUntilEpochMs)return
         val condition=condition(sensor,p);val key="condition_${sensor.id}";val previous=state.getString(key,null);if(condition==null){if(previous!=null)state.edit().remove(key).apply();return}

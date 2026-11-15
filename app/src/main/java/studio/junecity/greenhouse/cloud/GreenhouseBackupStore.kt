@@ -76,6 +76,6 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
         }
         if (savedPreferences != null || localCameraMode != null) preferences.save(effective)
         if (assignments != null) zones.replaceAssignments(assignments)
-        if (inventory != null) currentSensors.restore(inventory, value.optJSONArray("removedSensors"), value.optJSONObject("sensorLabels"))
+        if (inventory != null) currentSensors.restore(inventory, value.optJSONArray("removedSensors"), value.optJSONObject("sensorLabels"), value.optJSONArray("forgottenGovee"))
     }
 }

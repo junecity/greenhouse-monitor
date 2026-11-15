@@ -98,6 +98,27 @@ class CustomerBackupTest {
         assertEquals(listOf("Canopy", "Bench floor"), current.allowedReadings(fromCloud).map { it.name })
     }
 
+    @Test fun forgottenGoveeStaysExcludedThroughBackupUntilExplicitlyEnrolled() {
+        val (_, history) = seed()
+        val fresh = GoveeSensor(sensor.id, sensor.sku, "Factory label")
+        current.rename(sensor.id, "Old label")
+        current.remove(sensor.id)
+        current.forget(sensor)
+        val backup = CustomerBackup(context, enrollment)
+        val output = ByteArrayOutputStream()
+        backup.write(output, scope)
+        current.clear()
+        backup.restore(output.toByteArray().inputStream(), charArrayOf(), scope)
+        assertTrue(current.load().isEmpty())
+        assertTrue(current.removed().isEmpty())
+        assertTrue(current.allowedReadings(listOf(fresh)).isEmpty())
+        assertEquals(setOf(sensor.id), current.excludedIds())
+        current.enroll(fresh)
+        assertEquals(listOf(fresh), current.load())
+        assertEquals(listOf(fresh), current.allowedReadings(listOf(fresh)))
+        HistoryStore(context, "_standalone").use { assertEquals(history.size, it.recent(2500).size) }
+    }
+
     @Test fun damagedTruncatedWrongPasswordAndForeignFilesLeaveDestinationIntact() {
         val (file,_) = seed()
         prefs.clear()

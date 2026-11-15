@@ -546,11 +546,24 @@ class StandaloneEditorTest {
                 find("Edit")
                 assertEquals(sensor.copy(name = "Lower bench"), store.load().single())
                 assertTrue(store.removed().isEmpty())
+                click("Edit")
+                click("Permanently remove")
+                find("Permanently remove Lower bench?")
+                click("Cancel")
+                assertEquals("Lower bench", store.load().single().name)
+                click("Edit")
+                click("Permanently remove")
+                find("Permanently remove Lower bench?")
+                click("Permanently remove")
+                assertTrue(store.load().isEmpty())
+                assertTrue(store.removed().isEmpty())
+                store.enroll(sensor)
+                assertEquals(listOf(sensor), store.load())
             }
         } finally {
             secure.clearCloudEnrollment()
             store.restore(CurrentSensorCodec.decode(original.getJSONArray("sensors")),
-                original.getJSONArray("removedSensors"), original.getJSONObject("sensorLabels"))
+                original.getJSONArray("removedSensors"), original.getJSONObject("sensorLabels"), original.optJSONArray("forgottenGovee"))
         }
     }
 

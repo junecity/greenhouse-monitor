@@ -24,7 +24,7 @@ class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(
         return runCatching{
             val provider=GoveeSensorProvider();val credential=SensorProviderCredential.ApiKey(key);val history=HistoryStore(applicationContext,suffix);val notifier=AlertNotifier(applicationContext,suffix);val zones=ZoneAssignmentStore(applicationContext,suffix);val prefs=AppPreferencesStore(applicationContext,suffix)
             val store = CurrentSensorStore(applicationContext,suffix)
-            val collected = provider.collectReadings(credential, prefs.load(), store.load(), store.removed().mapTo(hashSetOf()) { it.id }, zones::zone)
+            val collected = provider.collectReadings(credential, prefs.load(), store.load(), store.excludedIds(), zones::zone)
             if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return Result.success()
             val sensors = collected.withCurrentAssignments(prefs.load(), zones::zone)
             val active = store.replaceGovee(sensors)

@@ -163,7 +163,7 @@ internal class CustomerBackup(private val context: Context, private val enrollme
             zones.replaceAssignments(assignments.keys().asSequence().associateWith(assignments::getString))
             sensors.restore(saved.map { old ->
                 current[old.id]?.takeIf { it.updatedAtEpochMs > old.updatedAtEpochMs }?.copy(name = old.name, greenhouseId = old.greenhouseId, zone = old.zone) ?: old
-            }.inSavedHouses(prefs), meta.optJSONArray("removedSensors"), meta.optJSONObject("sensorLabels"))
+            }.inSavedHouses(prefs), meta.optJSONArray("removedSensors"), meta.optJSONObject("sensorLabels"), meta.optJSONArray("forgottenGovee"))
         }
         forecast.save(rules(meta), durable = true)
     }
