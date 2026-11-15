@@ -18,7 +18,13 @@ import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
 
-internal fun CloudEnrollment.widgetScope() = listOf(tenantId, deviceId, role.name, greenhouseId, isStandaloneClient()).joinToString("|")
+private fun CloudEnrollment.widgetOwner() = "$tenantId|$deviceId|${role.name}"
+internal fun CloudEnrollment.widgetScope() = "${widgetOwner()}|$greenhouseId|${isStandaloneClient()}"
+// Existing widget configuration includes its original data source as the last two fields.
+internal fun CloudEnrollment.ownsWidget(savedScope: String?): Boolean {
+    return savedScope == widgetScope() || (tenantId.isNotBlank() && savedScope?.startsWith("${widgetOwner()}|") == true)
+}
+
 internal enum class WidgetMetric(val title: String) { Both("Temperature and humidity"), Temperature("Temperature"), Humidity("Humidity") }
 internal data class WidgetReading(val text: String, val at: Long?, val stale: Boolean)
 
@@ -71,14 +77,17 @@ class ClimateWidget : AppWidgetProvider() {
             var title = "Greenhouse Studio"
             var reading = "—"
             var status = "Open Greenhouse Studio to set up"
-            if (owner != null && owner.widgetScope() == options.getString("scope", "")) {
+            val savedScope = options.getString("scope", null)
+            if (owner != null && owner.ownsWidget(savedScope)) {
                 status = "Waiting for greenhouse readings"
                 if (viewerReady(context, owner)) {
                     val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
                     val prefs = AppPreferencesStore(context, suffix).load()
-                    val house = prefs.greenhouses.find { it.id == options.getString("house", "") }
+                    val sameSource = owner.widgetScope() == savedScope
+                    val houseId = if (sameSource) options.getString("house", "") else ""
+                    val house = if (houseId.isNullOrEmpty()) prefs.activeGreenhouse else prefs.greenhouses.find { it.id == houseId }
                     if (house != null) {
-                        val sensor = options.getString("sensor", "")
+                        val sensor = if (sameSource) options.getString("sensor", "") else ""
                         val rows = CurrentSensorStore(context, suffix).load().filter { prefs.sensorHouse(it) == house.id && (sensor.isNullOrEmpty() || it.id == sensor) }
                         title = if (sensor.isNullOrEmpty()) house.name else rows.firstOrNull()?.name ?: house.name
                         val metric = WidgetMetric.entries.find { it.name == options.getString("metric", "") } ?: WidgetMetric.Both
@@ -89,7 +98,7 @@ class ClimateWidget : AppWidgetProvider() {
                             status = if (value.stale) "Last reading · $date" else "As of $date"
                         }
                     } else status = "Choose a greenhouse in widget settings"
-                }
+                } else status = "Waiting for server readings"
             }
             views.setTextViewText(R.id.widget_title, title)
             views.setTextViewText(R.id.widget_reading, reading)

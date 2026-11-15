@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.sensors
 
 import android.appwidget.*
+import studio.junecity.greenhouse.R
 import android.content.ComponentName
 import android.content.Intent
 import androidx.test.core.app.ActivityScenario
@@ -100,35 +101,82 @@ class EnvironmentalRadioTest {
                 instrumentation.waitForIdleSync()
             }
             assertEquals(owner.widgetScope(),ClimateWidget.settings(context,id).getString("scope",""))
-            var received: android.widget.RemoteViews? = null
-            val customHost = object : AppWidgetHost(context,4271) {
-                override fun onCreateView(c: android.content.Context, widgetId:Int, info:AppWidgetProviderInfo) =
-                    object : AppWidgetHostView(c) {
-                        override fun updateAppWidget(views: android.widget.RemoteViews?) { super.updateAppWidget(views); received = views }
-                    }
-            }
-            fun displayedReading() : String {
-                var reading = ""
-                instrumentation.runOnMainSync {
-                    customHost.createView(context,id,manager.getAppWidgetInfo(id))
-                    val view = received!!.apply(context,android.widget.FrameLayout(context))
-                    reading = view.findViewById<android.widget.TextView>(studio.junecity.greenhouse.R.id.widget_reading).text.toString()
-                }
-                return reading
-            }
-            assertEquals("20°C  51% RH", displayedReading())
+            assertEquals("20°C  51% RH", widgetText(4271, id, R.id.widget_reading))
             secure.clearCloudEnrollment()
             ClimateWidget.render(context,id)
-            instrumentation.runOnMainSync { customHost.createView(context,id,manager.getAppWidgetInfo(id)) }
-            assertNotNull(received)
-            instrumentation.runOnMainSync {
-                val view = received!!.apply(context,android.widget.FrameLayout(context))
-                assertEquals("Open Greenhouse Studio to set up",view.findViewById<android.widget.TextView>(studio.junecity.greenhouse.R.id.widget_time).text.toString())
-            }
+            assertEquals("Open Greenhouse Studio to set up", widgetText(4271, id, R.id.widget_time))
         } finally {
             sensors.forget(sample)
             host.deleteHost()
             if (previous != null) secure.saveCloudEnrollment(previous) else secure.clearCloudEnrollment()
+        }
+    }
+
+    private fun widgetText(hostId: Int, id: Int, field: Int): String {
+        var result = ""
+        instrumentation.runOnMainSync {
+            val host = AppWidgetHost(context, hostId)
+            val info = AppWidgetManager.getInstance(context).getAppWidgetInfo(id)
+            val view = host.createView(context, id, info)
+            result = view.findViewById<android.widget.TextView>(field).text.toString()
+        }
+        return result
+    }
+
+    @Test fun clientAddsWidgetBeforeServerSyncAndKeepsItBetweenModes() {
+        assumeTrue(android.os.Build.MODEL.contains("sdk", ignoreCase = true))
+        val secure = SecureSettingsStore(context)
+        val previous = secure.cloudEnrollment()
+        val owner = CloudEnrollment("widget-client", "test-house", CloudDeviceRole.ViewerClient, tenantId = "widget-account")
+        val local = owner.copy(greenhouseId = "", localSensors = true)
+        val paired = CurrentSensorStore(context)
+        val standalone = CurrentSensorStore(context, "_standalone")
+        val previousPaired = paired.load()
+        val previousLocal = standalone.load()
+        val hostId = 4272
+        val host = AppWidgetHost(context, hostId)
+        val manager = AppWidgetManager.getInstance(context)
+        val id = host.allocateAppWidgetId()
+        val now = System.currentTimeMillis()
+        fun sample(suffix: String, temp: Double) = GoveeSensor("widget-fixture", "H5179", "Bench", temp, 50.0,
+            true, now, AppPreferencesStore(context, suffix).load().activeGreenhouse.id)
+        fun assertWidget(field: Int, expected: String) {
+            compose.waitUntil(5_000) { widgetText(hostId, id, field) == expected }
+        }
+        try {
+            secure.clearCloudEnrollment()
+            secure.saveCloudEnrollment(owner)
+            paired.save(listOf(sample("", 90.0))) // An unverified cache must stay hidden.
+            instrumentation.uiAutomation.adoptShellPermissionIdentity(android.Manifest.permission.BIND_APPWIDGET)
+            try { assertTrue(manager.bindAppWidgetIdIfAllowed(id, ComponentName(context, ClimateWidget::class.java))) }
+            finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
+            val intent = Intent(context, WidgetSettingsActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            ActivityScenario.launch<WidgetSettingsActivity>(intent).use {
+                compose.onNodeWithText("Current greenhouse").assertExists()
+                compose.onNodeWithText("Save widget").performClick()
+                instrumentation.waitForIdleSync()
+            }
+            assertWidget(R.id.widget_time, "Waiting for server readings")
+            assertWidget(R.id.widget_reading, "—")
+            paired.save(listOf(sample("", 72.0)))
+            ClimateWidget.viewerSynced(context, owner)
+            assertWidget(R.id.widget_reading, "72°F  50% RH")
+            standalone.save(emptyList())
+            secure.saveCloudEnrollment(local)
+            assertWidget(R.id.widget_time, "Waiting for greenhouse readings")
+            standalone.save(listOf(sample("_standalone", 65.0)))
+            assertWidget(R.id.widget_reading, "65°F  50% RH")
+            secure.saveCloudEnrollment(owner)
+            assertWidget(R.id.widget_time, "Waiting for server readings")
+            ClimateWidget.viewerSynced(context, owner)
+            assertWidget(R.id.widget_reading, "72°F  50% RH")
+            secure.saveCloudEnrollment(owner.copy(tenantId = "another-account"))
+            assertWidget(R.id.widget_time, "Open Greenhouse Studio to set up")
+        } finally {
+            host.deleteHost()
+            paired.save(previousPaired)
+            standalone.save(previousLocal)
+            if (previous == null) secure.clearCloudEnrollment() else secure.saveCloudEnrollment(previous)
         }
     }
 }

@@ -1,4 +1,7 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
+## 2026-11-15 · Greenhouse Studio 2.32.1 (72)
+- WidgetSettingsActivity allows enrolled clients to place a widget before server data arrives. The default follows the current greenhouse. ClimateWidget keeps per-enrollment display choices across standalone/paired transitions, applies source-specific house and sensor choices only within the original source, and waits for a matching snapshot before showing paired readings.
+- EnvironmentalRadioTest exercises placement, transitions, cached-data isolation and sign-out in a real API 35 app-widget host. Both widget tests and 157 JVM tests passed. Lint reported zero errors. Physical launchers and live two-phone delivery remain unverified.
 
 ## 2026-11-15 · Greenhouse Studio 2.32.0 (71)
 - Devices → Add Bluetooth thermometer discovers advertised Bluetooth SIG Environmental Sensing services or checks a manually entered address. EnvironmentalBluetooth verifies readable temperature and humidity before enrollment. Collectors poll enrolled ESS addresses sequentially, keep timestamps on failure and use the existing sensor inventory, history, alarm and snapshot paths. Govee refresh preserves both local BLE providers. The heartbeat identifies BLE ESS.

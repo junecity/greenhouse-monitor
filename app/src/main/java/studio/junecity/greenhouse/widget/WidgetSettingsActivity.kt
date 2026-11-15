@@ -27,34 +27,42 @@ class WidgetSettingsActivity : ComponentActivity() {
         val secure = SecureSettingsStore(this)
         val owner = secure.cloudEnrollment()
         val options = ClimateWidget.settings(this, id)
+        val ready = owner != null && ClimateWidget.viewerReady(this, owner)
         val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
-        val prefs = AppPreferencesStore(this, suffix).load()
-        val rows = CurrentSensorStore(this, suffix).load()
+        val prefs = if (ready) AppPreferencesStore(this, suffix).load() else null
+        val rows = if (ready) CurrentSensorStore(this, suffix).load() else emptyList()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFFB347))) {
                 Surface(Modifier.fillMaxSize()) {
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Greenhouse widget", style = MaterialTheme.typography.headlineSmall)
-                        if (owner == null || !ClimateWidget.viewerReady(this@WidgetSettingsActivity, owner)) {
-                            Text("Open Greenhouse Studio and sync your greenhouse before adding a widget.")
+                        if (owner == null) {
+                            Text("Sign in to Greenhouse Studio to add a widget.")
                             TextButton(onClick = { finish() }) { Text("Close") }
                         } else {
-                            val ours = owner.widgetScope() == options.getString("scope", "")
-                            var house by rememberSaveable { mutableStateOf(prefs.greenhouses.find { ours && it.id == options.getString("house","") }?.id ?: prefs.activeGreenhouse.id) }
-                            val sensors = rows.filter { prefs.sensorHouse(it) == house }
-                            var sensor by rememberSaveable(house) { mutableStateOf(sensors.find { ours && it.id == options.getString("sensor","") }?.id ?: "") }
+                            val savedScope = options.getString("scope", null)
+                            val sameSource = owner.widgetScope() == savedScope
+                            val ours = owner.ownsWidget(savedScope)
+                            val houses = prefs?.greenhouses.orEmpty()
+                            var house by rememberSaveable { mutableStateOf(houses.find { sameSource && it.id == options.getString("house", "") }?.id.orEmpty()) }
+                            val selectedHouse = house.ifEmpty { prefs?.activeGreenhouse?.id.orEmpty() }
+                            val sensors = rows.filter { prefs?.sensorHouse(it) == selectedHouse }
+                            var sensor by rememberSaveable(house) { mutableStateOf(sensors.find { sameSource && it.id == options.getString("sensor", "") }?.id.orEmpty()) }
                             var metric by rememberSaveable { mutableStateOf(WidgetMetric.entries.find { ours && it.name == options.getString("metric","") } ?: WidgetMetric.Both) }
                             var celsius by rememberSaveable { mutableStateOf(ours && options.getBoolean("celsius", false)) }
-                            Choice("Greenhouse", prefs.greenhouses.first { it.id == house }.name, prefs.greenhouses.map { it.id to it.name }) { house = it }
+                            if (!ready) Text("Your widget will show readings when the greenhouse server syncs.")
+                            Choice("Greenhouse", houses.find { it.id == house }?.name ?: "Current greenhouse",
+                                listOf("" to "Current greenhouse") + houses.map { it.id to it.name }) { house = it }
                             Choice("Reading", sensors.find { it.id == sensor }?.name ?: "Greenhouse average",
                                 listOf("" to "Greenhouse average") + sensors.map { it.id to it.name }) { sensor = it }
                             Choice("Show", metric.title, WidgetMetric.entries.map { it to it.title }) { metric = it }
                             if (metric != WidgetMetric.Humidity) Choice("Temperature unit", if (celsius) "Celsius" else "Fahrenheit",
                                 listOf(false to "Fahrenheit", true to "Celsius")) { celsius = it }
                             Button(onClick = {
-                                if (secure.cloudEnrollment() == owner) {
-                                    options.edit().putString("scope", owner.widgetScope()).putString("house", house)
+                                val current = secure.cloudEnrollment()
+                                if (current != null && current.ownsWidget(owner.widgetScope())) {
+                                    options.edit().putString("scope", owner.widgetScope()).putString("house", if (sensor.isEmpty()) house else selectedHouse)
                                         .putString("sensor", sensor).putString("metric", metric.name).putBoolean("celsius", celsius).apply()
                                     ClimateWidget.render(this@WidgetSettingsActivity, id)
                                     setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,id))
