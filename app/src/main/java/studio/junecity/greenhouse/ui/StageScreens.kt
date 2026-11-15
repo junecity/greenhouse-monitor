@@ -645,6 +645,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                     if (local && onPrefs!=null && state.preferences.greenhouses.any { it.id==sensor.greenhouseId }) TextButton(onClick={positioning=sensor}) { Text("Position",color=DashboardTokens.Amber) }
                     if (local) TextButton(onClick = { editing = sensor }) { Text("Edit", color = DashboardTokens.Amber) }
                 }
+                SensorBatteryLabel(sensor, 14.sp)
                 sensor.lightLevel?.let { Text("Ambient light · $it" + if (sensor.isFresh()) "" else " (last reading)", color=DashboardTokens.Muted) }
                 val assigned = state.preferences.greenhouses.firstOrNull { it.id == sensor.greenhouseId }
                 Text(listOfNotNull(assigned?.name ?: "Choose a greenhouse", sensor.zone.takeIf { assigned != null }, if(sensor.isFresh()) "Online" else if (sensor.updatedAtEpochMs == 0L && sensor.id.startsWith("shelly:")) "Waiting for first reading" else "Offline").joinToString(" · "), color=DashboardTokens.Muted)

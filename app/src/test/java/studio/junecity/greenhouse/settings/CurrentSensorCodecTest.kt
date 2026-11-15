@@ -10,7 +10,7 @@ class CurrentSensorCodecTest {
         val sensor = GoveeSensor(
             id = "device-123", sku = "H5179", name = "North bench",
             temperatureF = 74.25, humidityPercent = 61.5, online = true,
-            updatedAtEpochMs = 123456789L, greenhouseId = "main", zone = "Zone 2"
+            updatedAtEpochMs = 123456789L, greenhouseId = "main", zone = "Zone 2", batteryPercent = 0, batteryLow = true
         )
 
         assertEquals(listOf(sensor), CurrentSensorCodec.decode(CurrentSensorCodec.encode(listOf(sensor))))
@@ -21,6 +21,8 @@ class CurrentSensorCodecTest {
 
         val decoded = CurrentSensorCodec.decode(CurrentSensorCodec.encode(listOf(sensor))).single()
 
+        assertNull(decoded.batteryPercent)
+        assertNull(decoded.batteryLow)
         assertNull(decoded.temperatureF)
         assertNull(decoded.humidityPercent)
     }

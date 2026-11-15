@@ -202,7 +202,12 @@ private val ProEdge=DashboardTokens.PanelEdge
                         Box(Modifier.size(d(10f)).background(if(fresh) ProGreen else DashboardTokens.MutedDark, CircleShape))
                         Spacer(Modifier.width(d(12f)))
                         Column(Modifier.weight(1f)) {
-                            Text(sensor.zone, color=Color.White, fontSize=t(13f), fontWeight=FontWeight.ExtraBold, maxLines=1)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d(8f))) {
+                                Text(sensor.zone, color=Color.White, fontSize=t(13f), fontWeight=FontWeight.ExtraBold,
+                                    modifier=Modifier.weight(1f, fill=false), maxLines=1,
+                                    overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                SensorBatteryLabel(sensor, t(11f), compact = true)
+                            }
                             val label = when {
                                 fresh -> sensor.name
                                 sensor.updatedAtEpochMs <= 0 -> "${sensor.name} · No reading yet"

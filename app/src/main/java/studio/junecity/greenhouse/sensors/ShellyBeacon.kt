@@ -34,12 +34,15 @@ private fun ByteArray.uint(offset: Int, count: Int): Int {
     return value
 }
 
-internal data class ShellyBeacon(val temperatureF: Double?, val humidity: Double?, val light: String?, val type: Int?, val encrypted: Boolean) {
+internal data class ShellyBeacon(val temperatureF: Double?, val humidity: Double?, val light: String?, val type: Int?, val encrypted: Boolean,
+    val batteryPercent: Int? = null, val batteryLow: Boolean? = null) {
     companion object {
         fun parse(data: ByteArray): ShellyBeacon? {
             val flags = data.firstOrNull()?.toInt()?.and(255) ?: return null
             if (flags ushr 5 != 2) return null
             if (flags and 1 != 0) return ShellyBeacon(null, null, null, null, true)
+            var batteryPercent: Int? = null
+            var batteryLow: Boolean? = null
             var temp: Double? = null
             var rh: Double? = null
             var light: String? = null
@@ -57,6 +60,8 @@ internal data class ShellyBeacon(val temperatureF: Double?, val humidity: Double
                 if (offset + size > data.size) return null
                 val value = data.uint(offset, size)
                 when (tag) {
+                    0x01 -> batteryPercent = value.takeIf { it in 0..100 }
+                    0x15 -> batteryLow = when (value) { 0 -> false; 1 -> true; else -> null }
                     2, 0x45 -> temp = value.toShort() / (if (tag == 2) 100.0 else 10.0) * 1.8 + 32
                     3, 0x2e -> rh = (value / (if (tag == 3) 100.0 else 1.0)).takeIf { it in 0.0..100.0 }
                     0x64 -> light = listOf("Dark", "Twilight", "Bright").getOrNull(value)
@@ -64,7 +69,7 @@ internal data class ShellyBeacon(val temperatureF: Double?, val humidity: Double
                 }
                 offset += size
             }
-            return ShellyBeacon(temp, rh, light, type, false)
+            return ShellyBeacon(temp, rh, light, type, false, batteryPercent, batteryLow)
         }
     }
 }
@@ -76,6 +81,7 @@ internal data class ShellyAdvertisement(val id: String, val model: ShellyModel?,
         if (received - sensor.updatedAtEpochMs < 5_000) return null
         return sensor.copy(temperatureF = beacon.temperatureF, humidityPercent = beacon.humidity,
             lightLevel = if (sensor.sku == ShellyModel.Display.sku) beacon.light else null,
+            batteryPercent = beacon.batteryPercent, batteryLow = beacon.batteryLow,
             online = true, updatedAtEpochMs = received)
     }
 }

@@ -72,7 +72,8 @@ data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhous
         return coercePoint(normalized.x*planLengthFeet,normalized.y*planWidthFeet).copy(heightFeet=position.heightFeet, level=position.level)
     }
 }
-data class GoveeSensor(val id:String,val sku:String,val name:String,val temperatureF:Double?=null,val humidityPercent:Double?=null,val online:Boolean=false,val updatedAtEpochMs:Long=0,val greenhouseId:String="main",val zone:String="Unassigned",val lightLevel:String?=null){
+data class GoveeSensor(val id:String,val sku:String,val name:String,val temperatureF:Double?=null,val humidityPercent:Double?=null,val online:Boolean=false,val updatedAtEpochMs:Long=0,val greenhouseId:String="main",val zone:String="Unassigned",val lightLevel:String?=null,
+    val batteryPercent: Int? = null, val batteryLow: Boolean? = null){
     fun isFresh(now:Long=System.currentTimeMillis(),staleAfterMs:Long=10*60_000L)=online&&temperatureF!=null&&humidityPercent!=null&&now-updatedAtEpochMs<=staleAfterMs
     val roundedTemperature get()=temperatureF?.roundToInt();val roundedHumidity get()=humidityPercent?.roundToInt()
     val dewPointF:Double? get(){val t=temperatureF?:return null;val rh=humidityPercent?:return null;val c=(t-32)*5/9;val a=17.625;val b=243.04;val gamma=ln(rh.coerceAtLeast(.1)/100)+a*c/(b+c);return (b*gamma/(a-gamma))*9/5+32}

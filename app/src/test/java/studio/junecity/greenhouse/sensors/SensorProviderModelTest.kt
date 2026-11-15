@@ -13,6 +13,7 @@ class SensorProviderModelTest {
         assertEquals("sensor-1", legacy.id)
         assertEquals(72.456, legacy.temperatureF!!, 0.0)
         assertEquals(58.765, legacy.humidityPercent!!, 0.0)
+        assertEquals(91, legacy.batteryPercent)
         assertEquals("greenhouse-a", legacy.greenhouseId)
         assertEquals("Zone 2", legacy.zone)
         assertTrue(legacy.online)

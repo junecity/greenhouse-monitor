@@ -27,7 +27,8 @@ data class SensorMeasurement(
         online = connected,
         updatedAtEpochMs = recordedAtEpochMs,
         greenhouseId = greenhouseId,
-        zone = zone
+        zone = zone,
+        batteryPercent = batteryPercent?.takeIf { it in 0..100 }
     )
 }
 

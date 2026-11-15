@@ -39,7 +39,7 @@ class ShellyInventoryTest {
             val govee = GoveeSensor("govee-1","H5179","Existing")
             store.replaceGovee(listOf(govee))
             val packets = (units.map { it.id } + "shelly:unknown").associateWith { id ->
-                ShellyAdvertisement(id, ShellyModel.Display, ShellyBeacon(68.0, 75.0, "Twilight", null, false), now)
+                ShellyAdvertisement(id, ShellyModel.Display, ShellyBeacon(68.0, 75.0, "Twilight", null, false, 85, false), now)
             }
             var received = 0
             store.applyShellyPackets(packets) { received++ }
@@ -50,6 +50,8 @@ class ShellyInventoryTest {
             assertEquals(50, received)
             assertEquals(units.map { it.zone }, restored.filter { it.isShelly() }.map { it.zone })
             assertTrue(restored.filter { it.isShelly() }.all { it.greenhouseId == "west" && it.lightLevel == "Twilight" && it.isFresh(now) })
+            assertTrue(restored.filter { it.isShelly() }.all { it.batteryPercent == 85 && it.batteryLow == false })
+            assertNull(restored.first { it.id == govee.id }.batteryPercent)
             assertTrue(govee in restored)
         } finally { store.clear() }
     }

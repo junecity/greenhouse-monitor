@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.23.1 (57)
+- ShellyBeacon decodes BTHome battery percentage and the Display model’s low-battery flag. CurrentSensorCodec carries both optional fields in the existing inventory, backup and viewer snapshot. Dashboard and Devices use SensorBatteryLabel. Keep missing readings distinct from a depleted battery and from phone health.
+- On the Moto G7 the enrolled Shelly H&T ZB reported 100% in Devices. 138 JVM and three API 35 instrumentation tests passed, including a restored server snapshot rendered on the viewer dashboard. Lint had zero errors. Physical Display and second-phone checks remain pending.
+
 ## 2026-11-14 · Greenhouse Studio 2.23.0 (56)
 - Devices → Position and FloorPlanEditor open DragSensorPosition. The drop supplies direction from the nearest true corner. One optional horizontal floor distance refines it. Circles use their center. Exact measurements remain available.
 - SensorPosition stores an optional Upper/Lower band separately from a measured height. ZoneClimate resolves it at 75%/25% of that section’s peak. Preserve the band through movement, preference storage, backups and snapshots. No database migration or cloud deployment.
