@@ -928,6 +928,50 @@ class StandaloneEditorTest {
         assertNotEquals(heat.color(65.0), ZoneHeatScale.Humidity.color(65.0))
     }
 
+    @Test fun volumeAnimatesSavedFansAndStopsBothWhenOff() {
+        val aim1 = FanAim(NormalizedPosition(.50, .20), 180.0)
+        val aim2 = FanAim(NormalizedPosition(.40, .80), 0.0)
+        val plan = GreenhouseConfig(shape = GreenhouseShape.TShape, circulationFans =
+            listOf(CirculationFan(FanSpeed.High, aim1), CirculationFan(FanSpeed.Low, aim2)))
+        val scenarioPlan = androidx.compose.runtime.mutableStateOf(plan)
+        val prefs = AppPreferences(cameraMode = CameraMode.ViewerClient)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                a.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                a.setContent { ZoneVolumeScreen(GreenhouseUiState(preferences = prefs.copy(greenhouses = listOf(scenarioPlan.value))),
+                    { error("Viewer cannot edit") }, {}) }
+            }
+            val label = "Fan 1 High, 180 degrees from plan top; Fan 2 Low, 0 degrees from plan top"
+            val bounds = Rect().also { find(label).getBoundsInScreen(it) }
+            fun changedPixels(): Int {
+                val first = requireNotNull(ui.takeScreenshot())
+                SystemClock.sleep(275)
+                val second = requireNotNull(ui.takeScreenshot())
+                return try {
+                    var changed = 0
+                    for (y in bounds.top until bounds.bottom step 2) for (x in bounds.left until bounds.right step 2)
+                        if (first.getPixel(x, y) != second.getPixel(x, y)) changed++
+                    changed
+                } finally { first.recycle(); second.recycle() }
+            }
+            SystemClock.sleep(1000)
+            val motionEnabled = android.provider.Settings.Global.getFloat(instrumentation.targetContext.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+            if (motionEnabled) assertTrue("Moving blades and traveling arrows", changedPixels() > 12)
+            screenshot("3d-circulation")
+            click("Fans")
+            click("Hide fans")
+            click("Fans")
+            click("Show fans")
+            find(label)
+            scenario.onActivity { scenarioPlan.value = plan.copy(circulationFans =
+                plan.circulationFans.map { it.copy(speed = FanSpeed.Off) }) }
+            find("Fan 1 Off, 180 degrees from plan top; Fan 2 Off, 0 degrees from plan top")
+            SystemClock.sleep(700)
+            assertEquals("Off fans stay still", 0, changedPixels())
+        }
+    }
+
     @Test fun viewerWithoutMountingHeightsRendersBothHeatMaps() {
         val plan = GreenhouseConfig(shape = GreenhouseShape.TShape, sensorPositions = mapOf(
             "north" to SensorPosition(2.0, 3.0), "east" to SensorPosition(13.0, 2.0),

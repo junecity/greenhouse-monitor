@@ -36,7 +36,7 @@ private fun Double.airNumber(digits: Int = 0) = String.format(Locale.getDefault(
     var fans by remember(house.id) { mutableStateOf(house.circulationFans) }
     var editAim by remember { mutableStateOf<Int?>(null) }
     var details by remember { mutableStateOf(false) }
-    val estimate = house.airCirculation(fans)
+    val estimate = remember(house, fans) { house.airCirculation(fans) }
     fun update(index: Int, fan: CirculationFan) {
         fans = fans.mapIndexed { i, old -> if (i == index) fan else old }
     }
@@ -65,10 +65,16 @@ private fun Double.airNumber(digits: Int = 0) = String.format(Locale.getDefault(
                         Text("${estimate.combinedCfm.airNumber()} CFM", color = DashboardTokens.Amber, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                         Text("${estimate.volumesPerHour.airNumber(1)} greenhouse volumes/hr", color = Color.White)
                         estimate.minutesPerVolume?.let { Text("One volume in ${it.airNumber(1)} min", color = Color.White) }
+                        estimate.discharge?.takeIf { estimate.combinedCfm > 0 }?.let { force ->
+                            val direction = force.heading?.let { "${it.roundToInt() % 360}° from plan top" } ?: "Opposing flows balance"
+                            Text("Net outlet momentum", color = DashboardTokens.Muted)
+                            Text("${force.newtons.airNumber(2)} N · $direction", color = Color.White)
+                        }
                         TextButton(onClick = { details = !details }) { Text(if (details) "Hide assumptions" else "How it’s estimated", color = DashboardTokens.Amber) }
                         if (details) {
                             Text("Two equal fans share a high-speed sizing estimate of 2 CFM per sq ft. Low uses 50% and medium 75%. Outlet speeds assume a 12-inch diameter.", color = Color.White)
                             Text("Interior volume ≈ ${estimate.volumeFt3.airNumber()} ft³, using 90% of peak height for each section. Recirculated air can pass through both fans. Actual air speed at a plant depends on distance and obstacles.", color = DashboardTokens.Muted)
+                            Text("Net momentum combines the two outlet jets by speed and aim. Opposing jets can balance while both fans keep moving air.", color = DashboardTokens.Muted)
                             estimate.outlets.forEachIndexed { i, flow -> Text("Fan ${i+1} outlet dynamic pressure ≈ ${flow.dynamicPressurePa.airNumber(1)} Pa", color = DashboardTokens.Muted) }
                         }
                     }
@@ -93,6 +99,10 @@ private fun Double.airNumber(digits: Int = 0) = String.format(Locale.getDefault(
                                             Text(speed.name, color = if (selected) Color.Black else Color.White, fontSize = 14.sp)
                                         }
                                     }
+                                }
+                                estimate.placed.find { it.index == i }?.let { fanPath ->
+                                    val crossing = if (fanPath.acrossJunction) " · across junction" else ""
+                                    Text("${fanPath.wallFeet.airNumber(1)} ft to wall along aim$crossing", color = DashboardTokens.Muted, fontSize = 14.sp)
                                 }
                                 val outlet = estimate.outlets[i]
                                 Text("${outlet.cfm.airNumber()} CFM · ${outlet.milesPerHour.airNumber(1)} mph at outlet", color = DashboardTokens.Muted, fontSize = 14.sp)

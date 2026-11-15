@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-14 · Greenhouse Studio 2.26.0 (61)
+- Zones → 3D view projects both saved fans onto the greenhouse floor. VolumeFans uses the same projection as the heat map, lifecycle-aware motion and distinct outlet arrows. Set the actual horizontal positions, directions and chosen speeds under Dashboard → FAN on the collector.
+- FanAirflow clips each direction to the first exterior wall, detects a path across the attached section opening and combines estimated discharge momentum by direction. FanAirflowDialog reports these values alongside gross circulation based on greenhouse volume. Direction never cancels gross CFM. Assumed capacities and a 12-inch outlet remain the basis for estimates.
+- Passed 145 JVM and four API 35 instrumentation tests, including pixel changes for motion and stationary Off fans. Lint had zero errors. The enrolled Moto received the update and displayed its saved directions in the 3D Fans menu. Physical air speeds and second-phone propagation remain unverified. No schema or cloud changes.
+
 ## 2026-11-14 · Greenhouse Studio 2.25.0 (60)
 - Dashboard FAN opens a two-fan circulation scenario. FanAirflow uses the saved footprint, individual section heights, and assumed airflow and outlet diameter. FanAirflowDialog places and aims each fan on the plan, using degrees clockwise from plan top. Save on a collector; a paired viewer can try a scenario. HEAT and COOL open Energy and temperature Zones.
 - Models, AppPreferencesStore, GreenhouseViewModel, MainActivity and DashboardScreen carry speed and aim through existing greenhouse preferences and snapshot/backup serialization. NightHeating shares the original geometric volume estimate. No cloud or database migration.

@@ -31,4 +31,34 @@ class FanAirflowTest {
         assertNull(house.fanAim(start, start))
         assertNull(house.fanAim(NormalizedPosition(.1, .9), start))
     }
+
+    private fun fan(speed: FanSpeed, heading: Double, x: Double = .5, y: Double = .25) =
+        CirculationFan(speed, FanAim(NormalizedPosition(x,y), heading))
+
+    @Test fun combiningJetsUsesMomentumAndPreservesGrossCirculation() {
+        val same = house.airCirculation(listOf(fan(FanSpeed.High, 90.0), fan(FanSpeed.High, 90.0)))
+        val opposed = house.airCirculation(listOf(fan(FanSpeed.High, 90.0), fan(FanSpeed.High, 270.0)))
+        assertEquals(same.combinedCfm, opposed.combinedCfm, 0.0)
+        assertEquals(90.0, same.discharge!!.heading!!, 1e-8)
+        assertEquals(same.outlets.first().momentumNewtons * 2, same.discharge!!.newtons, 1e-8)
+        assertNull(opposed.discharge!!.heading)
+        val mixed = house.airCirculation(listOf(fan(FanSpeed.Low, 90.0), fan(FanSpeed.High, 0.0)))
+        assertEquals(14.0362, mixed.discharge!!.heading!!, .001)
+        assertEquals(mixed.outlets[1].momentumNewtons * .25, mixed.outlets[0].momentumNewtons, 1e-8)
+        assertNull(house.airCirculation(listOf(fan(FanSpeed.High, 0.0), CirculationFan())).discharge)
+        assertNotNull(house.airCirculation(listOf(fan(FanSpeed.High, 0.0), CirculationFan(FanSpeed.Off))).discharge)
+    }
+
+    @Test fun pathStopsAtFirstWallAndIdentifiesTheSharedOpening() {
+        fun path(x: Double, y: Double, angle: Double) = house.airCirculation(listOf(fan(FanSpeed.High, angle, x, y))).placed.single()
+        assertEquals(18.0, path(.5, .25, 180.0).wallFeet, 1e-8)
+        assertTrue(path(.5, .25, 180.0).acrossJunction)
+        assertFalse(path(.1, .25, 180.0).acrossJunction)
+        assertEquals(2.0, path(.1, .25, 180.0).wallFeet, 1e-8)
+        assertEquals(0.0, path(.5, 0.0, 0.0).wallFeet, 1e-8)
+        assertEquals(24.0, path(.5, 0.0, 180.0).wallFeet, 1e-8)
+        val circle = house.copy(shape = GreenhouseShape.Circle)
+        assertEquals(8.0, circle.airCirculation(listOf(fan(FanSpeed.Medium, 48.0, .5, .5))).placed.single().wallFeet, 1e-8)
+        assertTrue(house.airCirculation(listOf(fan(FanSpeed.High, 0.0, .01, .99))).placed.isEmpty())
+    }
 }

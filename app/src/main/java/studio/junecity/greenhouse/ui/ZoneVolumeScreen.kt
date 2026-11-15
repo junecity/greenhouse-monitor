@@ -60,6 +60,8 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
     LaunchedEffect(Unit){while(true){now=System.currentTimeMillis();delay(15_000)}}
     val probes=remember(g,sensors,now){ZoneClimate.probes(state,now)}
     val insight=remember(g,probes,state.weather,state.history,state.preferences.notifications,now){ZoneClimate.insight(state,probes,now)}
+    val fans = remember(g) { g.airCirculation().placed }
+    var showFans by rememberSaveable(g.id) { mutableStateOf(true) }
     val h=ZoneClimate.height(g)
     val scale = ZoneHeatScale.forMetric(metric)
     val cells=remember(g,probes,metric){ZoneClimate.field(g,probes,metric).map {it to scale.color(it.value).copy(alpha=(it.opacity*.44).toFloat())}}
@@ -114,7 +116,9 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
                 FilterChip(selected=metric==m,onClick={metric=m},label={Text(m.displayName())},
                     colors=FilterChipDefaults.filterChipColors(selectedContainerColor=DashboardTokens.Amber,selectedLabelColor=DashboardTokens.Background,labelColor=Color.White))
             }
-            Spacer(Modifier.weight(1f)); InsightButton("Fit",::fit)
+            Spacer(Modifier.weight(1f))
+            if (!placing) VolumeFanMenu(fans, showFans) { showFans = it }
+            InsightButton("Fit",::fit)
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp))
             .background(Brush.radialGradient(listOf(Color(0xff29333a),Color(0xff13191d))))
@@ -223,6 +227,9 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
                     var y=grid
                     while(y<g.planWidthFeet){rail(0.0,y,0.0,g.planLengthFeet,y,0.0,strut.copy(alpha=.16f));y+=grid}
                 }
+            }
+            if (showFans && !placing) VolumeFans(fans, camera)
+            Canvas(Modifier.fillMaxSize()) {
                 for((probe,pt) in positions){
                     if (placing && probe.sensor.id == sensor?.id) continue
                     val p=probe.position; val v=if(metric==Metric.Humidity)probe.sensor.humidityPercent!! else probe.sensor.temperatureF!!
@@ -256,7 +263,7 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
                     Modifier.align(Alignment.TopStart).padding(10.dp),color=DashboardTokens.Muted,fontSize=12.sp)
             }
             if (!editable && sensors.isNotEmpty()) Text("Place sensors on the greenhouse phone", Modifier.align(Alignment.BottomStart).padding(10.dp), color = DashboardTokens.Muted, fontSize = 12.sp)
-            if(sensors.isEmpty()) Text("Add sensors in Settings → Devices",Modifier.align(Alignment.Center).background(DashboardTokens.Background).padding(8.dp),color=Color.White)
+            if(sensors.isEmpty() && (!showFans || fans.isEmpty())) Text("Add sensors in Settings → Devices",Modifier.align(Alignment.Center).background(DashboardTokens.Background).padding(8.dp),color=Color.White)
         }
         if (placing) {
             val point = draft
