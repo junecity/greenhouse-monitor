@@ -116,7 +116,7 @@ def parse_observations(body, now):
         limits = low, high
         if measured < (now - 900) * 1000:
             continue
-        direction = "LOW" if value < low else "HIGH" if value > high else "NORMAL"
+        direction = "LOW" if value <= low else "HIGH" if value >= high else "NORMAL"
         message = temperature_breach_message(
             {"sensorName": name, "measuredAt": measured // 1000, "temperatureF": value,
              "direction": direction, "limitF": low if direction == "LOW" else high}, now)

@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import studio.junecity.greenhouse.R
+import studio.junecity.greenhouse.cloud.TemperatureBreach
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.CloudEnrollment
@@ -87,9 +88,14 @@ class AlertNotifier(private val context: Context, private val suffix: String = "
         if (!sensor.online) return if (prefs.offlineAlerts) "Sensor offline" else null
         val temperature = sensor.temperatureF?.takeIf { it.isFinite() }
         val humidity = sensor.humidityPercent?.takeIf { it.isFinite() }
+        if (prefs.temperatureAlerts && temperature != null) {
+            when (TemperatureBreach.Direction.forReading(temperature, prefs.lowTemperatureF, prefs.highTemperatureF)) {
+                TemperatureBreach.Direction.LOW -> return "Temperature low: ${temperature.roundToInt()}°F"
+                TemperatureBreach.Direction.HIGH -> return "Temperature high: ${temperature.roundToInt()}°F"
+                null -> Unit
+            }
+        }
         return when {
-            prefs.temperatureAlerts && temperature != null && temperature < prefs.lowTemperatureF -> "Temperature low: ${temperature.roundToInt()}°F"
-            prefs.temperatureAlerts && temperature != null && temperature > prefs.highTemperatureF -> "Temperature high: ${temperature.roundToInt()}°F"
             prefs.humidityAlerts && humidity != null && humidity < prefs.lowHumidity -> "Humidity low: ${humidity.roundToInt()}%"
             prefs.humidityAlerts && humidity != null && humidity > prefs.highHumidity -> "Humidity high: ${humidity.roundToInt()}%"
             else -> null

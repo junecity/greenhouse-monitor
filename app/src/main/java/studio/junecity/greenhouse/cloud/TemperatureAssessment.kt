@@ -13,7 +13,18 @@ data class TemperatureBreach(
     val direction: Direction,
     val measuredAtEpochMs: Long
 ) {
-    enum class Direction { LOW, HIGH }
+    enum class Direction {
+        LOW, HIGH;
+
+        companion object {
+            fun forReading(value: Double, lowF: Double, highF: Double): Direction? = when {
+                !value.isFinite() || !lowF.isFinite() || !highF.isFinite() || lowF >= highF -> null
+                value <= lowF -> LOW
+                value >= highF -> HIGH
+                else -> null
+            }
+        }
+    }
 }
 
 data class TemperatureObservation(
@@ -30,7 +41,8 @@ internal data class TemperatureAssessment(
     val evaluated: Boolean,
     val breach: TemperatureBreach?,
     val outstandingSensorIds: Set<String>,
-    val observations: List<TemperatureObservation>
+    val observations: List<TemperatureObservation>,
+    val breachDirections: Map<String, TemperatureBreach.Direction> = emptyMap()
 )
 
 /** Apply the currently configured limits to the selected house's actual observations at heartbeat time. */
@@ -57,26 +69,25 @@ internal fun assessTemperature(
     val outstanding = if (complete) mutableSetOf() else previousOffenders.toMutableSet()
     var worst: TemperatureBreach? = null
     val observations = ArrayList<TemperatureObservation>(recent.size)
+    val breachDirections = mutableMapOf<String, TemperatureBreach.Direction>()
     for (sensor in recent) {
         val value = requireNotNull(sensor.temperatureF)
         val name = sensor.name.trim().take(96).ifBlank { "Temperature sensor" }
         observations.add(TemperatureObservation(sensor.id, name, value, lowF, highF, sensor.updatedAtEpochMs))
-        val direction = when {
-            value < lowF -> TemperatureBreach.Direction.LOW
-            value > highF -> TemperatureBreach.Direction.HIGH
-            else -> {
-                outstanding.remove(sensor.id)
-                continue
-            }
+        val direction = TemperatureBreach.Direction.forReading(value, lowF, highF)
+        if (direction == null) {
+            outstanding.remove(sensor.id)
+            continue
         }
         outstanding.add(sensor.id)
+        breachDirections[sensor.id] = direction
         val limit = if (direction == TemperatureBreach.Direction.LOW) lowF else highF
         if (worst == null || abs(value - limit) > abs(worst.temperatureF - worst.limitF)) {
             worst = TemperatureBreach(name, value, limit, direction, sensor.updatedAtEpochMs)
         }
     }
     val recovered = complete || (previousOffenders.isNotEmpty() && outstanding.isEmpty())
-    return TemperatureAssessment(true, worst != null || recovered, worst, outstanding, observations)
+    return TemperatureAssessment(true, worst != null || recovered, worst, outstanding, observations, breachDirections)
 }
 
 /** IDs of thermometers in an unresolved incident. Never reuse thresholds or readings from this store. */

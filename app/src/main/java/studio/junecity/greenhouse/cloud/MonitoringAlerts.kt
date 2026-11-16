@@ -25,7 +25,8 @@ data class MonitoringAlert(
 data class AlertInbox(
     val alerts: List<MonitoringAlert>,
     val complete: Boolean,
-    val criticalIncidentsVerified: Boolean = false
+    val criticalIncidentsVerified: Boolean = false,
+    val sensorTemperatureInbox: Boolean = false
 )
 
 internal fun currentAlerts(

@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.Uri
 import android.os.PowerManager
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -41,6 +42,7 @@ object CloudAlertPollingPolicy {
 
 private const val CRITICAL_TITLE = "Critical greenhouse temperature"
 private const val OFFLINE_TITLE = "Greenhouse server offline"
+internal const val STOP_ALARM_LABEL = "Stop alarm"
 private val CRITICAL_CHANNEL = TemperatureSound.Existing.channelId
 
 internal fun clearRecoveredCloudAlerts(notifications: NotificationManager, inbox: AlertInbox) {
@@ -92,35 +94,38 @@ class CloudAlertService : Service() {
             logStartFailure(failure)
             return
         }
-        monitoring = true
+        runningWake = wake
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(network)
         ContextCompat.registerReceiver(this, idle, IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (shouldStopAfterStart(intent)) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (!inForeground) {
             if (intent?.action != RESTORE) enqueueFallback(this)
             stopSelf(startId)
             return START_NOT_STICKY
         }
         val enrollment = SecureSettingsStore(this).cloudEnrollment()
-        polling.start(enrollment) { pollLoop(enrollment) }
-        if (intent?.action == ACKNOWLEDGE) wake.trySend(Unit)
+        polling.start(enrollment) { pollLoop(enrollment, startId) }
         return START_STICKY
     }
 
-    private suspend fun pollLoop(enrollment: CloudEnrollment?) {
+    private suspend fun pollLoop(enrollment: CloudEnrollment?, startId: Int) {
         val security = SecureSettingsStore(this)
         if (enrollment == null) {
-            stopSelf()
+            stopSelf(startId)
             return
         }
         // Restore outstanding alarms before any operation that needs an internet connection.
         ClientTemperatureAlarms.deliver(this, enrollment)
         val configuration = runCatching { CloudRuntime.configurationOrNull() }.getOrNull()
         if (configuration == null) {
-            if (ClientTemperatureAlarms.active(this, enrollment).isEmpty()) stopSelf()
+            if (ClientTemperatureAlarms.active(this, enrollment).isEmpty()) stopSelf(startId)
             return
         }
         val gateway by lazy { gatewayForEnrollment(this, configuration, enrollment) }
@@ -128,7 +133,8 @@ class CloudAlertService : Service() {
         var failures = 0
         while (currentCoroutineContext().isActive && security.cloudEnrollment() == enrollment) {
             val received = CloudAlertDelivery.poll(this, enrollment, minimumIntervalMs = 5_000L,
-                fetch = { gateway.pendingAlerts(viewer) }, acknowledge = { gateway.acknowledgeAlert(it) })
+                fetch = { gateway.pendingAlerts(viewer) }, acknowledge = { gateway.acknowledgeAlert(it) },
+                readTemperatures = { gateway.viewerReadingCheck(this, enrollment, it) })
             failures = if (received) 0 else failures + 1
             withTimeoutOrNull(CloudAlertPollingPolicy.delayMs(failures)) { wake.receive() }
         }
@@ -137,7 +143,7 @@ class CloudAlertService : Service() {
     override fun onDestroy() {
         scope.cancel()
         if (inForeground) {
-            monitoring = false
+            if (runningWake === wake) runningWake = null
             getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network)
             unregisterReceiver(idle)
             // The player belongs to the enrolled client's incident. Service teardown can occur
@@ -148,12 +154,18 @@ class CloudAlertService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        @Volatile private var monitoring = false
+        @Volatile private var runningWake: Channel<Unit>? = null
+        private var nextStart = 0L
+        private var pendingStart: Long? = null
+        private var stopAfterStart = false
+        private const val START_SEQUENCE = "greenhouse.alertStartSequence"
         private const val RESTORE = "greenhouse.RESTORE_ALERT_MONITOR"
-        private const val ACKNOWLEDGE = "greenhouse.RETRY_TEMPERATURE_ACK"
 
         internal fun requestAcknowledgements(context: Context) {
-            start(context, Intent(context, CloudAlertService::class.java).setAction(ACKNOWLEDGE))
+            // A Stop is immediate and persisted. Retrying its network acknowledgement alone must
+            // never create a new foreground service, particularly during sign-out or teardown.
+            runningWake?.trySend(Unit)
+            enqueueFallback(context)
         }
 
         private const val SERVICE_CHANNEL = "greenhouse_cloud_alert_service"
@@ -184,17 +196,34 @@ class CloudAlertService : Service() {
                 CloudAlertWorker.checkSoon(context)
         }
 
-        private fun start(context: Context, intent: Intent) {
+        @Synchronized private fun start(context: Context, intent: Intent) {
+            val sequence = ++nextStart
+            val previous = pendingStart
+            stopAfterStart = false
+            pendingStart = sequence
             try {
-                context.startForegroundService(intent)
+                context.startForegroundService(intent.putExtra(START_SEQUENCE, sequence))
             } catch (failure: RuntimeException) {
+                pendingStart = previous
                 logStartFailure(failure)
                 if (intent.action != RESTORE) enqueueFallback(context)
             }
         }
 
+        @Synchronized private fun shouldStopAfterStart(intent: Intent?): Boolean {
+            if (pendingStart == intent?.getLongExtra(START_SEQUENCE, 0L)) pendingStart = null
+            return stopAfterStart
+        }
+
+        @Synchronized private fun stopMonitoring(context: Context, intent: Intent) {
+            stopAfterStart = true
+            // Android 10 can crash the process if stopService overtakes onCreate after a
+            // startForegroundService request. A pending start promotes itself and then stops.
+            if (pendingStart == null) context.stopService(intent)
+        }
+
         internal fun restoreForAlarm(context: Context) {
-            if (!monitoring) start(context, Intent(context, CloudAlertService::class.java).setAction(RESTORE))
+            if (runningWake == null) start(context, Intent(context, CloudAlertService::class.java).setAction(RESTORE))
         }
 
         fun sync(context: Context, enabled: Boolean) {
@@ -202,7 +231,7 @@ class CloudAlertService : Service() {
             if (enabled && SecureSettingsStore(context).cloudEnrollment()?.role == CloudDeviceRole.ViewerClient)
                 CloudAlertWorker.schedule(context)
             else CloudAlertWorker.cancel(context)
-            if (enabled) start(context, intent) else context.stopService(intent)
+            if (enabled) start(context, intent) else stopMonitoring(context, intent)
         }
     }
 }
@@ -213,12 +242,15 @@ internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: Clou
     val openApp = studio.junecity.greenhouse.data.AlertDestination.pending(
         context, notificationId, alert.greenhouseId, alert.sensorId, true, alert.occurredAtEpochMs, tag
     )
-    val action = if (tag != null) openApp else PendingIntent.getBroadcast(
-        context,
-        notificationId,
-        Intent(context, CloudAlertAcknowledgeReceiver::class.java)
-            .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_ALERT_ID, alert.id)
-            .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_NOTIFICATION_ID, notificationId),
+    val actionIntent = Intent(context, CloudAlertAcknowledgeReceiver::class.java)
+        .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_ALERT_ID, alert.id)
+        .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+    if (tag != null) {
+        actionIntent.action = CloudAlertAcknowledgeReceiver.STOP_TEMPERATURE
+        actionIntent.data = Uri.fromParts("greenhouse-alarm", tag, null)
+    }
+    val action = PendingIntent.getBroadcast(
+        context, notificationId, actionIntent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
     val channel = CloudAlertService.alertChannel(context, alert, role)
@@ -243,7 +275,7 @@ internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: Clou
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_ALARM)
         .setContentIntent(openApp)
-        .addAction(0, if (tag == null) "Acknowledge" else "Open alarm", action)
+        .addAction(0, if (tag == null) "Acknowledge" else STOP_ALARM_LABEL, action)
         .setAutoCancel(false)
         .setOngoing(alert.requiresAcknowledgement)
         .setOnlyAlertOnce(true)
@@ -262,6 +294,14 @@ class CloudAlertAcknowledgeReceiver : BroadcastReceiver() {
             try {
                 runCatching {
                     val enrollment = SecureSettingsStore(context).cloudEnrollment() ?: return@runCatching
+                    if (intent.action == STOP_TEMPERATURE) {
+                        val tag = intent.data?.schemeSpecificPart
+                        val incident = ClientTemperatureAlarms.active(context, enrollment).firstOrNull {
+                            it.id == alertId && ClientTemperatureAlarms.matchesNotification(enrollment, it, tag)
+                        } ?: return@runCatching
+                        ClientTemperatureAlarms.stop(context, enrollment, setOf(incident.id))
+                        return@runCatching
+                    }
                     val configuration = CloudRuntime.configurationOrNull() ?: return@runCatching
                     gatewayForEnrollment(context.applicationContext, configuration, enrollment).acknowledgeAlert(alertId)
                     context.getSystemService(NotificationManager::class.java).cancel(notificationId)
@@ -273,6 +313,7 @@ class CloudAlertAcknowledgeReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        internal const val STOP_TEMPERATURE = "greenhouse.STOP_TEMPERATURE_ALARM"
         const val EXTRA_ALERT_ID = "cloudAlertId"
         const val EXTRA_NOTIFICATION_ID = "cloudAlertNotificationId"
     }

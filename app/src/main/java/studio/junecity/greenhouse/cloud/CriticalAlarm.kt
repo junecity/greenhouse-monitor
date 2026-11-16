@@ -80,7 +80,7 @@ internal object CriticalAlarm {
         if (channel.importance < NotificationManager.IMPORTANCE_DEFAULT || channel.sound == null)
             return "This alert channel is silent. Tap Sound settings and choose a sound."
         val defaultType = RingtoneManager.getDefaultType(channel.sound)
-        if (defaultType >= 0 && RingtoneManager.getActualDefaultRingtoneUri(context, defaultType) == null)
+        if (!loud && defaultType >= 0 && RingtoneManager.getActualDefaultRingtoneUri(context, defaultType) == null)
             return "The phone’s default sound is set to None. Select Double pulse or choose a sound in Android settings."
         val audio = context.getSystemService(AudioManager::class.java)
         if (loud) {
@@ -140,7 +140,11 @@ internal object CriticalAlarm {
                 audio.setStreamVolume(STREAM, peak, 0)
             }
             val usage = if (loud) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION_EVENT
-            val tone = startTone(app, channel.sound, usage)
+            // A default-sound URI can point to "None". Android may hand back a Ringtone
+            // for that URI even though it has no audio. Resolve it before attempting playback.
+            val defaultType = RingtoneManager.getDefaultType(channel.sound)
+            val selected = if (defaultType >= 0) RingtoneManager.getActualDefaultRingtoneUri(app, defaultType) else channel.sound
+            val tone = selected?.let { startTone(app, it, usage) }
                 ?: TemperatureSound.Pulse.bundledUri(app)?.let { startTone(app, it, usage) }
             if (tone == null) {
                 finish(app)

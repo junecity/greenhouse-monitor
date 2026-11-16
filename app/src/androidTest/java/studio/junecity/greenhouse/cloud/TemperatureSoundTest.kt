@@ -7,6 +7,7 @@ import android.os.Build
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
+import android.media.RingtoneManager
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.test.platform.app.InstrumentationRegistry
@@ -228,6 +229,33 @@ class TemperatureSoundTest {
             CriticalAlarm.setEnabled(context, previouslyEnabled)
             audio.ringerMode = ringer
             manager.deleteNotificationChannel(quietId)
+        }
+    }
+
+    @Test fun missingDefaultNotificationToneUsesBundledAlarmUntilStopped() {
+        val originalTone = Settings.System.getString(context.contentResolver, Settings.System.NOTIFICATION_SOUND)
+        val previouslyEnabled = CriticalAlarm.enabled(context)
+        val channel = TemperatureSound.Existing.channel(context)
+        assertEquals(RingtoneManager.TYPE_NOTIFICATION, RingtoneManager.getDefaultType(channel.sound))
+        try {
+            shell("settings --user current delete system notification_sound")
+            assertNull(RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_NOTIFICATION))
+            CriticalAlarm.setEnabled(context, false)
+            assertNotNull(CriticalAlarm.soundIssue(context, channel))
+            CriticalAlarm.setEnabled(context, true)
+            assertNull(CriticalAlarm.soundIssue(context, channel))
+            assertTrue(CriticalAlarm.startIncident(context, channel))
+            SystemClock.sleep(6000)
+            assertTrue(audio.activePlaybackConfigurations.any { it.audioAttributes.usage == AudioAttributes.USAGE_ALARM })
+            CriticalAlarm.stopIncident(context)
+            assertFalse(CriticalAlarm.isIncidentPlaying())
+        } finally {
+            CriticalAlarm.stopIncident(context)
+            CriticalAlarm.setEnabled(context, previouslyEnabled)
+            if (originalTone != null) {
+                val escaped = originalTone.replace("'", "'\\''")
+                shell("settings --user current put system notification_sound '$escaped'")
+            }
         }
     }
 }

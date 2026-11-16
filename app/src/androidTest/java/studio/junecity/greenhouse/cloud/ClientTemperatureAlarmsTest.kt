@@ -58,8 +58,8 @@ class ClientTemperatureAlarmsTest {
         ClientTemperatureAlarms.deliver(context, owner, inbox(alarm))
         waitUntil("critical alarm notification") { notifications.activeNotifications.any { it.id == alarm.id.hashCode() } }
         val notice = notifications.activeNotifications.single { it.id == alarm.id.hashCode() }
-        assertEquals("Open alarm", notice.notification.actions.single().title.toString())
-        assertEquals(notice.notification.contentIntent, notice.notification.actions.single().actionIntent)
+        assertEquals("Stop alarm", notice.notification.actions.single().title.toString())
+        assertNotEquals(notice.notification.contentIntent, notice.notification.actions.single().actionIntent)
         notifications.cancel(notice.tag, notice.id)
         waitUntil("tray entry dismissed") { notifications.activeNotifications.none { it.id == notice.id } }
         assertTrue(CriticalAlarm.isIncidentPlaying())
@@ -95,7 +95,13 @@ class ClientTemperatureAlarmsTest {
         }
         val selectedHouse = owner.copy(greenhouseId = "house-B")
         secure.saveCloudEnrollment(selectedHouse)
-        ClientTemperatureAlarms.stop(context, selectedHouse, setOf(first.id))
+        val stopFirst = notifications.activeNotifications.single {
+            ClientTemperatureAlarms.matchesNotification(selectedHouse, first, it.tag)
+        }.notification.actions.single().actionIntent
+        stopFirst.send()
+        waitUntil("tray action stopped only its matching incident") {
+            ClientTemperatureAlarms.active(context, selectedHouse).map { it.id } == listOf(second.id)
+        }
         assertTrue(CriticalAlarm.isIncidentPlaying())
         assertEquals(second.id, ClientTemperatureAlarms.active(context, selectedHouse).single().id)
         val newIncident = alert("qa-incident-A-recurred", "house-A")
@@ -108,6 +114,12 @@ class ClientTemperatureAlarmsTest {
         ClientTemperatureAlarms.deliver(context, selectedHouse, inbox(first)) // late response from the previous account
         assertTrue(ClientTemperatureAlarms.active(context, newOwner).isEmpty())
         assertTrue(ClientTemperatureAlarms.pendingAcknowledgements(context, newOwner).isEmpty())
+        ClientTemperatureAlarms.deliver(context, newOwner, inbox(first))
+        stopFirst.send()
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("am wait-for-broadcast-idle")
+        ).use { it.readBytes() }
+        assertEquals(listOf(first.id), ClientTemperatureAlarms.active(context, newOwner).map { it.id })
     }
 
     @Test fun firstPollAfterRecoveryRingsAndRetainsTheRecoveryTime() {

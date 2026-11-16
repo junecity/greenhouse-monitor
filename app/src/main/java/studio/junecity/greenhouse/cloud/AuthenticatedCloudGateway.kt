@@ -219,7 +219,7 @@ class AuthenticatedCloudGateway(
             active.filterNot { it.type == MonitoringAlertType.ServerOffline && it.serverId == config.deviceId }
         } else active
         return AlertInbox(visible, json.optBoolean("complete", alerts.size < 50),
-            json.optBoolean("complete") && verified)
+            json.optBoolean("complete") && verified, json.optBoolean("sensorTemperatureInbox"))
     }
 
     suspend fun acknowledgeAlert(alertId: String) {
@@ -243,6 +243,9 @@ class AuthenticatedCloudGateway(
 
     suspend fun greenhouseBackup(greenhouseId: String): JSONObject? =
         requestOrNull("GET", "/v1/greenhouses/${segment(greenhouseId)}/backup")?.optJSONObject("backup")
+
+    internal suspend fun temperatureBackup(greenhouseId: String): JSONObject? =
+        requestOrNull("GET", "/v1/greenhouses/${segment(greenhouseId)}/backup?temperatureOnly=true")?.optJSONObject("backup")
 
     private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject =
         requestOrNull(method, path, body) ?: JSONObject()
@@ -316,7 +319,10 @@ class ServerPairingGateway(
 
 object CloudJsonCodec {
     fun accountDevice(json: JSONObject) = AccountDevice(
-        device(json), json.getLong("createdAtEpochMs")
+        device(json), json.getLong("createdAtEpochMs"),
+        maxOf(json.getLong("createdAtEpochMs"), json.optLong("enrollmentEpochMs")),
+        json.optLongOrNull("lastDataUploadEpochMs")?.takeIf { it > 0 }, json.optBoolean("sensorTemperatureMode"),
+        json.optLong("enrollmentEpochMs") > 0
     )
 
     fun alert(json: JSONObject) = MonitoringAlert(

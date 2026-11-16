@@ -53,11 +53,11 @@ class ClientAlarmPromptTest {
             it.id == incident.id.hashCode() && it.tag != null
         }
         val action = notice.notification.actions.single()
-        assertEquals("Open alarm", action.title.toString())
+        assertEquals("Stop alarm", action.title.toString())
         val activity = compose.activity
         val launcherIntent = Intent(activity.intent)
         try {
-            instrumentation.runOnMainSync { action.actionIntent.send() }
+            instrumentation.runOnMainSync { notice.notification.contentIntent.send() }
             compose.waitUntil(5_000) {
                 var opened = false
                 instrumentation.runOnMainSync { opened = AlertDestination.from(activity.intent)?.time == incident.occurredAtEpochMs }

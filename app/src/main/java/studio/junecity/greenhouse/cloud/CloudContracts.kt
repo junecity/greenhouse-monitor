@@ -43,7 +43,11 @@ internal suspend fun resolveClientGreenhouse(
 
 data class AccountDevice(
     val device: RegisteredDevice,
-    val createdAtEpochMs: Long
+    val createdAtEpochMs: Long,
+    val enrollmentEpochMs: Long = createdAtEpochMs,
+    val lastDataUploadEpochMs: Long? = null,
+    val sensorTemperatureMode: Boolean = false,
+    val reportsEnrollmentTime: Boolean = true
 )
 
 data class CloudAccount(val accountId: String, val tenantId: String)

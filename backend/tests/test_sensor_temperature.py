@@ -37,6 +37,74 @@ class PerSensorTemperatureTests(GreenhouseFixture):
     def stored(self, event_id):
         return self.db.get_item(Key={"pk": self.account, "sk": f"ALERT#{event_id}"})["Item"]
 
+    def test_temperature_snapshot_projection_preserves_backup_and_access_rules(self):
+        snapshot = {
+            "schema": 2, "preferences": {"active": "main"}, "sensors": [{"id": "bench"}],
+            "serverHealth": {"serverDeviceId": self.server}, "zones": {"bench": 2}, "history": ["earlier"],
+        }
+        path = f"/v1/greenhouses/{self.house}/backup"
+        projection = {"temperatureOnly": "true"}
+        self.assertIsNone(self.api(path, query=projection)[1]["backup"])
+        self.assertEqual(204, self.api(f"/v1/device/greenhouses/{self.house}/backup", {"backup": snapshot}, True)[0])
+        status, reduced = self.api(path, query=projection)
+        self.assertEqual(200, status)
+        self.assertEqual({k: snapshot[k] for k in ("schema", "preferences", "sensors", "serverHealth")}, reduced["backup"])
+        self.assertEqual((200, {"backup": snapshot, "updatedAt": reduced["updatedAt"]}), self.api(path))
+        self.db.update_item(Key={"pk": f"GREENHOUSE#{self.house}", "sk": "METADATA"},
+                            UpdateExpression="SET tenantId=:other", ExpressionAttributeValues={":other": "another-tenant"})
+        self.assertEqual(403, self.api(path, query=projection)[0])
+
+    def test_inventory_reports_server_capability_and_fresh_enrollment_after_pairing(self):
+        device_key = {"pk": f"DEVICE#{self.server}", "sk": "METADATA"}
+        self.db.update_item(Key=device_key, UpdateExpression="SET createdAt=:createdAt",
+                            ExpressionAttributeValues={":createdAt": 100})
+        self.put(self.account, f"DEVICE#{self.server}", deviceId=self.server, accountId="customer-test",
+                 tenantId="tenant-test", role="GREENHOUSE_SERVER", greenhouseId=self.house, enabled=True, createdAt=100)
+
+        def inventory():
+            status, response = self.api("/v1/devices")
+            self.assertEqual(200, status)
+            server, = response["devices"]
+            return server
+
+        original = inventory()
+        self.assertEqual(100_000, original["enrollmentEpochMs"])
+        self.assertFalse(original["sensorTemperatureMode"])
+        self.assertIsNone(original["lastDataUploadEpochMs"])
+        self.assertEqual(204, self.report([self.reading("A", 89)], lastDataUploadEpochMs=self.t)[0])
+        upgraded = inventory()
+        self.assertTrue(upgraded["sensorTemperatureMode"])
+        self.assertEqual(self.t // 1000 * 1000, upgraded["lastDataUploadEpochMs"])
+        self.assertEqual(200, self.api(f"/v1/devices/{self.server}/state", {"enabled": False})[0])
+        status, invitation = self.api("/v1/server-pairing/invitations", {"greenhouseId": self.house})
+        self.assertEqual(201, status)
+        status, request = self.api("/v1/public-server-pairing/requests", {
+            "serverDeviceId": self.server, "deviceSecret": "new-test-device-secret" * 2,
+            "pairingCode": invitation["displayCode"],
+        })
+        self.assertEqual(202, status)
+        self.assertEqual(200, self.api(f"/v1/server-pairing/requests/{request['requestId']}/approve", {})[0])
+        repaired = inventory()
+        self.assertTrue(repaired["enabled"])
+        self.assertFalse(repaired["sensorTemperatureMode"])
+        self.assertEqual(original["createdAtEpochMs"], repaired["createdAtEpochMs"])
+        self.assertGreater(repaired["enrollmentEpochMs"], self.t)
+
+    def test_inbox_advertises_per_sensor_capability_on_complete_and_partial_results(self):
+        status, complete = self.api("/v1/alerts")
+        self.assertEqual(200, status)
+        self.assertTrue(complete["sensorTemperatureInbox"])
+        self.assertTrue(complete["complete"])
+        with self.db.batch_writer() as batch:
+            for i in range(51):
+                batch.put_item(Item={"pk": self.account, "sk": f"ALERT#{i:03}", "id": f"notice-{i}",
+                                     "tenantId": "tenant-test", "type": "INFO", "priority": "INFO",
+                                     "createdAt": self.t // 1000, "message": "Test notice"})
+        status, partial = self.api("/v1/alerts", query={"includeRecovered": "true"})
+        self.assertEqual(200, status)
+        self.assertTrue(partial["sensorTemperatureInbox"])
+        self.assertFalse(partial["complete"])
+
     def test_client_closed_until_after_recovery(self):
         self.report([self.reading("A", 89.42), self.reading("B", 91)])
         self.report([self.reading("A", 71, self.t + 1)], self.t + 1)
@@ -160,7 +228,7 @@ class PerSensorTemperatureTests(GreenhouseFixture):
         self.assertEqual(204, self.report([a, b], self.t + 1)[0])
         self.assertEqual(second["id"], self.episodes()["B"]["id"])
 
-        self.report([self.reading("A", 82, self.t + 2)], self.t + 2)
+        self.report([self.reading("A", 81.9, self.t + 2)], self.t + 2)
         self.assertIn("expiresAt", self.stored(first["id"]))
         self.report([self.reading("A", 87, self.t + 3)], self.t + 3)
         events = self.episodes()
@@ -176,7 +244,7 @@ class PerSensorTemperatureTests(GreenhouseFixture):
         self.report([], self.t + 1)
         self.report([self.reading("A", 70, self.t - 1000000)], self.t + 2)
         self.assertEqual(first, self.episodes())
-        self.report([self.reading("A", 45, self.t + 3)], self.t + 3)
+        self.report([self.reading("A", 45.1, self.t + 3)], self.t + 3)
         self.report([self.reading("A", 40, self.t + 1)], self.t + 4)
         self.assertEqual({"B"}, self.episodes().keys())
         self.report([self.reading("B", 90, high=91)], self.t + 5)
@@ -188,6 +256,26 @@ class PerSensorTemperatureTests(GreenhouseFixture):
         self.report([self.reading("B", 98, self.t + 7)], self.t + 7)
         self.assertIn("above the high limit", self.episodes()["B"]["message"])
         self.assertIn("resolvedAt", self.stored(b["id"]))
+
+    def test_first_observation_at_either_limit_rings_and_stop_lasts_until_inside(self):
+        def observe(low_value, high_value, step):
+            t = self.t + step
+            status, _ = self.report([self.reading("low", low_value, t), self.reading("high", high_value, t)], t)
+            self.assertEqual(204, status)
+            return self.episodes()
+
+        first = observe(45, 82, 0)
+        self.assertIn("at the low limit", first["low"]["message"])
+        self.assertIn("at the high limit", first["high"]["message"])
+        self.assertEqual(first, observe(39, 89, 1))
+        self.ack(first["low"]["id"])
+        self.assertEqual({"high": first["high"]}, observe(45, 82, 2))
+        self.assertEqual({"high": first["high"]}, observe(38, 91, 3))
+        self.assertEqual({}, observe(45.1, 81.9, 4))
+        next_episodes = observe(44, 84, 5)
+        self.assertEqual({"low", "high"}, next_episodes.keys())
+        for sensor in next_episodes:
+            self.assertNotEqual(first[sensor]["id"], next_episodes[sensor]["id"])
 
     def test_names_are_labels_and_do_not_group_episodes(self):
         self.report([self.reading("A", 88, name="Bench"), self.reading("B", 88, name="Bench")])

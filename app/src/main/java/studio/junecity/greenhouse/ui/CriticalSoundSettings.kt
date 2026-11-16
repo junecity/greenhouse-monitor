@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.ui
 
 import android.app.ActivityManager
+import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -33,6 +34,7 @@ internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
     var message by remember { mutableStateOf("") }
     var soundIssue by remember { mutableStateOf<String?>(null) }
     var backgroundRestricted by remember { mutableStateOf(false) }
+    var notificationsAllowed by remember { mutableStateOf(true) }
     var lastCheck by remember(context, enrollment) { mutableStateOf(ClientTemperatureAlarms.lastCheck(context, enrollment)) }
     DisposableEffect(context, enrollment) {
         fun updateCheck() { lastCheck = ClientTemperatureAlarms.lastCheck(context, enrollment) }
@@ -43,6 +45,7 @@ internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, context, sound, loud) {
         fun checkSound() {
+            notificationsAllowed = context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
             soundIssue = CriticalAlarm.soundIssue(context, sound.channel(context), loud)
             backgroundRestricted = context.getSystemService(ActivityManager::class.java).isBackgroundRestricted
         }
@@ -58,8 +61,12 @@ internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
     }
     fun openSettings() {
         try {
-            context.startActivity(sound.soundSettings(context))
-            message = "Choose Sound in Android settings."
+            if (notificationsAllowed) {
+                context.startActivity(sound.soundSettings(context))
+            } else {
+                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+            }
         } catch (_: ActivityNotFoundException) {
             message = "Open Greenhouse Studio notification settings on your phone to change the sound."
         }
@@ -91,8 +98,8 @@ internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
                 Text("Override low or muted volume", Modifier.weight(1f), color = DashboardTokens.White)
                 Switch(checked = loud, onCheckedChange = null)
             }
-            Text(if (loud) "Critical alarms repeat at full alarm volume, even on silent or vibrate. Tap Stop alarm in the app to silence them."
-                else "Critical alarms repeat at your phone’s notification volume until you tap Stop alarm in the app.", color = DashboardTokens.Muted)
+            Text(if (loud) "Each sensor rings at alarm volume until you tap Stop alarm. Silent and vibrate modes use the same alarm sound."
+                else "Each sensor rings at notification volume until you tap Stop alarm.", color = DashboardTokens.Muted)
             soundIssue?.let { Text(it, color = DashboardTokens.Amber) }
             if (soundIssue?.contains("Do Not Disturb") == true) {
                 TextButton(onClick = {
@@ -105,7 +112,9 @@ internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
             }
             Row {
                 TextButton(onClick = { message = sound.test(context) }) { Text("Test sound", color = DashboardTokens.Amber) }
-                TextButton(onClick = { openSettings() }) { Text("Sound settings", color = DashboardTokens.Amber) }
+                TextButton(onClick = { openSettings() }) {
+                    Text(if (notificationsAllowed) "Sound settings" else "Allow notifications", color = DashboardTokens.Amber)
+                }
             }
             Text(lastCheck?.let { checked ->
                 val date = DateUtils.formatDateTime(context, checked, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)

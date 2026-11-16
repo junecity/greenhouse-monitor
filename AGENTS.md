@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-16 · Greenhouse Studio 2.41.2 (87) · Persistent per-sensor temperature alarms
+
+- A fresh reading at or beyond a temperature limit opens that sensor’s incident. The server publishes crossings and recoveries independently of the dashboard refresh interval. A paired viewer retains the alarm until the user stops it. Each notification has its own Stop alarm action, and the in-app alarm list can stop several together. Keep the owner and incident identity on every action.
+- CloudAlertWorker and CloudAlertService use the same authenticated inbox and snapshot fallback. ViewerTemperatureReadings checks greenhouse/server ownership, freshness and applied thresholds. ReadingAlarmLedger links snapshot and cloud observations so repeated readings do not restart a stopped incident. A fresh in-range reading rearms that sensor. A capable backend and reporting server use the per-sensor inbox. The device inventory and temperature-only snapshot projection are additive. No table migration.
+- CriticalAlarm resolves the Android default tone before playback and uses the bundled Double pulse for an unavailable default when loud override is enabled. CriticalSoundSettings links to notification permission and channel settings. CloudAlertService defers a pending shutdown until Android promotes the service. Stop wakes the current poller and schedules its acknowledgement retry through WorkManager.
+- Passed 188 JVM and 123 backend tests, with 19 targeted instrumentation cases on each of Android 10 and 15. Android lint had zero errors. See CHANGELOG.md for the locked-screen checks and AWS/physical-device limits.
+
 ## 2026-11-16 · Greenhouse Studio 2.41.1 (86) · Closed-client critical temperature alarms
 
 - CloudBootReceiver and MainActivity restore monitoring for enrolled viewers after restart or upgrade even when dashboard auto-start is off and no incidents were previously delivered. CloudAlertService and CloudAlertWorker share one enrollment-checked inbox poll. A foreground service checks on network return or exit from idle. A persistent network-constrained job provides a fallback when Android restricts the service. Keep locally delivered incidents ringing through service teardown until an in-app stop.

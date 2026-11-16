@@ -17,6 +17,7 @@ internal object ClientTemperatureAlarms {
     private const val LIVE = "incident/"
     private const val STOPPED = "stopped"
     private const val ACK_QUEUE = "ack_queue"
+    private const val READINGS = "reading_episodes"
     private const val LAST_CHECK = "last_successful_check"
 
     private fun preferences(context: Context) = context.getSharedPreferences("client_temperature_incidents", Context.MODE_PRIVATE)
@@ -41,6 +42,47 @@ internal object ClientTemperatureAlarms {
         val prefs = preferences(context)
         if (prefs.getString(OWNER, null) != owner(enrollment)) return null
         return prefs.getLong(LAST_CHECK, 0L).takeIf { it > 0 }
+    }
+
+    private fun uploadKey(house: String, server: String, generation: Long) = "upload/$house/$server/$generation"
+
+    /** Old inventories expose only initial registration. Require a new sample after first discovery or an observed disconnect. */
+    @Synchronized fun readingSources(
+        context: Context, enrollment: CloudEnrollment, devices: List<AccountDevice>, now: Long
+    ): List<AccountDevice> {
+        if (!isCurrent(context, enrollment)) return emptyList()
+        val prefs = preferences(context)
+        val owner = requireNotNull(owner(enrollment))
+        if (prefs.getString(OWNER, null) != owner) forget(context)
+        val editor = prefs.edit().putString(OWNER, owner)
+        val sources = mutableListOf<AccountDevice>()
+        for (source in devices) {
+            val device = source.device
+            val house = device.greenhouseId?.takeIf { it.isNotBlank() } ?: continue
+            if (device.role != CloudDeviceRole.GreenhouseServer || device.tenantId != enrollment.tenantId) continue
+            val key = "enrollment/$house/${device.id}"
+            val previous = prefs.getLong(key, 0)
+            if (!device.enabled || device.communicationSuspended) {
+                if (previous != -1L) editor.putLong(key, -1L)
+                continue
+            }
+            val cutoff = when {
+                previous < 0L -> maxOf(now, source.enrollmentEpochMs)
+                !source.reportsEnrollmentTime && previous == 0L -> maxOf(now, source.createdAtEpochMs)
+                else -> maxOf(previous, source.enrollmentEpochMs)
+            }
+            if (previous != cutoff) editor.putLong(key, cutoff)
+            sources.add(source.copy(enrollmentEpochMs = cutoff))
+        }
+        editor.commit()
+        return sources
+    }
+
+    @Synchronized fun checkedUpload(context: Context, enrollment: CloudEnrollment, source: AccountDevice): Boolean {
+        val stamp = source.lastDataUploadEpochMs ?: return false
+        val prefs = preferences(context)
+        val key = uploadKey(source.device.greenhouseId ?: return false, source.device.id, source.enrollmentEpochMs)
+        return isCurrent(context, enrollment) && prefs.getString(OWNER, null) == owner(enrollment) && prefs.getLong(key, 0) == stamp
     }
 
     private fun incidents(prefs: SharedPreferences): List<MonitoringAlert> = prefs.all.mapNotNull { (key, value) ->
@@ -84,26 +126,38 @@ internal object ClientTemperatureAlarms {
         owner(enrollment)?.let { tag(it, incident.id) == notificationTag } == true
 
     /** Called once before networking on service start and after each successful authenticated poll. */
-    @Synchronized fun deliver(context: Context, enrollment: CloudEnrollment, inbox: AlertInbox? = null) {
+    @Synchronized fun deliver(context: Context, enrollment: CloudEnrollment, inbox: AlertInbox? = null,
+                              readings: List<ServerTemperatures> = emptyList()) {
         if (!isCurrent(context, enrollment)) return
         val owner = requireNotNull(owner(enrollment))
         val prefs = preferences(context)
         if (prefs.getString(OWNER, null) != owner) forget(context)
         val stopped = prefs.getStringSet(STOPPED, emptySet()).orEmpty()
-        if (inbox != null) {
-            val critical = inbox.alerts.filter { it.type == MonitoringAlertType.CriticalTemperature }
-            val edit = prefs.edit().putString(OWNER, owner).putLong(LAST_CHECK, System.currentTimeMillis())
-            for (alert in critical) {
+        if (inbox != null || readings.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val critical = inbox?.alerts.orEmpty().filter { it.type == MonitoringAlertType.CriticalTemperature }
+            val edit = prefs.edit().putString(OWNER, owner)
+            if (inbox != null) edit.putLong(LAST_CHECK, now)
+            for (batch in readings) batch.uploadTime?.let {
+                edit.putLong(uploadKey(batch.house, batch.server, batch.generation), it)
+            }
+            val ledger = ReadingAlarmLedger(prefs.getString(READINGS, null))
+            val update = ledger.update(readings, critical, incidents(prefs), stopped, now)
+            val pending = prefs.getStringSet(ACK_QUEUE, emptySet()).orEmpty() + update.acknowledge
+            val encoded = ledger.encode()
+            if (encoded != prefs.getString(READINGS, null)) edit.putString(READINGS, encoded)
+            if (update.acknowledge.isNotEmpty()) edit.putStringSet(ACK_QUEUE, pending)
+            for (alert in update.deliver) {
                 if (alert.id in stopped) continue
                 val entry = JSONObject().put("house", alert.greenhouseId).put("time", alert.occurredAtEpochMs)
                     .put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId)
                     .put("resolvedAt", alert.resolvedAtEpochMs).toString()
                 if (entry != prefs.getString(LIVE + alert.id, null)) edit.putString(LIVE + alert.id, entry)
             }
-            if (inbox.complete && inbox.criticalIncidentsVerified) {
-                val pending = prefs.getStringSet(ACK_QUEUE, emptySet()).orEmpty()
-                edit.putStringSet(STOPPED, stopped.intersect(critical.map { it.id }.toSet() + pending))
-            }
+            val suppressed = stopped + update.acknowledge
+            if (inbox?.complete == true && inbox.criticalIncidentsVerified) {
+                edit.putStringSet(STOPPED, suppressed.intersect(critical.map { it.id }.toSet() + pending))
+            } else if (suppressed != stopped) edit.putStringSet(STOPPED, suppressed)
             edit.commit()
         }
         val active = incidents(prefs)
@@ -119,7 +173,9 @@ internal object ClientTemperatureAlarms {
             val id = alarm.id.hashCode()
             val tag = tag(owner, alarm.id)
             val old = posted.firstOrNull { it.id == id && it.tag == tag }?.notification
-            if (old?.channelId == channel.id && old.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() == alarm.message) continue
+            if (old?.channelId == channel.id &&
+                old.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() == alarm.message &&
+                old.actions?.any { it.title.toString() == STOP_ALARM_LABEL } == true) continue
             // Replace the old notification action when upgrading during an already active breach.
             if (posted.any { it.tag == null && it.id == id && it.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) == "Critical greenhouse temperature" }) {
                 notifications.cancel(id)
@@ -133,9 +189,10 @@ internal object ClientTemperatureAlarms {
         val active = active(context, enrollment)
         val targets = active.filter { it.id in ids }.mapTo(mutableSetOf()) { it.id }
         if (targets.isEmpty()) return
+        val remote = ReadingAlarmLedger(prefs.getString(READINGS, null)).remoteIds(targets)
         val edit = prefs.edit()
-            .putStringSet(STOPPED, prefs.getStringSet(STOPPED, emptySet()).orEmpty() + targets)
-            .putStringSet(ACK_QUEUE, prefs.getStringSet(ACK_QUEUE, emptySet()).orEmpty() + targets)
+            .putStringSet(STOPPED, prefs.getStringSet(STOPPED, emptySet()).orEmpty() + remote)
+            .putStringSet(ACK_QUEUE, prefs.getStringSet(ACK_QUEUE, emptySet()).orEmpty() + remote)
         targets.forEach { edit.remove(LIVE + it) }
         edit.commit()
         if (targets.size == active.size) CriticalAlarm.stopIncident(context)

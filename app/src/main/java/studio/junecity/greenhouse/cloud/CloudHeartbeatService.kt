@@ -93,6 +93,7 @@ class CloudHeartbeatService : Service() {
         var update: Job? = null
         var backup: Job? = null
         var publishedSensors: Map<String,String>? = null
+        var publishedBreaches: Map<String, TemperatureBreach.Direction> = emptyMap()
         var publishedPlan: studio.junecity.greenhouse.model.GreenhouseConfig? = null
         var publishedRules: AlertRules? = null
         while (isActive) {
@@ -166,7 +167,10 @@ class CloudHeartbeatService : Service() {
                     backup?.join()
                     val available = sensors.associate { it.id to it.name }
                     val snapshotRules = reply.alertRules?.rules ?: rules
-                    if (prefs.activeGreenhouse != publishedPlan || available != publishedSensors || snapshotRules != publishedRules ||
+                    // Older cloud deployments rely on these readings to alert individual client sensors.
+                    // Publish crossings and recoveries even when the dashboard refresh interval is 15 minutes.
+                    if (health.breachDirections != publishedBreaches || prefs.activeGreenhouse != publishedPlan ||
+                        available != publishedSensors || snapshotRules != publishedRules ||
                         System.currentTimeMillis() - lastUpload.get() >= prefs.activeRefreshMinutes * 60_000L) {
                         backup = launch {
                             runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot(enrollment).put("serverHealth", device.toHealthJson())) }
@@ -174,6 +178,7 @@ class CloudHeartbeatService : Service() {
                                     publishedPlan = prefs.activeGreenhouse
                                     publishedRules = snapshotRules
                                     publishedSensors = available
+                                    publishedBreaches = health.breachDirections
                                     lastUpload.set(System.currentTimeMillis())
                                 }
                         }

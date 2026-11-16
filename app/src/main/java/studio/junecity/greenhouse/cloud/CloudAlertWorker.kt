@@ -28,12 +28,10 @@ internal object CloudAlertDelivery {
     private val mutex = Mutex()
     private var lastScope: Pair<String, String>? = null
     private var lastSuccessMs = 0L
-    private val authorizationFailures = setOf("device_disabled", "device_revoked", "device_missing", "account_missing",
-        "account_identity_mismatch", "account_suspended", "device_credential_invalid")
-
     suspend fun poll(
         context: Context, enrollment: CloudEnrollment, minimumIntervalMs: Long,
-        fetch: suspend () -> AlertInbox, acknowledge: suspend (String) -> Unit
+        fetch: suspend () -> AlertInbox, acknowledge: suspend (String) -> Unit,
+        readTemperatures: suspend (AlertInbox?) -> ViewerReadingCheck = { ViewerReadingCheck(emptyList(), true) }
     ): Boolean = mutex.withLock {
         val security = SecureSettingsStore(context)
         if (security.cloudEnrollment() != enrollment) return@withLock true
@@ -45,25 +43,46 @@ internal object CloudAlertDelivery {
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (failure: Exception) {
-            if (failure is CloudApiException && failure.statusCode == 403 && failure.message in authorizationFailures) {
+            if (failure.invalidViewerAuthorization()) {
                 ClientTemperatureAlarms.forgetIfCurrent(context, enrollment)
                 return@withLock true
             }
-            ClientTemperatureAlarms.deliver(context, enrollment)
-            return@withLock false
+            null
         }
         currentCoroutineContext().ensureActive()
         if (security.cloudEnrollment() != enrollment) return@withLock true
 
         val viewer = enrollment.role == CloudDeviceRole.ViewerClient
-        val notifications = context.getSystemService(NotificationManager::class.java)
-        clearRecoveredCloudAlerts(notifications, inbox)
-        if (viewer) ClientTemperatureAlarms.deliver(context, enrollment, inbox)
-        for (alert in inbox.alerts) {
+        if (inbox != null) {
+            val notifications = context.getSystemService(NotificationManager::class.java)
+            clearRecoveredCloudAlerts(notifications, inbox)
+            // A slow or unavailable snapshot must never hold up a verified alert.
+            if (viewer) ClientTemperatureAlarms.deliver(context, enrollment, inbox)
+        }
+        for (alert in inbox?.alerts.orEmpty()) {
             if (!viewer || alert.type != MonitoringAlertType.CriticalTemperature) postCloudAlert(context, alert, enrollment.role)
         }
-        lastScope = scope
-        lastSuccessMs = SystemClock.elapsedRealtime()
+        val readings = if (viewer) try {
+            readTemperatures(inbox)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (failure: Exception) {
+            if (failure.invalidViewerAuthorization()) {
+                ClientTemperatureAlarms.forgetIfCurrent(context, enrollment)
+                return@withLock true
+            }
+            ViewerReadingCheck(emptyList(), false)
+        } else ViewerReadingCheck(emptyList(), true)
+        currentCoroutineContext().ensureActive()
+        if (security.cloudEnrollment() != enrollment) return@withLock true
+        if (viewer && (inbox == null || readings.readings.isNotEmpty())) {
+            ClientTemperatureAlarms.deliver(context, enrollment, inbox, readings.readings)
+        }
+        val success = inbox != null && readings.complete
+        if (success) {
+            lastScope = scope
+            lastSuccessMs = SystemClock.elapsedRealtime()
+        }
         for (id in ClientTemperatureAlarms.pendingAcknowledgements(context, enrollment)) {
             currentCoroutineContext().ensureActive()
             if (security.cloudEnrollment() != enrollment) return@withLock true
@@ -72,12 +91,12 @@ internal object CloudAlertDelivery {
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (failure: Exception) {
-                val retired = inbox.complete && inbox.criticalIncidentsVerified && inbox.alerts.none { it.id == id }
+                val retired = inbox?.complete == true && inbox.criticalIncidentsVerified && inbox.alerts.none { it.id == id }
                 if (!retired || failure !is CloudApiException || failure.statusCode !in setOf(404, 409)) return@withLock false
             }
             ClientTemperatureAlarms.acknowledged(context, enrollment, id)
         }
-        true
+        success
     }
 }
 
@@ -93,7 +112,8 @@ class CloudAlertWorker(context: Context, params: WorkerParameters) : CoroutineWo
         val config = CloudRuntime.configurationOrNull() ?: return@withContext Result.success()
         val gateway by lazy { gatewayForEnrollment(context, config, enrollment) }
         val success = CloudAlertDelivery.poll(context, enrollment, minimumIntervalMs = 60_000L,
-            fetch = { gateway.pendingAlerts(true) }, acknowledge = { gateway.acknowledgeAlert(it) })
+            fetch = { gateway.pendingAlerts(true) }, acknowledge = { gateway.acknowledgeAlert(it) },
+            readTemperatures = { gateway.viewerReadingCheck(context, enrollment, it) })
         if (ClientTemperatureAlarms.active(context, enrollment).isNotEmpty()) CloudAlertService.restoreForAlarm(context)
         if (success) Result.success() else Result.retry()
     }

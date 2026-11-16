@@ -32,9 +32,35 @@ class TemperatureAssessmentTest {
             assertFalse(assess(shelly.copy(temperatureF = 70.0), sensor).evaluated)
         }
         assertFalse(assess().evaluated)
-        assertTrue(assess(govee.copy(temperatureF = 45.0), shelly.copy(temperatureF = 100.0)).evaluated)
-        assertNull(assess(govee.copy(temperatureF = 45.0), shelly.copy(temperatureF = 100.0)).breach)
+        assertTrue(assess(govee.copy(temperatureF = 45.1), shelly.copy(temperatureF = 99.9)).evaluated)
+        assertNull(assess(govee.copy(temperatureF = 45.1), shelly.copy(temperatureF = 99.9)).breach)
         assertTrue(assess(govee, shelly.copy(online = false)).evaluated)
+    }
+
+    @Test fun limitsTriggerOnFirstObservationAndOnlyStrictlyInsideRetiresTheSensor() {
+        val atLow = govee.copy(temperatureF = 45.0)
+        val atHigh = shelly.copy(temperatureF = 100.0)
+        assertEquals(TemperatureBreach.Direction.LOW, assess(atLow).breach?.direction)
+        assertEquals(TemperatureBreach.Direction.HIGH, assess(atHigh).breach?.direction)
+        val both = assess(atHigh, atLow).outstandingSensorIds
+        assertEquals(setOf(atLow.id, atHigh.id), both)
+        assertEquals(both, assess(govee, shelly).outstandingSensorIds)
+        val inside = assessTemperature(listOf(atLow.copy(temperatureF = 45.1), atHigh),
+            45.0, 100.0, now, both)
+        assertEquals(setOf(atHigh.id), inside.outstandingSensorIds)
+    }
+
+    @Test fun snapshotTriggerTracksPerSensorDirectionRatherThanEveryChangeOfTemperature() {
+        val first = govee.copy(temperatureF = 100.0)
+        val second = shelly.copy(temperatureF = 75.0)
+        val high = TemperatureBreach.Direction.HIGH
+        val low = TemperatureBreach.Direction.LOW
+        assertEquals(mapOf(first.id to high), assess(first, second).breachDirections)
+        assertEquals(mapOf(first.id to high), assess(first.copy(temperatureF = 104.0), second).breachDirections)
+        assertEquals(mapOf(first.id to high, second.id to high),
+            assess(first, second.copy(temperatureF = 100.0)).breachDirections)
+        assertEquals(mapOf(second.id to low),
+            assess(first.copy(temperatureF = 98.0), second.copy(temperatureF = 44.0)).breachDirections)
     }
 
     @Test fun eachOffenderMustRecoverButUnrelatedMissingSensorsCannotHoldAnIncidentOpen() {

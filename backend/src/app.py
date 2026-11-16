@@ -379,6 +379,9 @@ def list_devices(principal: Principal):
             "requestedUpdateMode": requested_update_mode(primary) if target else None,
             "requestedUpdateId": primary.get("requestedUpdateId") if target else None,
             "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
+            "enrollmentEpochMs": max(int(primary.get("reauthorizedAt", 0)), int(item.get("createdAt", 0))) * 1000,
+            "lastDataUploadEpochMs": int(primary.get("lastDataUpload", 0)) * 1000 or None,
+            "sensorTemperatureMode": primary.get("sensorTemperatureMode") is True,
             "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
             "online": bool(primary.get("enabled")) and not primary.get("communicationSuspended") and last_heartbeat > 0 and now - last_heartbeat <= 180,
         })
@@ -882,7 +885,10 @@ def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bo
     key = {"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "BACKUP"}
     if not write:
         item = table.get_item(Key=key, ConsistentRead=True).get("Item")
-        return response(200, {"backup": json.loads(item["backupJson"]) if item else None, "updatedAt": int(item.get("updatedAt", 0)) if item else None})
+        backup = json.loads(item["backupJson"]) if item else None
+        if backup and (event.get("queryStringParameters") or {}).get("temperatureOnly") == "true":
+            backup = {key: backup[key] for key in ("schema", "preferences", "sensors", "serverHealth") if key in backup}
+        return response(200, {"backup": backup, "updatedAt": int(item.get("updatedAt", 0)) if item else None})
     body = json.loads(event.get("body") or "{}")
     backup = body.get("backup")
     if not isinstance(backup, dict) or backup.get("schema") not in {1, 2}:
@@ -1280,11 +1286,11 @@ def pending_alerts(principal: Principal, include_recovered=False):
                 continue
             alerts.append(alert_payload(item, message))
             if len(alerts) - sensor_alert_count >= 50:
-                return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "complete": False})
+                return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "sensorTemperatureInbox": True, "complete": False})
         exclusive_start_key = result.get("LastEvaluatedKey")
         if not exclusive_start_key:
             break
-    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "complete": not exclusive_start_key})
+    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "sensorTemperatureInbox": True, "complete": not exclusive_start_key})
 
 
 def acknowledge_alert(principal: Principal, alert_id: str):
