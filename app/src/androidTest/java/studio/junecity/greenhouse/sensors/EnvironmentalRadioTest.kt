@@ -101,7 +101,8 @@ class EnvironmentalRadioTest {
                 instrumentation.waitForIdleSync()
             }
             assertEquals(owner.widgetScope(),ClimateWidget.settings(context,id).getString("scope",""))
-            assertEquals("20°C  51% RH", widgetText(4271, id, R.id.widget_reading))
+            compose.waitUntil(5_000) { widgetText(4271, id, R.id.widget_temperature) == "20°C" }
+            assertEquals("51%", widgetText(4271, id, R.id.widget_humidity))
             secure.clearCloudEnrollment()
             ClimateWidget.render(context,id)
             assertEquals("Open Greenhouse Studio to set up", widgetText(4271, id, R.id.widget_time))
@@ -109,6 +110,110 @@ class EnvironmentalRadioTest {
             sensors.forget(sample)
             host.deleteHost()
             if (previous != null) secure.saveCloudEnrollment(previous) else secure.clearCloudEnrollment()
+        }
+    }
+
+    @Test fun widgetChartsTrackPairedReadingsAndFitLauncherSizes() = runBlocking {
+        assumeTrue(android.os.Build.MODEL.contains("sdk", ignoreCase = true))
+        val secure = SecureSettingsStore(context)
+        val original = secure.cloudEnrollment()
+        val owner = CloudEnrollment("trend-widget", "widget-server", CloudDeviceRole.ViewerClient, tenantId = "trend-test")
+        val prefs = AppPreferencesStore(context).load()
+        val sensorStore = CurrentSensorStore(context)
+        val saved = sensorStore.load()
+        val sample = GoveeSensor("temp-probe", "H5179", "Bench", 63.0, 79.0, true,
+            System.currentTimeMillis(), prefs.activeGreenhouse.id)
+        val now = sample.updatedAtEpochMs
+        val host = AppWidgetHost(context, 4273)
+        val id = host.allocateAppWidgetId()
+        val manager = AppWidgetManager.getInstance(context)
+        val suffix = studio.junecity.greenhouse.data.viewerHistorySuffix(owner)
+        val db = studio.junecity.greenhouse.data.HistoryStore(context, suffix)
+        try {
+            secure.saveCloudEnrollment(owner)
+            sensorStore.save(listOf(sample))
+            val rows = (0..71).filter { it !in 31..36 }.map {
+                val t = it / 71.0
+                studio.junecity.greenhouse.model.HistoryReading(sample.id, sample.name,
+                    63.0 + 3.5 * kotlin.math.sin(t * 12) + 4 * (1 - t),
+                    79.0 - 6 * kotlin.math.sin(t * 9) - 7 * (1 - t), now - (71 - it) * 300_000L)
+            }
+            db.importReadings(rows + rows.map { it.copy(sensorId = "another-house", temperatureF = 150.0) })
+            val points = db.widgetTrend(setOf(sample.id), now)
+            assertEquals(rows.size, points.size)
+            assertTrue(points.maxOf { it.temperatureF } < 75)
+            assertTrue(points.zipWithNext().any { (a,b) -> b.at - a.at > 600_000 })
+            instrumentation.uiAutomation.adoptShellPermissionIdentity(android.Manifest.permission.BIND_APPWIDGET)
+            try { assertTrue(manager.bindAppWidgetIdIfAllowed(id, ComponentName(context, ClimateWidget::class.java))) }
+            finally { instrumentation.uiAutomation.dropShellPermissionIdentity() }
+            ClimateWidget.settings(context,id).edit().putString("scope",owner.widgetScope()).commit()
+            val backup = org.json.JSONObject().put("schema", 2)
+            assertNotNull(syncViewerReadings(context, owner) { backup })
+            assertNull(syncViewerReadings(context, owner, skipRecent = true) { fail("Duplicate fetch"); null })
+            fun capture(w: Int, h: Int): android.graphics.Bitmap {
+                val options = android.os.Bundle().apply {
+                    putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, w)
+                    putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, w)
+                    putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, h)
+                    putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, h)
+                }
+                manager.updateAppWidgetOptions(id, options)
+                ClimateWidget.render(context,id)
+                lateinit var bitmap: android.graphics.Bitmap
+                instrumentation.runOnMainSync {
+                    val view = host.createView(context,id, manager.getAppWidgetInfo(id))
+                    val body = view.findViewById<android.view.View>(R.id.widget_body)
+                    val density = context.resources.displayMetrics.density
+                    val width = (w * density).toInt()
+                    val height = (h * density).toInt()
+                    body.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, 1073741824),
+                        android.view.View.MeasureSpec.makeMeasureSpec(height, 1073741824))
+                    body.layout(0, 0, width, height)
+                    for (plot in listOf(R.id.widget_temperature_plot, R.id.widget_humidity_plot)) {
+                        val image = body.findViewById<android.widget.ImageView>(plot)
+                        assertNotNull(image.drawable)
+                        assertTrue("Plot fits in ${w}x${h}", image.height >= 7 * density)
+                    }
+                    bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                    body.draw(android.graphics.Canvas(bitmap))
+                }
+                return bitmap
+            }
+            for ((w,h) in listOf(160 to 96, 284 to 195)) {
+                val image = capture(w,h)
+                java.io.File(context.cacheDir, "widget-${w}x${h}.png").outputStream().use {
+                    image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+            }
+            fun temperaturePlot(): android.graphics.Bitmap {
+                lateinit var image: android.graphics.Bitmap
+                instrumentation.runOnMainSync {
+                    val view = host.createView(context, id, manager.getAppWidgetInfo(id))
+                    val plot = view.findViewById<android.widget.ImageView>(R.id.widget_temperature_plot)
+                    image = (plot.drawable as android.graphics.drawable.BitmapDrawable).bitmap
+                }
+                return image
+            }
+            val before = temperaturePlot()
+            val newReading = sample.copy(temperatureF = 80.0, updatedAtEpochMs = System.currentTimeMillis())
+            db.insert(newReading)
+            sensorStore.save(listOf(newReading))
+            compose.waitUntil(5_000) { widgetText(4273,id,R.id.widget_temperature) == "80°F" }
+            assertFalse(before.sameAs(temperaturePlot()))
+            secure.clearCloudEnrollment()
+            ClimateWidget.render(context,id)
+            instrumentation.runOnMainSync {
+                val view = host.createView(context,id, manager.getAppWidgetInfo(id))
+                val plot = view.findViewById<android.widget.ImageView>(R.id.widget_temperature_plot)
+                assertEquals(android.view.View.GONE, plot.visibility)
+                assertNull(plot.drawable)
+            }
+        } finally {
+            host.deleteHost()
+            db.close()
+            context.deleteDatabase("greenhouse_history$suffix.db")
+            sensorStore.save(saved)
+            if (original == null) secure.clearCloudEnrollment() else secure.saveCloudEnrollment(original)
         }
     }
 
@@ -165,19 +270,19 @@ class EnvironmentalRadioTest {
                 instrumentation.waitForIdleSync()
             }
             assertWidget(R.id.widget_time, "Waiting for server readings")
-            assertWidget(R.id.widget_reading, "—")
+            assertWidget(R.id.widget_temperature, "—")
             paired.save(listOf(sample("", 72.0)))
             ClimateWidget.viewerSynced(context, owner)
-            assertWidget(R.id.widget_reading, "72°F  50% RH")
+            assertWidget(R.id.widget_temperature, "72°F")
             standalone.save(emptyList())
             secure.saveCloudEnrollment(local)
             assertWidget(R.id.widget_time, "Waiting for greenhouse readings")
             standalone.save(listOf(sample("_standalone", 65.0)))
-            assertWidget(R.id.widget_reading, "65°F  50% RH")
+            assertWidget(R.id.widget_temperature, "65°F")
             secure.saveCloudEnrollment(owner)
             assertWidget(R.id.widget_time, "Waiting for server readings")
             ClimateWidget.viewerSynced(context, owner)
-            assertWidget(R.id.widget_reading, "72°F  50% RH")
+            assertWidget(R.id.widget_temperature, "72°F")
             secure.saveCloudEnrollment(owner.copy(tenantId = "another-account"))
             assertWidget(R.id.widget_time, "Open Greenhouse Studio to set up")
         } finally {

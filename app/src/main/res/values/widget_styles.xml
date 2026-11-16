@@ -1,0 +1,19 @@
+<resources>
+    <style name="WidgetCaption">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+    <style name="WidgetValue" parent="WidgetCaption">
+        <item name="android:textSize">27sp</item>
+        <item name="android:textColor">#F7F7F6</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <string name="widget_trend">6h trend</string>
+    <string name="widget_temperature">Temperature</string>
+    <string name="widget_humidity">Humidity</string>
+</resources>

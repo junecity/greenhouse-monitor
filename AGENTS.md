@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.36.0 (78) · Home widget graphs
+- ClimateWidget and WidgetSparkline display six hours of local or synced temperature and RH history. HistoryStore groups by sensor and five-minute interval before calculating the greenhouse mean. Keep elapsed gaps, original measurement times and per-enrollment viewer archives. No database migration.
+- WidgetSyncWorker shares authorized snapshot fetching and restore with GreenhouseViewModel. Android schedules background launcher refreshes. New local readings or synced snapshots also redraw pinned widgets. WidgetSettingsActivity retains each pin's metric, unit and source configuration.
+- 161 JVM and three API 35 launcher-host tests passed, lint had zero errors. Charts redrew after a new reading, cleared on sign-out and fit both compact and expanded widgets. Paired data used fixtures. Physical launchers and elapsed background scheduling remain unverified. See CHANGELOG for release details.
+
 ## 2026-11-15 · Development remote update service deployed
 - The dedicated development stack now serves the approved signed Android build 77 from its private release prefix. Use the existing CloudFormation execution role for updates. Keep release keys immutable and publish subsequent signed builds before requesting them.
 - A temporary isolated client and server exercised the deployed API with Cognito SRP login, an authorized update request, heartbeat delivery, signed APK download and completion. Read back the current server heartbeat’s managedUpdates flag to distinguish Android enrollment from ordinary pairing. The production stack and a physical unattended installation were outside this deployment.

@@ -64,7 +64,7 @@ class WidgetSettingsActivity : ComponentActivity() {
                                 if (current != null && current.ownsWidget(owner.widgetScope())) {
                                     options.edit().putString("scope", owner.widgetScope()).putString("house", if (sensor.isEmpty()) house else selectedHouse)
                                         .putString("sensor", sensor).putString("metric", metric.name).putBoolean("celsius", celsius).apply()
-                                    ClimateWidget.render(this@WidgetSettingsActivity, id)
+                                    ClimateWidget.refresh(this@WidgetSettingsActivity, id)
                                     setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,id))
                                 }
                                 finish()

@@ -215,22 +215,21 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             if (!silent) _state.value = _state.value.copy(refreshing = true, message = null)
             val gateway = gatewayForEnrollment(getApplication(), configuration, enrollment)
             val greenhouseId = resolveClientGreenhouse(enrollment.greenhouseId, null, gateway::devices)
-            val snapshot = if (greenhouseId.isBlank()) null else gateway.greenhouseBackup(greenhouseId)
             if (secure.cloudEnrollment() != enrollment) return false
             if (greenhouseId != enrollment.greenhouseId) {
                 secure.saveCloudEnrollment(enrollment.copy(greenhouseId = greenhouseId))
                 selectStores()
             }
+            val target = enrollment.copy(greenhouseId = greenhouseId)
+            val snapshot = studio.junecity.greenhouse.widget.syncViewerReadings(getApplication(), target) {
+                gateway.greenhouseBackup(greenhouseId)
+            }
+            if (secure.cloudEnrollment() != target || stores != paired) return false
             if (snapshot == null) {
                 if (!silent) _state.value = _state.value.copy(message = "Waiting for greenhouse server data")
                 return greenhouseId.isBlank()
             }
-            val suffix = viewerHistorySuffix(enrollment.copy(greenhouseId = greenhouseId))
-            withContext(Dispatchers.IO) {
-                GreenhouseBackupStore(getApplication(), suffix).restore(snapshot, CameraMode.ViewerClient)
-            }
-            if (secure.cloudEnrollment() != enrollment.copy(greenhouseId=greenhouseId) || stores != paired) return false
-            studio.junecity.greenhouse.widget.ClimateWidget.viewerSynced(getApplication(), enrollment.copy(greenhouseId = greenhouseId))
+            val suffix = viewerHistorySuffix(target)
             val syncedSensors = paired.sensors.load()
             _state.value = _state.value.copy(
                 preferences = paired.preferences.load().copy(cameraMode = CameraMode.ViewerClient),

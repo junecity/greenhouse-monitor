@@ -1,12 +1,48 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_body" android:orientation="vertical"
     android:layout_width="match_parent" android:layout_height="match_parent"
-    android:gravity="center_vertical" android:padding="12dp"
-    android:background="@drawable/widget_surface">
-    <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:ellipsize="end" android:maxLines="1" android:text="@string/app_name" android:textSize="14sp" android:textStyle="bold" android:textColor="#FFB347" />
-    <TextView android:id="@+id/widget_reading" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:maxLines="2" android:text="—" android:textSize="24sp" android:textStyle="bold" android:textColor="#FFFFFF" />
-    <TextView android:id="@+id/widget_time" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:maxLines="2" android:textSize="12sp" android:textColor="#C6C8CF" />
+    android:padding="12dp" android:background="@drawable/widget_surface">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <ImageView android:layout_width="18dp" android:layout_height="18dp"
+            android:src="@drawable/ic_notification_greenhouse"
+            android:importantForAccessibility="no" />
+        <TextView android:id="@+id/widget_title" android:layout_width="0dp"
+            android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp"
+            android:ellipsize="end" android:maxLines="1" android:includeFontPadding="false"
+            android:text="@string/app_name" android:textSize="15sp" android:textStyle="bold" android:textColor="#F3F2EF" />
+        <TextView android:id="@+id/widget_period" style="@style/WidgetCaption" android:layout_width="wrap_content"
+            android:layout_marginStart="6dp" android:text="@string/widget_trend" android:textColor="#B5B9BE" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/widget_metrics" android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" android:orientation="horizontal" android:layout_marginTop="5dp">
+        <LinearLayout
+            android:id="@+id/widget_temperature_column"
+            android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView android:id="@+id/widget_temperature_label" style="@style/WidgetCaption"
+                android:text="@string/widget_temperature" android:textColor="#FFBC66" />
+            <TextView android:id="@+id/widget_temperature" style="@style/WidgetValue" />
+            <ImageView android:id="@+id/widget_temperature_plot" android:layout_width="match_parent"
+                android:layout_height="0dp" android:layout_weight="1" android:scaleType="fitXY" />
+            <TextView android:id="@+id/widget_temperature_range" style="@style/WidgetCaption"
+                android:textColor="#BFC3C9" android:visibility="gone" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/widget_divider" android:layout_width="1dp" android:layout_height="match_parent"
+            android:layout_marginHorizontal="8dp" android:background="#393C42" android:orientation="vertical" />
+        <LinearLayout
+            android:id="@+id/widget_humidity_column"
+            android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView android:id="@+id/widget_humidity_label" style="@style/WidgetCaption"
+                android:text="@string/widget_humidity" android:textColor="#71CBF4" />
+            <TextView android:id="@+id/widget_humidity" style="@style/WidgetValue" />
+            <ImageView android:id="@+id/widget_humidity_plot" android:layout_width="match_parent"
+                android:layout_height="0dp" android:layout_weight="1" android:scaleType="fitXY" />
+            <TextView android:id="@+id/widget_humidity_range" style="@style/WidgetCaption"
+                android:textColor="#BFC3C9" android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+    <TextView android:id="@+id/widget_time" style="@style/WidgetCaption" android:layout_marginTop="3dp"
+        android:textColor="#B9BCC2" />
 </LinearLayout>

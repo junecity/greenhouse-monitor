@@ -9,6 +9,9 @@ import studio.junecity.greenhouse.model.HistoryReading
 import studio.junecity.greenhouse.model.DAY_MS
 import studio.junecity.greenhouse.model.HISTORY_DAYS
 
+internal const val WIDGET_WINDOW_MS = 6 * 3_600_000L
+internal data class ClimateBucket(val at: Long, val temperatureF: Double, val humidity: Double)
+
 class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOpenHelper(context, "greenhouse_history$suffix.db", null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE readings(id INTEGER PRIMARY KEY AUTOINCREMENT, sensor_id TEXT NOT NULL, sensor_name TEXT NOT NULL, temperature REAL NOT NULL, humidity REAL NOT NULL, recorded_at INTEGER NOT NULL, light TEXT)")
@@ -77,6 +80,26 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
 
     internal fun sensorReadingsSince(id: String, since: Long) =
         readRows("sensor_id = ? AND recorded_at >= ?", arrayOf(id, since.toString()), null).asReversed()
+
+    /** One contribution per sensor per five-minute bucket, even for mixed reporting rates. */
+    internal fun widgetTrend(sensorIds: Set<String>, now: Long): List<ClimateBucket> {
+        if (sensorIds.isEmpty()) return emptyList()
+        data class Bin(var latest: Long = 0, var temperature: Double = 0.0, var rh: Double = 0.0, var count: Int = 0)
+        val bins = sortedMapOf<Long, Bin>()
+        val sql = """SELECT recorded_at / 300000, sensor_id, MAX(recorded_at), AVG(temperature), AVG(humidity)
+            FROM readings WHERE recorded_at BETWEEN ? AND ? GROUP BY 1, 2"""
+        readableDatabase.rawQuery(sql, arrayOf((now - WIDGET_WINDOW_MS).toString(), now.toString())).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getString(1) !in sensorIds) continue
+                val bin = bins.getOrPut(cursor.getLong(0)) { Bin() }
+                bin.latest = maxOf(bin.latest, cursor.getLong(2))
+                bin.temperature += cursor.getDouble(3)
+                bin.rh += cursor.getDouble(4)
+                bin.count++
+            }
+        }
+        return bins.values.map { ClimateBucket(it.latest, it.temperature / it.count, it.rh / it.count) }
+    }
 
     fun weekReadings():List<HistoryReading> = readRows("recorded_at >= ?",
         arrayOf((System.currentTimeMillis() - 7L * 24 * 3_600_000).toString()), null)
