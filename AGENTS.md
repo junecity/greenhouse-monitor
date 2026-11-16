@@ -1,5 +1,9 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.36.1 (79) · Widget rendering on launchers
+- The home widget pairs each auto-sized reading with a high-resolution 4:1 sparkline in its own row. Use fitCenter for charts. A host may allocate more height than its size bundle reports. The original fitXY stretched short bitmaps into thick traces. Preserve the six-hour data window, missing-data gaps and scope rules from build 78.
+- Changed ClimateWidget, WidgetSparkline, greenhouse_widget.xml, widget_surface.xml and EnvironmentalRadioTest. Verified three API 35 widget instrumentation tests, 161 JVM tests and lint (zero errors). Host captures in build-out/2.36.1-qa include a 276 × 198 dp slot reporting 100 dp height. Physical launcher appearance still requires confirmation.
+
 ## 2026-11-15 · Greenhouse Studio 2.36.0 (78) · Home widget graphs
 - ClimateWidget and WidgetSparkline display six hours of local or synced temperature and RH history. HistoryStore groups by sensor and five-minute interval before calculating the greenhouse mean. Keep elapsed gaps, original measurement times and per-enrollment viewer archives. No database migration.
 - WidgetSyncWorker shares authorized snapshot fetching and restore with GreenhouseViewModel. Android schedules background launcher refreshes. New local readings or synced snapshots also redraw pinned widgets. WidgetSettingsActivity retains each pin's metric, unit and source configuration.

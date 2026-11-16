@@ -16,17 +16,14 @@ internal fun widgetSparkline(
 ): Bitmap {
     val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(image)
-    val scale = (width / 160f).coerceIn(1f, 3f)
+    val scale = width / 180f
     val margin = 3f * scale
     val bottom = height - margin
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         strokeWidth = scale
-        this.color = Color.argb(38, 170, 181, 193)
+        this.color = Color.argb(24, 170, 181, 193)
     }
-    for (fraction in listOf(0f, .5f, 1f)) {
-        val y = margin + fraction * (bottom - margin)
-        canvas.drawLine(margin, y, width - margin, y, paint)
-    }
+    canvas.drawLine(margin, bottom, width - margin, bottom, paint)
     if (points.isEmpty()) return image
     val min = points.minOf(value)
     val max = points.maxOf(value)
@@ -45,13 +42,14 @@ internal fun widgetSparkline(
         paint.style = Paint.Style.FILL
         paint.color = Color.WHITE
         paint.shader = LinearGradient(0f, margin, 0f, bottom,
-            (color and 0x00ffffff) or 0x4c000000, color and 0x00ffffff, Shader.TileMode.CLAMP)
+            (color and 0x00ffffff) or 0x2e000000, color and 0x00ffffff, Shader.TileMode.CLAMP)
         canvas.drawPath(fill, paint)
         paint.shader = null
         paint.color = color
         paint.style = Paint.Style.STROKE
         paint.strokeJoin = Paint.Join.ROUND
-        paint.strokeWidth = 1.7f * scale
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = 1.35f * scale
         canvas.drawPath(line, paint)
         paint.style = Paint.Style.FILL
         canvas.drawCircle(lastX, lastY, 2.2f * scale, paint)

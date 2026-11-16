@@ -150,12 +150,12 @@ class EnvironmentalRadioTest {
             val backup = org.json.JSONObject().put("schema", 2)
             assertNotNull(syncViewerReadings(context, owner) { backup })
             assertNull(syncViewerReadings(context, owner, skipRecent = true) { fail("Duplicate fetch"); null })
-            fun capture(w: Int, h: Int): android.graphics.Bitmap {
+            fun capture(w: Int, h: Int, hintHeight: Int = h): android.graphics.Bitmap {
                 val options = android.os.Bundle().apply {
                     putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, w)
                     putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, w)
-                    putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, h)
-                    putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, h)
+                    putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, hintHeight)
+                    putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, hintHeight)
                 }
                 manager.updateAppWidgetOptions(id, options)
                 ClimateWidget.render(context,id)
@@ -172,6 +172,9 @@ class EnvironmentalRadioTest {
                     for (plot in listOf(R.id.widget_temperature_plot, R.id.widget_humidity_plot)) {
                         val image = body.findViewById<android.widget.ImageView>(plot)
                         assertNotNull(image.drawable)
+                        val matrix = FloatArray(9)
+                        image.imageMatrix.getValues(matrix)
+                        assertEquals("Preserve chart proportions", matrix[0], matrix[4], 0.001f)
                         assertTrue("Plot fits in ${w}x${h}", image.height >= 7 * density)
                     }
                     bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
@@ -184,6 +187,10 @@ class EnvironmentalRadioTest {
                 java.io.File(context.cacheDir, "widget-${w}x${h}.png").outputStream().use {
                     image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
                 }
+            }
+            val mismatchedHost = capture(276, 198, hintHeight = 100)
+            java.io.File(context.cacheDir, "widget-mismatched-host.png").outputStream().use {
+                mismatchedHost.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
             fun temperaturePlot(): android.graphics.Bitmap {
                 lateinit var image: android.graphics.Bitmap

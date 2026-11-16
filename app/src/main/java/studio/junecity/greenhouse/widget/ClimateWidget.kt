@@ -7,7 +7,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.View
 import android.content.res.Configuration
 import android.os.Handler
@@ -177,28 +176,30 @@ class ClimateWidget : AppWidgetProvider() {
             val heightDp = size.getInt(if (landscape) AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT else AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 150)
             val compact = heightDp < 128
             val pad = ((if (compact) 6 else 12) * context.resources.displayMetrics.density).roundToInt()
-            views.setViewPadding(R.id.widget_body, pad, pad, pad, pad)
+            val sidePad = ((if (widthDp < 200) 7 else 13) * context.resources.displayMetrics.density).roundToInt()
+            views.setViewPadding(R.id.widget_body, sidePad, pad, sidePad, pad)
+            views.setTextViewText(R.id.widget_temperature_label, if (widthDp < 210) "Temp." else "Temperature")
             fun visible(view: Int, show: Boolean) = views.setViewVisibility(view, if (show) View.VISIBLE else View.GONE)
             visible(R.id.widget_temperature_column, metric != WidgetMetric.Humidity)
             visible(R.id.widget_humidity_column, metric != WidgetMetric.Temperature)
             visible(R.id.widget_divider, metric == WidgetMetric.Both)
             visible(R.id.widget_period, widthDp >= 200 && trend.isNotEmpty())
-            val both = metric == WidgetMetric.Both
-            val width = (2 * widthDp / if (both) 2 else 1).coerceIn(120, 640)
-            val height = (2 * (heightDp - if (compact) 74 else 106)).coerceIn(32, 240)
+            // Draw a high-density, fixed-aspect trace. Launcher size hints can describe a
+            // different orientation or grid than the actual host; fitCenter preserves its shape.
+            val chartWidth = (widthDp.coerceIn(160, 640) * context.resources.displayMetrics.density * .60f)
+                .roundToInt().coerceIn(480, 1080)
+            val chartHeight = chartWidth / 4
             fun metricPanel(valueId: Int, chartId: Int, rangeId: Int, text: String, color: Int,
                             format: (Double) -> String, measure: (ClimateBucket) -> Double) {
                 views.setTextViewText(valueId, text)
-                val font = when { compact -> 20f; widthDp < 200 && both -> 24f; else -> 30f }
-                views.setTextViewTextSize(valueId, TypedValue.COMPLEX_UNIT_SP, font)
                 val hasData = trend.isNotEmpty()
                 visible(chartId, hasData)
                 visible(rangeId, hasData && heightDp >= 148)
                 if (hasData) {
                     val range = "${format(trend.minOf(measure))} – ${format(trend.maxOf(measure))}"
-                    views.setTextViewText(rangeId, range)
+                    views.setTextViewText(rangeId, "Range  $range")
                     views.setContentDescription(chartId, "Past 6 hours, $range")
-                    views.setImageViewBitmap(chartId, widgetSparkline(trend, now, width, height, color, measure))
+                    views.setImageViewBitmap(chartId, widgetSparkline(trend, now, chartWidth, chartHeight, color, measure))
                 } else {
                     views.setImageViewResource(chartId, 0)
                     views.setTextViewText(rangeId, "")
