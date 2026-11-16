@@ -104,7 +104,8 @@ data class DeviceStatus(
     val batteryPercent: Int?, val charging: Boolean?, val wifiConnected: Boolean,
     val network: String = if (wifiConnected) "Wi-Fi" else "Offline",
     val signalDbm: Int? = null, val reportedAt: Long = 0,
-    val appVersion: String? = null, val appVersionCode: Int? = null
+    val appVersion: String? = null, val appVersionCode: Int? = null,
+    val sourceDeviceId: String? = null, val cloudGreenhouseId: String? = null
 )
 const val HISTORY_DAYS = 180
 const val DAY_MS = 86_400_000L

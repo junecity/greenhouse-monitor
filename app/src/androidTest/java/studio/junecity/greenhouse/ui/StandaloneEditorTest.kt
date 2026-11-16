@@ -1383,6 +1383,31 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun settingsReadsVersionFromSyncedHouseWhenInventoryOmitsIt() {
+        val item = studio.junecity.greenhouse.cloud.CloudJsonCodec.accountDevice(org.json.JSONObject()
+            .put("id", "server").put("role", "GREENHOUSE_SERVER").put("greenhouseId", "house")
+            .put("createdAtEpochMs", 1000).put("lastSeenAtEpochMs", 3000).put("online", true))
+        val client = studio.junecity.greenhouse.BuildConfig.VERSION_NAME
+        val server = DeviceStatus(50, true, true, reportedAt = 2000, appVersion = client)
+        val payload = org.json.JSONObject().put("serverHealth", server.toHealthJson())
+        val status = androidx.compose.runtime.mutableStateOf(payload.serverHealth("house"))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    studio.junecity.greenhouse.cloud.ServerVersionRow(item, status.value, { it.dp }, { it.sp }) {}
+                }
+            }
+            find("Client $client  ·  Last greenhouse report $client\nVersions match")
+            scenario.onActivity {
+                payload.put("serverHealth", server.copy(sourceDeviceId = "server").toHealthJson())
+                status.value = payload.serverHealth("house")
+            }
+            find("Client $client  ·  Server $client\nVersions match")
+            scenario.onActivity { status.value = payload.serverHealth("different-house") }
+            find("Client $client  ·  Server —\nCheck the version in Settings → General on the greenhouse phone.")
+        }
+    }
+
     @Test fun serverReportAndSensorAssignmentsSurviveSync() {
         val context = instrumentation.targetContext
         val store = CurrentSensorStore(context, "_server_health_fixture")

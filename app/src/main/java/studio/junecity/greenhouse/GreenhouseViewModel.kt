@@ -235,7 +235,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             _state.value = _state.value.copy(
                 preferences = paired.preferences.load().copy(cameraMode = CameraMode.ViewerClient),
                 sensors = syncedSensors,
-                serverStatus = snapshot.serverHealth(),
+                serverStatus = snapshot.serverHealth(greenhouseId),
                 sensorColorSlots = paired.sensors.colorSlots(),
                 goveeConnected = syncedSensors.any { it.isFresh() },
                 message = if (silent) _state.value.message else "Synchronized from greenhouse server"

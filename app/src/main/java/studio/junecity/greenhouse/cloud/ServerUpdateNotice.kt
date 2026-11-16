@@ -29,6 +29,28 @@ internal fun compareServerVersion(name: String?, code: Int?, clientName: String 
     }
 }
 
+internal data class ReportedVersion(val label: String, val comparison: ServerVersion, val fromHouseReport: Boolean)
+
+internal fun resolveServerVersion(item: AccountDevice, report: studio.junecity.greenhouse.model.DeviceStatus?): ReportedVersion {
+    fun version(name: String?, code: Int?, fromHouseReport: Boolean): ReportedVersion? {
+        val comparison = compareServerVersion(name, code)
+        if (comparison == ServerVersion.Unknown) return null
+        val label = name?.takeIf { compareServerVersion(it, null) != ServerVersion.Unknown } ?: "build $code"
+        return ReportedVersion(label, comparison, fromHouseReport)
+    }
+
+    val device = item.device
+    version(device.appVersion, device.appVersionCode, false)?.let { return it }
+    if (device.enabled && !device.communicationSuspended && device.role == CloudDeviceRole.GreenhouseServer &&
+        report != null && !device.greenhouseId.isNullOrBlank() && report.cloudGreenhouseId == device.greenhouseId) {
+        // Older snapshots identify only the house. Keep their origin visible and reject pre-registration data.
+        val matches = if (report.sourceDeviceId != null) report.sourceDeviceId == device.id
+            else item.createdAtEpochMs > 0 && report.reportedAt > item.createdAtEpochMs
+        if (matches) version(report.appVersion, report.appVersionCode, report.sourceDeviceId == null)?.let { return it }
+    }
+    return ReportedVersion("—", ServerVersion.Unknown, false)
+}
+
 internal object ServerUpdateNotice {
     private const val channelId = "server_app_updates"
     private const val notificationId = 17302

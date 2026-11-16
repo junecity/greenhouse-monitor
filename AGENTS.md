@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.34.1 (76)
+- Connectivity and Manage phones prefer the device inventory version and fall back to the selected greenhouse’s synced health report. New snapshots carry the server device ID. Older reports are labeled by greenhouse and must postdate device registration. Update requests still require an eligible inventory build.
+- Changed CloudDeviceManagementPanel, ServerUpdateNotice, ServerHealth, CloudHeartbeatService, Models, GreenhouseViewModel and StageScreens. No backend deployment or schema migration. The separate update-request endpoint deployment remains pending.
+- 161 JVM tests and three API 35 emulator tests passed, lint zero errors. Live version reporting on the owner’s paired phones remains unverified.
+
 ## 2026-11-15 · Greenhouse Studio 2.34.0 (75)
 - Client Settings → Alerts includes CriticalSoundSettings for paired viewers. TemperatureSound retains the legacy notification default and adds two bundled tones plus an Android-customizable channel. CloudAlertService applies the choice only to critical temperature events on the client.
 - CriticalAlarm uses a brief opt-in alarm-volume override, checks Android notification/DND policy, and restores the preceding alarm volume unless the user adjusted it. MainActivity and the alert service check for interrupted restoration on startup. The ordinary remote alert and acknowledgment flow remain available. No cloud changes.

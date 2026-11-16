@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import studio.junecity.greenhouse.model.DeviceStatus
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.ui.DashboardTokens
 import java.util.UUID
@@ -51,7 +52,7 @@ internal fun connectivityServerCandidates(devices: List<AccountDevice>, preferre
 }
 
 @Composable
-fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
+fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit, report: DeviceStatus? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val secure = remember { SecureSettingsStore(context) }
     val enrollment = remember { secure.cloudEnrollment() }
@@ -142,7 +143,7 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
                             DeviceAction("Pair Again", true, d, t) { perform { invitation = gateway.createServerInvitation(requireNotNull(item.device.greenhouseId), "Greenhouse ${index + 1}", item.device.id) } }
                         }
                     }
-                    if (item.device.enabled) ServerVersionRow(item.device, d, t) {
+                    if (item.device.enabled) ServerVersionRow(item, report, d, t) {
                         perform { gateway.requestServerUpdate(item.device.id) }
                     }
                 }
@@ -183,7 +184,8 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit) {
 fun CloudServerPairingPanel(
     d: (Float) -> Dp,
     t: (Float) -> TextUnit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    report: DeviceStatus? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val secure = remember { SecureSettingsStore(context) }
@@ -361,7 +363,7 @@ fun CloudServerPairingPanel(
             }
             invitation == null && activeServer != null -> {
                 ServerConnectionStatus(activeServer.device, inventoryVerified, t)
-                ServerVersionRow(activeServer.device, d, t) {
+                ServerVersionRow(activeServer, report, d, t) {
                     scope.launch {
                         runCatching {
                             gateway.requestServerUpdate(activeServer.device.id)
@@ -543,12 +545,15 @@ private fun DeviceAction(
 }
 
 @Composable
-private fun ServerVersionRow(device: RegisteredDevice, d: (Float) -> Dp, t: (Float) -> TextUnit, request: () -> Unit) {
+internal fun ServerVersionRow(item: AccountDevice, report: DeviceStatus?, d: (Float) -> Dp, t: (Float) -> TextUnit, request: () -> Unit) {
     val client = studio.junecity.greenhouse.BuildConfig.VERSION_NAME
     val clientCode = studio.junecity.greenhouse.BuildConfig.VERSION_CODE
-    val comparison = compareServerVersion(device.appVersion, device.appVersionCode)
+    val device = item.device
+    val version = resolveServerVersion(item, report)
+    val comparison = version.comparison
     val detail = when (comparison) {
-        ServerVersion.Unknown -> "Awaiting server version"
+        ServerVersion.Unknown -> if (device.lastSeenAtEpochMs == null) "Waiting for first heartbeat"
+            else "Check the version in Settings → General on the greenhouse phone."
         ServerVersion.Same -> "Versions match"
         ServerVersion.Newer -> "Update this client"
         ServerVersion.Older -> when {
@@ -558,7 +563,8 @@ private fun ServerVersionRow(device: RegisteredDevice, d: (Float) -> Dp, t: (Flo
             else -> "Server update available"
         }
     }
-    Text("Client $client  ·  Server ${device.appVersion ?: "—"}\n$detail",
+    val source = if (version.fromHouseReport) "Last greenhouse report" else "Server"
+    Text("Client $client  ·  $source ${version.label}\n$detail",
         color = if (comparison == ServerVersion.Older || comparison == ServerVersion.Newer) DashboardTokens.Amber else DashboardTokens.Muted,
         fontSize = t(15f))
     if (comparison == ServerVersion.Older && (device.appVersionCode ?: 0) >= 73 &&

@@ -110,7 +110,8 @@ class CloudHeartbeatService : Service() {
                 }
                 val health = healthStore.load()
                 val device = AndroidDeviceStatusProvider(context).current().copy(
-                    appVersion = BuildConfig.VERSION_NAME, appVersionCode = BuildConfig.VERSION_CODE)
+                    appVersion = BuildConfig.VERSION_NAME, appVersionCode = BuildConfig.VERSION_CODE,
+                    sourceDeviceId = enrollment.deviceId)
                 val requestedUpdate = HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature,
                     batteryPercent=device.batteryPercent, charging=device.charging,

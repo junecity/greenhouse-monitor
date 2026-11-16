@@ -553,7 +553,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 @Composable private fun ConnectivitySettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSave:(String)->Unit){
     LazyColumn(Modifier.fillMaxSize().padding(d(16f)),verticalArrangement=Arrangement.spacedBy(d(12f))){
         if (state.standalone) item { Text("Add a greenhouse phone for live video, short clips and timelapses. Your sensors already work on this phone.", color=DashboardTokens.Muted, fontSize=16.sp) }
-        item { CloudServerPairingPanel(d,t,Modifier.fillMaxWidth()) }
+        item { CloudServerPairingPanel(d, t, Modifier.fillMaxWidth(), state.serverStatus) }
         if(!state.standalone)item { ActionButton("Sync readings",d,t,onRefresh) }
     }
 }
@@ -690,7 +690,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                 secure.saveCloudEnrollment(device.copy(localSensors=!state.standalone))
                 managePhones=false
             }
-            CloudDeviceManagementPanel(d,t)
+            CloudDeviceManagementPanel(d, t, state.serverStatus)
         }
     }
 }
