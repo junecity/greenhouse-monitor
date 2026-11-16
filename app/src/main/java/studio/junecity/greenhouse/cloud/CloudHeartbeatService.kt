@@ -2,6 +2,7 @@ package studio.junecity.greenhouse.cloud
 
 import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.model.sensorHouse
+import studio.junecity.greenhouse.model.forAlertsIn
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -86,19 +87,24 @@ class CloudHeartbeatService : Service() {
         }
         val gateway = runCatching { gatewayForEnrollment(this@CloudHeartbeatService, configuration, enrollment) }.getOrElse { stopSelf(); return@coroutineScope }
         launch { studio.junecity.greenhouse.sensors.collectShelly(this@CloudHeartbeatService, enrollment, "") }
+        val appliedRules = AppliedAlertRules(this@CloudHeartbeatService, enrollment)
         var failures = 0
         val lastUpload = AtomicLong(0L)
         var update: Job? = null
         var backup: Job? = null
         var publishedSensors: Map<String,String>? = null
         var publishedPlan: studio.junecity.greenhouse.model.GreenhouseConfig? = null
+        var publishedRules: AlertRules? = null
         while (isActive) {
+            var rulesChanged = false
             val result = runCatching {
                 val context = this@CloudHeartbeatService
                 val prefs = AppPreferencesStore(context).load()
                 val house = prefs.activeGreenhouse.id
                 val sensors = CurrentSensorStore(context).load().filter { prefs.sensorHouse(it) == house }
-                val limits = prefs.notifications
+                val applied = appliedRules.load()
+                val rules = applied?.rules ?: AlertRules.from(prefs.forAlertsIn(house))
+                val limits = rules.applyTo(prefs.notifications)
                 val incident = TemperatureIncidentSensors(context, enrollment, house)
                 val previousOffenders = incident.load()
                 val health = assessTemperature(sensors, limits.lowTemperatureF, limits.highTemperatureF,
@@ -109,9 +115,11 @@ class CloudHeartbeatService : Service() {
                     appVersion = BuildConfig.VERSION_NAME, appVersionCode = BuildConfig.VERSION_CODE,
                     sourceDeviceId = enrollment.deviceId)
                 val updateMode = ManagedServerUpdate.mode(context, enrollment)
-                val command = HeartbeatReporter(gateway).report(MonitoringHealth(
+                val reply = HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.breach != null,
                     temperatureEvaluated = health.evaluated, temperatureBreach = health.breach,
+                    alertRules = rules.takeIf { it.valid() },
+                    appliedAlertRulesRevision = applied?.revision ?: 0,
                     batteryPercent=device.batteryPercent, charging=device.charging,
                     networkType=if (device.wifiConnected) "WIFI" else device.network.uppercase(),
                     wifiSignalStrength=device.signalDbm.takeIf { device.wifiConnected },
@@ -127,6 +135,9 @@ class CloudHeartbeatService : Service() {
                     updateStatusRequestId=ManagedServerUpdate.statusRequestId(context, enrollment.deviceId),
                     lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
                 ))
+                if (secure.cloudEnrollment() != enrollment) return@coroutineScope
+                rulesChanged = reply.alertRules?.let(appliedRules::install) == true
+                val command = reply.update
                 incident.save(health.outstandingSensorIds)
                 ServerHeartbeatReceipt.record(enrollment.deviceId)
                 val requestedUpdate = command?.versionCode
@@ -153,12 +164,14 @@ class CloudHeartbeatService : Service() {
                 if (backup?.isActive != true) {
                     backup?.join()
                     val available = sensors.associate { it.id to it.name }
-                    if (prefs.activeGreenhouse != publishedPlan || available != publishedSensors ||
+                    val snapshotRules = reply.alertRules?.rules ?: rules
+                    if (prefs.activeGreenhouse != publishedPlan || available != publishedSensors || snapshotRules != publishedRules ||
                         System.currentTimeMillis() - lastUpload.get() >= prefs.activeRefreshMinutes * 60_000L) {
                         backup = launch {
-                            runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot().put("serverHealth", device.toHealthJson())) }
+                            runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot(enrollment).put("serverHealth", device.toHealthJson())) }
                                 .onSuccess {
                                     publishedPlan = prefs.activeGreenhouse
+                                    publishedRules = snapshotRules
                                     publishedSensors = available
                                     lastUpload.set(System.currentTimeMillis())
                                 }
@@ -172,7 +185,8 @@ class CloudHeartbeatService : Service() {
                 ManagedServerUpdate.cancelSession(this@CloudHeartbeatService)
             }
             failures = if (result.isSuccess) 0 else failures + 1
-            delay(HeartbeatRetryPolicy.delayMs(failures))
+            // Immediately re-evaluate real readings under the new thresholds and acknowledge that revision.
+            if (!rulesChanged) delay(HeartbeatRetryPolicy.delayMs(failures))
         }
     }
 

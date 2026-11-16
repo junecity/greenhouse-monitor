@@ -1,5 +1,7 @@
 package studio.junecity.greenhouse.model
 
+import studio.junecity.greenhouse.cloud.AlertRules
+
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -13,7 +15,7 @@ enum class GreenhouseShape { Rectangle, TShape, Drawn, LShape, Circle }
 enum class MountLevel(val fraction: Double) { Lower(.25), Upper(.75) }
 data class SensorPosition(val xFeet:Double,val yFeet:Double,val heightFeet:Double?=null,val level: MountLevel?=null){fun normalized(g:GreenhouseConfig)=NormalizedPosition((xFeet/g.planLengthFeet).coerceIn(0.0,1.0),(yFeet/g.planWidthFeet).coerceIn(0.0,1.0))}
 data class NormalizedPosition(val x:Double,val y:Double)
-data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap(),val shape:GreenhouseShape=GreenhouseShape.Rectangle,val attachedLengthFeet:Double=16.0,val attachedWidthFeet:Double=8.0,val refreshMinutes:Int=1,val vertices:List<NormalizedPosition> = emptyList(),val attachedHeightFeet:Double?=null,val circulationFans:List<CirculationFan> = List(2) { CirculationFan() }){
+data class GreenhouseConfig(val id:String="main",val name:String="Main Greenhouse",val lengthFeet:Double=16.0,val widthFeet:Double=8.0,val heightFeet:Double?=null,val sensorPositions:Map<String,SensorPosition> = emptyMap(),val shape:GreenhouseShape=GreenhouseShape.Rectangle,val attachedLengthFeet:Double=16.0,val attachedWidthFeet:Double=8.0,val refreshMinutes:Int=1,val vertices:List<NormalizedPosition> = emptyList(),val attachedHeightFeet:Double?=null,val circulationFans:List<CirculationFan> = List(2) { CirculationFan() },val alertRules:AlertRules?=null){
     val hasStem get() = shape == GreenhouseShape.TShape || shape == GreenhouseShape.LShape
     fun withPreset(preset: GreenhouseShape): GreenhouseConfig {
         require(preset != GreenhouseShape.Drawn)
@@ -117,5 +119,5 @@ object DataSyncIntervals {
     fun normalize(value: Int): Int = minutes.minBy { kotlin.math.abs(it - value) }
 }
 
-data class AppPreferences(val zipCode:String="06382",val temperatureFahrenheit:Boolean=true,val refreshMinutes:Int=1,val historyRetentionDays:Int=HISTORY_DAYS,val keepScreenOn:Boolean=true,val autoStart:Boolean=false,val greenhouses:List<GreenhouseConfig> = listOf(GreenhouseConfig()),val activeGreenhouseId:String="main",val notifications:NotificationPreferences=NotificationPreferences(),val sensorGreenhouseIds:Map<String,String> = emptyMap(),val cameraMode:CameraMode=CameraMode.CameraServer,val cameraStreamQuality:CameraStreamQuality=CameraStreamQuality.Balanced){val activeGreenhouse get()=greenhouses.firstOrNull{it.id==activeGreenhouseId}?:greenhouses.first();val activeRefreshMinutes get()=DataSyncIntervals.normalize(activeGreenhouse.refreshMinutes)}
+data class AppPreferences(val zipCode:String="06382",val temperatureFahrenheit:Boolean=true,val refreshMinutes:Int=1,val historyRetentionDays:Int=HISTORY_DAYS,val keepScreenOn:Boolean=true,val autoStart:Boolean=false,val greenhouses:List<GreenhouseConfig> = listOf(GreenhouseConfig()),val activeGreenhouseId:String="main",val notifications:NotificationPreferences=NotificationPreferences(),val sensorGreenhouseIds:Map<String,String> = emptyMap(),val cameraMode:CameraMode=CameraMode.CameraServer,val cameraStreamQuality:CameraStreamQuality=CameraStreamQuality.Balanced,val serverAlertRules:AlertRules?=null){val activeGreenhouse get()=greenhouses.firstOrNull{it.id==activeGreenhouseId}?:greenhouses.first();val activeRefreshMinutes get()=DataSyncIntervals.normalize(activeGreenhouse.refreshMinutes)}
 data class GreenhouseUiState(val screen:AppScreen=AppScreen.Dashboard,val metric:Metric=Metric.Temperature,val sensors:List<GoveeSensor> = emptyList(),val weather:WeatherReading=WeatherReading("06382","Outside (06382)",null,"Unavailable"),val history:List<HistoryReading> = emptyList(),val preferences:AppPreferences=AppPreferences(),val standalone:Boolean=false,val goveeConnected:Boolean=false,val refreshing:Boolean=false,val message:String?=null,val dailyHistory:List<HistoryReading> = emptyList(), val serverStatus: DeviceStatus? = null, val sensorColorSlots: Map<String, Int> = emptyMap())

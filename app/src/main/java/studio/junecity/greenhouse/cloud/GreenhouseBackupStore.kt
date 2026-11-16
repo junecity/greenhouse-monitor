@@ -8,6 +8,7 @@ import studio.junecity.greenhouse.model.inSavedHouses
 import studio.junecity.greenhouse.model.HistoryReading
 import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.settings.AppPreferencesStore
+import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.CurrentSensorCodec
 import studio.junecity.greenhouse.settings.CurrentSensorStore
 import studio.junecity.greenhouse.settings.ZoneAssignmentStore
@@ -17,7 +18,7 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
     private val zones = ZoneAssignmentStore(context)
     private val currentSensors = CurrentSensorStore(context)
 
-    fun snapshot(): JSONObject {
+    fun snapshot(owner: CloudEnrollment? = null): JSONObject {
         val zoneValues = JSONObject().also { json -> zones.exportAssignments().forEach(json::put) }
         val readings = JSONArray().also { array -> HistoryStore(context, historySuffix).use { it.recent(1_500) }.asReversed().forEach { reading ->
             array.put(JSONObject().put("sensorId", reading.sensorId).put("sensorName", reading.sensorName)
@@ -35,7 +36,7 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
             }
             daily.put(JSONObject().put("id", id).put("name", rows.last().sensorName).put("samples", samples))
         }
-        return JSONObject().put("dailyLast", daily).put("schema", 2).put("preferences", preferences.exportJson()).put("zones", zoneValues)
+        return JSONObject().put("dailyLast", daily).put("schema", 2).put("preferences", preferences.exportJson(owner)).put("zones", zoneValues)
             .put("history", readings).also { meta ->
                 val prefs = preferences.load()
                 currentSensors.writeBackup(meta) { it.inSavedHouses(prefs) }
@@ -47,8 +48,13 @@ class GreenhouseBackupStore(private val context: Context, private val historySuf
         // Decode the entire payload before touching persisted state. A bad history row can
         // otherwise leave a replacement phone with a mixture of old and restored settings.
         val savedPreferences = value.optJSONObject("preferences")?.let(preferences::decode)
-        val effective = (savedPreferences ?: preferences.load()).let {
-            if (localCameraMode == null) it else it.copy(cameraMode = localCameraMode)
+        val local = preferences.load()
+        val restored = savedPreferences ?: local
+        val effective = when (localCameraMode) {
+            CameraMode.ViewerClient -> restored.copy(cameraMode = localCameraMode,
+                notifications = AlertRules.from(restored.notifications).applyTo(local.notifications))
+            null -> restored
+            else -> restored.copy(cameraMode = localCameraMode)
         }
         val assignments = value.optJSONObject("zones")?.let { json ->
             json.keys().asSequence().associateWith { json.optString(it, "Unassigned") }

@@ -16,6 +16,7 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
 
+from alert_rules import greenhouse_rules, heartbeat_rules
 from camera_archive import archive
 from alerts import LEGACY_TEMPERATURE_MESSAGE, new_alert, temperature_breach_message
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
@@ -796,6 +797,7 @@ def approve_server_pairing(principal: Principal, request_id: str):
                 "SET greenhouseId=:greenhouse, enabled=:enabled, communicationSuspended=:connected, "
                 "deviceSecretHash=:secret, reauthorizedAt=:now, adminEntity=:entity, adminSort=:sort "
                 "REMOVE revokedAt, revokedBy, replacedAt, replacedBy, managedUpdates, updateMode, updateStatus, "
+                "appliedAlertRulesHouse, appliedAlertRulesRevision, "
                 + ", ".join(UPDATE_ORDER_FIELDS)
             ),
             "ConditionExpression": "tenantId=:tenant AND accountId=:account AND #role=:role",
@@ -1389,6 +1391,11 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
         remove_parts.append("sensorAlertedAt")
     else:
         set_parts.append("sensorAlertedAt=:now")
+    alert_policy = None
+    if "alertRules" in body:
+        alert_policy = heartbeat_rules(table, principal, device, device_authenticated, body)
+        set_parts.extend(["appliedAlertRulesHouse=:alertHouse", "appliedAlertRulesRevision=:alertRevision"])
+        expression_values.update({":alertHouse": device["greenhouseId"], ":alertRevision": alert_policy["appliedRevision"]})
     alert_records = []
     marker_conditions = []
     if not sensor_healthy and "sensorAlertedAt" not in device:
@@ -1433,6 +1440,11 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     expression_values[":previousManaged"] = previously_managed
     condition += (" AND managedUpdates=:previousManaged" if previously_managed else
                   " AND (attribute_not_exists(managedUpdates) OR managedUpdates=:previousManaged)")
+    if alert_policy is not None:
+        condition += " AND greenhouseId=:alertHouse"
+        if device.get("deviceSecretHash"):
+            condition += " AND deviceSecretHash=:alertSecretHash"
+            expression_values[":alertSecretHash"] = device["deviceSecretHash"]
     if marker_conditions:
         condition += " AND " + " AND ".join(marker_conditions)
     transaction = [{"Update": {
@@ -1447,9 +1459,10 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
         "ConditionExpression": "attribute_not_exists(pk)",
     }} for alert in alert_records)
     table.meta.client.transact_write_items(TransactItems=transaction)
+    command = {"alertRules": alert_policy} if alert_policy is not None else {}
     if not target:
-        return response(204, {})
-    command = {"requestedUpdateCode": target}
+        return response(200 if command else 204, command)
+    command["requestedUpdateCode"] = target
     if requested_update_mode(device) in ORDINARY_INSTALL_MODES:
         command["requestedUpdateMode"] = requested_update_mode(device)
         command["requestedUpdateId"] = order_id
@@ -1486,7 +1499,7 @@ def handler(event, _context):
             (method in {"POST", "DELETE"} and len(parts) in {3, 4} and parts[:2] == ["v1", "stream-sessions"]) or
             (method == "GET" and parts == ["v1", "alerts"]) or
             (method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge") or
-            (method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "backup")
+            (method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] in {"backup", "alert-rules"})
         ):
             raise AccessDenied("device_route_not_allowed")
         if method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "update-package":
@@ -1511,6 +1524,9 @@ def handler(event, _context):
             return approve_server_pairing(principal, parts[3])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "stream-sessions":
             return create_stream_session(event, principal, parts[2])
+        if method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "alert-rules":
+            return greenhouse_rules(table, principal, require_resource_id(parts[2]), require_enabled_requester(principal),
+                                    device_authenticated, method == "POST", event.get("body"), response)
         if method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "backup":
             return greenhouse_backup(event, principal, parts[2], write=method == "POST")
         if method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "stream-sessions":

@@ -28,7 +28,7 @@ class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(
             if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return Result.success()
             val sensors = collected.withCurrentAssignments(prefs.load(), zones::zone)
             val active = store.replaceGovee(sensors)
-            active.filter{it.online && !it.isLocalRadio()}.forEach{history.insert(it);notifier.evaluate(it)}
+            active.filter{it.online && !it.isLocalRadio()}.forEach{history.insert(it);notifier.evaluate(it, owner)}
             Result.success()
         }.getOrElse{Result.retry()}
     }

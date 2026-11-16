@@ -61,7 +61,7 @@ internal class Projection(g:GreenhouseConfig, height:Double, size:IntSize, angle
     var now by remember {mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(Unit){while(true){now=System.currentTimeMillis();delay(15_000)}}
     val probes=remember(g,sensors,now){ZoneClimate.probes(state,now)}
-    val insight=remember(g,probes,state.weather,state.history,state.preferences.notifications,now){ZoneClimate.insight(state,probes,now)}
+    val insight=remember(g,probes,state.weather,state.history,state.preferences.forAlertsIn(),now){ZoneClimate.insight(state,probes,now)}
     val fans = remember(g) { g.airCirculation().placed }
     var showFans by rememberSaveable(g.id) { mutableStateOf(true) }
     val h=ZoneClimate.height(g)

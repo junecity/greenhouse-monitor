@@ -15,7 +15,7 @@ internal class EveningColdWatch(private val context: Context) {
 
     fun check(history: HistoryStore, inventory: List<GoveeSensor>, settings: AppPreferences, scope: String) {
         val now = System.currentTimeMillis()
-        val rules = settings.notifications
+        val rules = settings.forAlertsIn()
         if (!rules.masterEnabled || !rules.temperatureAlerts || now < rules.snoozedUntilEpochMs) return
         val house = settings.activeGreenhouseId
         val key = "$scope/$house"

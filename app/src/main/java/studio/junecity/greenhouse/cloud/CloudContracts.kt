@@ -181,7 +181,8 @@ data class GreenhouseHeartbeat(
     val appVersion: String? = null,
     val managedUpdates: Boolean = false, val updateStatus: String? = null,
     val updateMode: String? = null, val updateStatusRequestId: String? = null,
-    val temperatureEvaluated: Boolean? = null, val temperatureBreach: TemperatureBreach? = null
+    val temperatureEvaluated: Boolean? = null, val temperatureBreach: TemperatureBreach? = null,
+    val alertRules: AlertRules? = null, val appliedAlertRulesRevision: Int? = null
 )
 
 data class ServerUpdateCommand(val versionCode: Int, val requestedMode: String? = null, val id: String? = null) {
@@ -194,12 +195,14 @@ data class ServerUpdateCommand(val versionCode: Int, val requestedMode: String? 
     }
 }
 
+data class HeartbeatReply(val update: ServerUpdateCommand? = null, val alertRules: AlertRuleState? = null)
+
 interface GreenhouseCloudGateway {
     suspend fun createPairingChallenge(serverDeviceId: String): PairingChallenge
     suspend fun claimPairingChallenge(displayCode: String, viewerDeviceId: String): RegisteredDevice
     suspend fun entitlement(): EntitlementSnapshot
     suspend fun createRemoteStreamingSession(greenhouseId: String, viewerDeviceId: String): RemoteStreamingSession
     suspend fun endRemoteStreamingSession(sessionId: String)
-    suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): ServerUpdateCommand?
+    suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): HeartbeatReply
 }
 

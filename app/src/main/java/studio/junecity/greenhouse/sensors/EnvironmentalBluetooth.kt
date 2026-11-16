@@ -118,7 +118,7 @@ internal suspend fun collectEnvironmental(context: Context, owner: CloudEnrollme
                     val all = store.update { rows -> rows.map {
                         if (it.id == sensor.id) it.copy(temperatureF = temp, humidityPercent = humidity, online = true, updatedAtEpochMs = now) else it
                     } }
-                    all.find { it.id == sensor.id }?.let { history.insert(it); alerts.evaluate(it) }
+                    all.find { it.id == sensor.id }?.let { history.insert(it); alerts.evaluate(it, owner) }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Keep the last timestamp; the dashboard ages the reading out. */ }
             }

@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.39.0 (83) · Set alerts from a paired phone
+
+- Settings → Alerts edits the selected cloud greenhouse’s temperature and humidity limits and routine switches. AlertSettings displays pending and applied states, handles simultaneous edits and keeps critical sound settings on the viewing phone. Standalone collectors can edit their local plan offline.
+- backend/src/alert_rules.py stores one revisioned ALERT_RULES item per greenhouse in the existing table. AuthenticatedCloudGateway and CloudHeartbeatService seed existing limits on upgrade, fetch changes and report the applied revision. AppliedAlertRules persists the last applied values for disconnected operation. Older servers must upgrade to accept client edits. No data migration.
+- Use forAlertsIn for greenhouse-specific monitoring, insights and recurring alerts. AppPreferencesStore and GreenhouseBackupStore include greenhouse rules in backups and preserve the viewer’s delivery preferences on synchronization. Customer sound settings and critical temperature delivery remain independent of routine switches.
+- An authenticated client and server on Android emulators confirmed that a remotely saved limit triggered one matching notification, survived the server restart, and cleared after recovery. Testing used synthetic sensor readings. Physical handset sound remains unverified. See CHANGELOG.md for release tests and artifacts.
+
 ## 2026-11-15 · Greenhouse Studio 2.38.1 (82) · Critical temperature alerts
 - CloudHeartbeatService evaluates current, assigned sensors against the collecting phone’s saved limits. TemperatureAssessment retains unresolved sensor IDs per enrollment and floor plan. Fresh safe readings retire those sensors. Missing observations do not establish recovery. An older boolean-only server cannot supply the original reading or threshold.
 - backend/src/app.py and alerts.py bind one alert to each temperature incident and validate its source before returning it. AuthenticatedCloudGateway and CloudAlertService remove recovered tray entries after a complete verified poll. MainActivity and ZoneInsights show the app-posted reason when opening the matching alert.

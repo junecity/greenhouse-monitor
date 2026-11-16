@@ -159,7 +159,7 @@ class AuthenticatedCloudGateway(
         requestOrNull("DELETE", "/v1/stream-sessions/${segment(sessionId)}")
     }
 
-    override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): ServerUpdateCommand? {
+    override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): HeartbeatReply {
         return requestOrNull(
             "POST", "/v1/devices/${segment(heartbeat.serverDeviceId)}/heartbeat",
             JSONObject().put("greenhouseId", heartbeat.greenhouseId)
@@ -167,6 +167,8 @@ class AuthenticatedCloudGateway(
                 .put("sensorConnectionHealthy", heartbeat.sensorConnectionHealthy)
                 .put("criticalTemperature", heartbeat.criticalTemperature)
                 .put("temperatureEvaluated", heartbeat.temperatureEvaluated)
+                .put("alertRules", heartbeat.alertRules?.toJson() ?: JSONObject.NULL.takeIf { heartbeat.appliedAlertRulesRevision != null })
+                .put("appliedAlertRulesRevision", heartbeat.appliedAlertRulesRevision)
                 .put("temperatureBreach", heartbeat.temperatureBreach?.let { breach ->
                     JSONObject().put("sensorName", breach.sensorName)
                         .put("temperatureF", breach.temperatureF).put("limitF", breach.limitF)
@@ -188,11 +190,12 @@ class AuthenticatedCloudGateway(
                 .put("appVersion", heartbeat.appVersion)
                 .put("appVersionCode", studio.junecity.greenhouse.BuildConfig.VERSION_CODE)
         )?.let { response ->
-            response.optInt("requestedUpdateCode").takeIf { it > 0 }?.let {
+            val command = response.optInt("requestedUpdateCode").takeIf { it > 0 }?.let {
                 ServerUpdateCommand(it, response.optString("requestedUpdateMode").takeUnless { response.isNull("requestedUpdateMode") },
                     response.optString("requestedUpdateId").takeUnless { response.isNull("requestedUpdateId") })
             }
-        }
+            HeartbeatReply(command, response.optJSONObject("alertRules")?.let(AlertRuleState::parse))
+        } ?: HeartbeatReply()
     }
 
     suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
@@ -213,6 +216,16 @@ class AuthenticatedCloudGateway(
 
     suspend fun acknowledgeAlert(alertId: String) {
         requestOrNull("POST", "/v1/alerts/${segment(alertId)}/acknowledge")
+    }
+
+    suspend fun alertRules(greenhouseId: String): AlertRuleState = AlertRuleState.parse(
+        request("GET", "/v1/greenhouses/${segment(greenhouseId)}/alert-rules")
+    )
+
+    suspend fun saveAlertRules(greenhouseId: String, expectedRevision: Int, rules: AlertRules): AlertRuleState {
+        require(expectedRevision >= 0 && rules.valid())
+        val body = JSONObject().put("expectedRevision", expectedRevision).put("rules", rules.toJson())
+        return AlertRuleState.parse(request("POST", "/v1/greenhouses/${segment(greenhouseId)}/alert-rules", body))
     }
 
     suspend fun uploadGreenhouseBackup(greenhouseId: String, backup: JSONObject) {

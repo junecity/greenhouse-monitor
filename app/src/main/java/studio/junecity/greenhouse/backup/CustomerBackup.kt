@@ -50,7 +50,7 @@ internal class CustomerBackup(private val context: Context, private val enrollme
             .put("forecast", JSONObject().put("cold",rules.cold).put("low",rules.lowF).put("heat",rules.heat)
                 .put("high",rules.highF).put("reminder",rules.reminder).put("minute",rules.minuteOfDay))
         if (scope.kind != "viewer") {
-            meta.put("preferences", preferences.exportJson())
+            meta.put("preferences", preferences.exportJson(enrollment))
                 .put("zones", JSONObject(zones.exportAssignments()))
             sensors.writeBackup(meta)
         }

@@ -16,8 +16,8 @@ class AlertNotifier(private val context:Context,private val suffix:String=""){
         manager.cancel(id.hashCode())
         state.edit().remove("condition_$id").remove("sent_$id").apply()
     }
-    fun evaluate(sensor:GoveeSensor){
-        val settings=AppPreferencesStore(context,suffix).load();val p=settings.notifications;val now=System.currentTimeMillis();if(!p.masterEnabled||now<p.snoozedUntilEpochMs)return
+    fun evaluate(sensor:GoveeSensor, owner:studio.junecity.greenhouse.settings.CloudEnrollment? = null){
+        val settings=AppPreferencesStore(context,suffix).loadForMonitoring(owner);val p=settings.forAlertsIn(settings.sensorHouse(sensor));val now=System.currentTimeMillis();if(!p.masterEnabled||now<p.snoozedUntilEpochMs)return
         val condition=condition(sensor,p);val key="condition_${sensor.id}";val previous=state.getString(key,null);if(condition==null){if(previous!=null)state.edit().remove(key).apply();return}
         val last=state.getLong("sent_${sensor.id}",0);val due=previous!=condition||p.repeatedAlerts&&now-last>=p.repeatMinutes*60_000L
         state.edit().putString(key,condition).apply();if(!due)return

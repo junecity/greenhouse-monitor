@@ -51,7 +51,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     private fun restoredState(): GreenhouseUiState {
         val enrollment = secure.cloudEnrollment()
         val viewer = enrollment?.role == CloudDeviceRole.ViewerClient
-        val prefs = preferences.load()
+        val prefs = preferences.loadForMonitoring(enrollment)
         return GreenhouseUiState(sensorColorSlots = currentSensors.colorSlots(), standalone = enrollment.isStandaloneClient(), sensors = currentSensors.load().inSavedHouses(prefs),
             preferences = if (viewer) prefs.copy(cameraMode = CameraMode.ViewerClient) else prefs,
             goveeConnected = if (viewer && !enrollment.isStandaloneClient()) currentSensors.load().any { it.isFresh() }
@@ -164,7 +164,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 ensurePositions(sensors)
                 _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = storage.sensors.colorSlots(), goveeConnected = true, message = "Updated ${sensors.size} sensors")
                 withContext(Dispatchers.IO) {
-                    sensors.filterNot { it.isLocalRadio() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
+                    sensors.filterNot { it.isLocalRadio() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it, owner) }
                 }
                 if (stores != storage) return@launch
                 loadHistory()
@@ -268,9 +268,11 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         selectStores()
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
-        val sensors = currentSensors.load().inSavedHouses(preferences.load())
-        if (_state.value.sensors == sensors) return
-        _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = currentSensors.colorSlots())
+        val prefs = preferences.loadForMonitoring(owner)
+        val sensors = currentSensors.load().inSavedHouses(prefs)
+        if (_state.value.sensors == sensors && _state.value.preferences.serverAlertRules == prefs.serverAlertRules) return
+        _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = currentSensors.colorSlots(),
+            preferences = _state.value.preferences.copy(serverAlertRules = prefs.serverAlertRules))
         ensurePositions(sensors)
         if (_state.value.screen == AppScreen.History) loadHistory()
     }

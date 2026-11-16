@@ -90,7 +90,7 @@ internal object ZoneClimate {
         val g=state.preferences.activeGreenhouse
         val cold=probes.minByOrNull { it.sensor.temperatureF!! }?.sensor ?: return "Waiting for fresh, mapped readings."
         val temp=cold.temperatureF!!
-        val limit=state.preferences.notifications.lowTemperatureF
+        val limit=state.preferences.forAlertsIn().lowTemperatureF
         if(temp<limit) return "${cold.name} is ${temp.roundToInt()}°F, below your ${limit.roundToInt()}°F limit. Check heat in this area."
         val weather=state.weather
         if(!weather.stale && weather.zipCode==state.preferences.zipCode && now-weather.updatedAtEpochMs in 0L..3*HOUR) {

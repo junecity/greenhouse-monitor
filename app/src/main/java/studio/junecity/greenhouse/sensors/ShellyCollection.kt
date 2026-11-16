@@ -63,12 +63,12 @@ internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, su
                             var changed = false
                             val all = store.applyShellyPackets(packets) { sensor ->
                                 history.insert(sensor)
-                                alerts.evaluate(sensor)
+                                alerts.evaluate(sensor, owner)
                                 changed = true
                             }
                             if (changed && packets.values.any { it.beacon.light == "Twilight" || it.beacon.light == "Dark" }) {
                                 // An unavailable advisory must never interrupt radio collection or heartbeat reporting.
-                                try { coldWatch.check(history, all, preferences.load(), owner?.deviceId ?: suffix) }
+                                try { coldWatch.check(history, all, preferences.loadForMonitoring(owner), owner?.deviceId ?: suffix) }
                                 catch (e: Exception) {
                                     if (e is CancellationException) throw e
                                     android.util.Log.w("EveningColdWatch", "Advisory unavailable: ${e.javaClass.simpleName}")

@@ -108,7 +108,7 @@ import kotlin.math.abs
 @Composable private fun LightResponseDialog(event: LightChange, reference: String, series: List<TrendSensor>,
                                            events: List<LightChange>, state: GreenhouseUiState, close: () -> Unit) {
     var cursor by remember(event) { mutableStateOf<Long?>(null) }
-    val limit = state.preferences.notifications.lowTemperatureF
+    val limit = state.preferences.forAlertsIn().lowTemperatureF
     Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize().padding(10.dp), color = DashboardTokens.Panel,
             shape = RoundedCornerShape(18.dp)) {

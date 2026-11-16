@@ -108,7 +108,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
                     if (mode != Insight.Alert) Text("${clock(night.start)} – ${clock(night.end)}")
                     when (mode) {
                         Insight.Overnight -> {
-                            val threshold = state.preferences.notifications.lowTemperatureF
+                            val threshold = state.preferences.forAlertsIn().lowTemperatureF
                             val stats = sensors.map { it to timelines[it.id]?.summarize(night, threshold) }
                             val cold = stats.minByOrNull { it.second?.coldest?.temperatureF ?: Double.POSITIVE_INFINITY }
                             val low = cold?.second?.coldest
