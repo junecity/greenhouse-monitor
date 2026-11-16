@@ -96,6 +96,7 @@ class CloudHeartbeatService : Service() {
         launch { studio.junecity.greenhouse.sensors.collectShelly(this@CloudHeartbeatService, enrollment, "") }
         var failures = 0
         val lastUpload = AtomicLong(0L)
+        var update: Job? = null
         var backup: Job? = null
         var publishedSensors: Map<String,String>? = null
         var publishedPlan: studio.junecity.greenhouse.model.GreenhouseConfig? = null
@@ -124,10 +125,28 @@ class CloudHeartbeatService : Service() {
                     ).joinToString(", ").ifBlank { null },
                     cameraStatus=if(packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))"AVAILABLE" else "UNAVAILABLE",
                     lastSensorSyncEpochMs=sensors.maxOfOrNull(GoveeSensor::updatedAtEpochMs),
+                    managedUpdates=ManagedServerUpdate.enabled(context),
+                    updateStatus=ManagedServerUpdate.status(context, enrollment.deviceId),
                     lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
                 ))
                 ServerHeartbeatReceipt.record(enrollment.deviceId)
-                runCatching { ServerUpdateNotice.sync(context, enrollment.deviceId, requestedUpdate) }
+                if (requestedUpdate != null && ManagedServerUpdate.enabled(context)) {
+                    if (update?.isActive != true && ManagedServerUpdate.due(context, "${enrollment.deviceId}/$requestedUpdate")) {
+                        update = launch {
+                            try {
+                                ManagedServerUpdate.install(context, gateway, enrollment, requestedUpdate)
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                ManagedServerUpdate.setStatus(context, "RETRY")
+                                android.util.Log.w("GreenhouseUpdate", "Update deferred: ${error.javaClass.simpleName}")
+                            }
+                        }
+                    }
+                } else {
+                    update?.cancel()
+                    runCatching { ServerUpdateNotice.sync(context, enrollment.deviceId, requestedUpdate) }
+                }
                 // A slow backup must never block the next heartbeat or overlap another upload.
                 if (backup?.isActive != true) {
                     backup?.join()

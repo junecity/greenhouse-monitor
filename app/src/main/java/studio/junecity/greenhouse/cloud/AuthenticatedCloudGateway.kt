@@ -54,6 +54,9 @@ class AuthenticatedCloudGateway(
             JSONObject().put("versionCode", studio.junecity.greenhouse.BuildConfig.VERSION_CODE))
     }
 
+    internal suspend fun serverUpdatePackage(): JSONObject =
+        request("GET", "/v1/devices/${segment(config.deviceId)}/update-package")
+
     suspend fun currentDevice(): RegisteredDevice = CloudJsonCodec.device(request("GET", "/v1/devices/current"))
 
     suspend fun devices(): List<AccountDevice> {
@@ -167,6 +170,8 @@ class AuthenticatedCloudGateway(
                 .put("cameraStatus", heartbeat.cameraStatus)
                 .put("lastSensorSyncEpochMs", heartbeat.lastSensorSyncEpochMs)
                 .put("lastDataUploadEpochMs", heartbeat.lastDataUploadEpochMs)
+                .put("managedUpdates", heartbeat.managedUpdates)
+                .put("updateStatus", heartbeat.updateStatus)
                 .put("appVersion", heartbeat.appVersion)
                 .put("appVersionCode", studio.junecity.greenhouse.BuildConfig.VERSION_CODE)
         )?.optInt("requestedUpdateCode")?.takeIf { it > 0 }
@@ -322,7 +327,7 @@ object CloudJsonCodec {
         json.optBoolean("online", false), json.optLongOrNull("lastSeenAtEpochMs"),
         json.optBoolean("communicationSuspended", false), json.optNullableString("clientRole"),
         json.optNullableString("appVersion"), json.optInt("appVersionCode").takeIf { it > 0 },
-        json.optInt("requestedUpdateCode").takeIf { it > 0 }
+        json.optInt("requestedUpdateCode").takeIf { it > 0 }, json.optBoolean("managedUpdates"), json.optNullableString("updateStatus")
     )
 
     fun entitlement(json: JSONObject): EntitlementSnapshot {

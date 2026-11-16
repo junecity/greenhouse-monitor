@@ -557,10 +557,18 @@ internal fun ServerVersionRow(item: AccountDevice, report: DeviceStatus?, d: (Fl
         ServerVersion.Same -> "Versions match"
         ServerVersion.Newer -> "Update this client"
         ServerVersion.Older -> when {
-            device.requestedUpdateCode != null && device.requestedUpdateCode >= clientCode -> "Update requested · approve on server phone"
+            device.requestedUpdateCode != null && device.requestedUpdateCode >= clientCode ->
+                if (!device.managedUpdates) "Update requested · install on server phone" else when (device.updateStatus) {
+                    "DOWNLOADING" -> "Downloading update"
+                    "INSTALLING" -> "Installing update"
+                    "RETRY" -> "Update interrupted · server will retry"
+                    "APPROVAL_REQUIRED" -> "Android requires local installation on this phone"
+                    else -> "Remote install queued"
+                }
             device.appVersionCode == null || device.appVersionCode < 73 -> "Install the update on this server phone"
             device.communicationSuspended -> "Reconnect to request an update"
-            else -> "Server update available"
+            device.managedUpdates -> "Ready for remote installation"
+            else -> "Updates need approval on this server phone"
         }
     }
     val source = if (version.fromHouseReport) "Last greenhouse report" else "Server"
@@ -569,5 +577,5 @@ internal fun ServerVersionRow(item: AccountDevice, report: DeviceStatus?, d: (Fl
         fontSize = t(15f))
     if (comparison == ServerVersion.Older && (device.appVersionCode ?: 0) >= 73 &&
         (device.requestedUpdateCode ?: 0) < clientCode && !device.communicationSuspended)
-        DeviceAction("Request server update", false, d, t, Modifier.fillMaxWidth(), onClick = request)
+        DeviceAction(if (device.managedUpdates) "Update server remotely" else "Request server update", false, d, t, Modifier.fillMaxWidth(), onClick = request)
 }

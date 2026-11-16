@@ -22,7 +22,7 @@ data class RegisteredDevice(
     val lastSeenAtEpochMs: Long? = null,
     val communicationSuspended: Boolean = false,
     val clientRole: String? = null,
-    val appVersion: String? = null, val appVersionCode: Int? = null, val requestedUpdateCode: Int? = null
+    val appVersion: String? = null, val appVersionCode: Int? = null, val requestedUpdateCode: Int? = null, val managedUpdates: Boolean = false, val updateStatus: String? = null
 )
 
 /** An account-level client can select among several greenhouse servers. */
@@ -173,7 +173,8 @@ data class GreenhouseHeartbeat(
     val cameraStatus: String? = null,
     val lastSensorSyncEpochMs: Long? = null,
     val lastDataUploadEpochMs: Long? = null,
-    val appVersion: String? = null
+    val appVersion: String? = null,
+    val managedUpdates: Boolean = false, val updateStatus: String? = null
 )
 
 interface GreenhouseCloudGateway {

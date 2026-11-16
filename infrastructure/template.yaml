@@ -3,6 +3,10 @@ Transform: AWS::Serverless-2016-10-31
 Description: Dedicated Greenhouse Monitor backend foundation. Not deployed by this repository.
 
 Parameters:
+  ServerReleaseBucketName:
+    Type: String
+    Default: ''
+    Description: Private deployment artifact bucket containing approved server APKs.
   CameraArchiveSalesMode:
     Type: String
     Default: LicenseTest
@@ -37,6 +41,7 @@ Parameters:
     Default: studio.junecity.greenhouse
 
 Conditions:
+  HasReleaseBucket: !Not [!Equals [!Ref ServerReleaseBucketName, '']]
   CameraArchiveEnabled: !Equals [!Ref EnableCameraArchive, "true"]
   HasGooglePlaySecret: !Not [!Equals [!Ref GooglePlayCredentialsSecretArn, '']]
 
@@ -245,6 +250,7 @@ Resources:
         Variables:
           GOOGLE_PLAY_CREDENTIALS_SECRET_ID: !Ref GooglePlayCredentialsSecretArn
           CAMERA_ARCHIVE_SALES_MODE: !Ref CameraArchiveSalesMode
+          SERVER_RELEASE_BUCKET: !Ref ServerReleaseBucketName
           CAMERA_ARCHIVE_BUCKET: !If [CameraArchiveEnabled, !Ref CameraArchiveBucket, ""]
           PLAY_TEST_ACCOUNT_IDS: !Ref PlayTestAccountIds
           GOOGLE_PLAY_PACKAGE_NAME: !Ref GooglePlayPackageName
@@ -260,6 +266,13 @@ Resources:
               - Effect: Allow
                 Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
                 Resource: !Sub '${CameraArchiveBucket.Arn}/movies/*'
+          - !Ref AWS::NoValue
+        - !If
+          - HasReleaseBucket
+          - Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ServerReleaseBucketName}/releases/${EnvironmentName}/android/*.apk'
           - !Ref AWS::NoValue
         # SAM's DynamoDBCrudPolicy does not include transactional writes.
         # Account bootstrap, device registration, pairing, revocation, and

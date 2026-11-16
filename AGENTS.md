@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.35.0 (77)
+- Dedicated servers configured with GreenhouseDeviceAdmin as Android device owner can apply a newer signed APK on a paired client’s request. ManagedServerUpdate verifies the requested version, digest, package and signer, and rechecks authorization before committing. CloudBootReceiver resumes monitoring after replacement. Ordinary installations still use the existing manual request.
+- CloudHeartbeatService, AuthenticatedCloudGateway, device management UI, backend/src/app.py and the SAM template carry capabilities, request status and private package delivery. See docs/AWS_DEPLOYMENT.md for one-time device setup and release publication.
+- Verified a no-tap 76 → 77 upgrade on disposable API 29 and API 35 emulators. On API 29 the activity and both foreground monitoring services returned. Signed APK on Drive. Live AWS deployment, package publication and physical server setup/testing remain pending. Test counts and release digest in CHANGELOG.
+
 ## 2026-11-15 · Greenhouse Studio 2.34.1 (76)
 - Connectivity and Manage phones prefer the device inventory version and fall back to the selected greenhouse’s synced health report. New snapshots carry the server device ID. Older reports are labeled by greenhouse and must postdate device registration. Update requests still require an eligible inventory build.
 - Changed CloudDeviceManagementPanel, ServerUpdateNotice, ServerHealth, CloudHeartbeatService, Models, GreenhouseViewModel and StageScreens. No backend deployment or schema migration. The separate update-request endpoint deployment remains pending.

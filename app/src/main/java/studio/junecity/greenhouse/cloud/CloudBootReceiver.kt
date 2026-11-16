@@ -8,14 +8,19 @@ import studio.junecity.greenhouse.settings.SecureSettingsStore
 
 class CloudBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        if (!AppPreferencesStore(context).load().autoStart) return
+        val updated = intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
+        if (updated) {
+            if (!ManagedServerUpdate.consumeRestart(context)) return
+        } else if (intent.action != Intent.ACTION_BOOT_COMPLETED || !AppPreferencesStore(context).load().autoStart) return
         val configured = runCatching { CloudRuntime.configurationOrNull() != null }.getOrDefault(false)
         val enrollment = SecureSettingsStore(context).cloudEnrollment()
         if (!configured || enrollment == null) return
         CloudAlertService.sync(context, enabled = true)
         if (enrollment.role == CloudDeviceRole.GreenhouseServer) {
             CloudHeartbeatService.sync(context, enabled = true)
+            if (updated) context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
+                context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
         }
         // Camera capture is intentionally not started from a boot receiver. Modern Android
         // prohibits background camera foreground-service startup; it starts after the app opens.

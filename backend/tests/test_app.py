@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import pathlib
@@ -420,6 +421,51 @@ class BootstrapApiTests(unittest.TestCase):
         server.update(accountId="different-account", appVersionCode=73)
         self.assertEqual(403, request())
         self.assertEqual(1, len(fake.updates))
+
+    def test_managed_update_release_is_scoped_and_expires(self):
+        owner = {"accountId": "account-existing", "tenantId": "tenant-existing"}
+        server_id = "server-12345678"
+        server = {**owner, "enabled": True, "role": "GREENHOUSE_SERVER", "deviceId": server_id,
+                  "appVersionCode": 77, "requestedUpdateCode": 78, "updateUntil": 4102444800,
+                  "managedUpdates": True}
+        app.table = FakeTable({("USER#cognito-subject", "ACCOUNT"): owner,
+                               (f"DEVICE#{server_id}", "METADATA"): server})
+        def fetch(caller=server_id):
+            return app.handler(event(f"/v1/devices/{server_id}/update-package", method="GET", device_id=caller), None)
+        with patch.object(app, "server_release", return_value={"versionCode": 78}) as release:
+            self.assertEqual(200, fetch()["statusCode"])
+            release.assert_called_once_with(78)
+            secret = "test-only-device-secret" * 2
+            server["deviceSecretHash"] = hashlib.sha256(secret.encode()).hexdigest()
+            app.table.items[("ACCOUNT#account-existing", "METADATA")] = {"state": "ACTIVE"}
+            scoped = event(f"/v1/device/devices/{server_id}/update-package", method="GET", device_id=server_id)
+            self.assertEqual(403, app.handler(scoped, None)["statusCode"])
+            scoped["headers"]["x-greenhouse-device-secret"] = secret
+            self.assertEqual(200, app.handler(scoped, None)["statusCode"])
+            self.assertEqual(2, release.call_count)
+            self.assertEqual(403, fetch("server-23456789")["statusCode"])
+            for field, value in [("tenantId", "different"), ("accountId", "other"), ("enabled", False),
+                                 ("managedUpdates", False), ("communicationSuspended", True), ("updateUntil", 1),
+                                 ("appVersionCode", 78), ("role", "VIEWER_CLIENT")]:
+                with self.subTest(field=field), patch.dict(server, {field: value}):
+                    self.assertIn(fetch()["statusCode"], {403, 404})
+            self.assertEqual(2, release.call_count)
+            release.return_value = None
+            self.assertEqual(409, fetch()["statusCode"])
+
+    def test_release_signs_only_published_version_in_environment(self):
+        with patch.dict(os.environ, {"SERVER_RELEASE_BUCKET": "private-artifacts", "ENVIRONMENT_NAME": "dev"}), \
+                patch.object(app.boto3, "client") as make_client:
+            s3 = make_client.return_value
+            s3.head_object.return_value = {"Metadata": {"sha256": "c" * 64}, "ContentLength": 1024}
+            s3.generate_presigned_url.return_value = "https://example.test/signed"
+            self.assertEqual(1024, app.server_release(78)["bytes"])
+            key = {"Bucket": "private-artifacts", "Key": "releases/dev/android/78.apk"}
+            s3.head_object.assert_called_once_with(**key)
+            s3.generate_presigned_url.assert_called_once_with("get_object", Params=key, ExpiresIn=300)
+            s3.head_object.return_value["Metadata"].clear()
+            self.assertIsNone(app.server_release(78))
+            s3.generate_presigned_url.assert_called_once()
 
     def test_disconnect_preserves_credentials_while_revoke_invalidates_them(self):
         fake = FakeTable({

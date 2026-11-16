@@ -60,12 +60,19 @@
         <receiver
             android:name=".cloud.CloudAlertAcknowledgeReceiver"
             android:exported="false" />
+        <receiver android:name=".cloud.GreenhouseDeviceAdmin" android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data android:name="android.app.device_admin" android:resource="@xml/greenhouse_device_admin" />
+            <intent-filter><action android:name="android.app.action.DEVICE_ADMIN_ENABLED" /></intent-filter>
+        </receiver>
+        <receiver android:name=".cloud.ServerInstallResult" android:exported="false" />
         <receiver
             android:name=".cloud.CloudBootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
         <receiver android:name=".data.ForecastReminderReceiver" android:exported="false">

@@ -4,6 +4,7 @@ import json
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from decimal import Decimal
 import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
+from botocore.config import Config
 
 from camera_archive import archive
 from alerts import new_alert
@@ -363,6 +365,8 @@ def list_devices(principal: Principal):
             "enabled": bool(primary.get("enabled")), "communicationSuspended": bool(primary.get("communicationSuspended")),
             "clientRole": primary.get("clientRole"), "greenhouseId": item.get("greenhouseId"),
             "appVersion": primary.get("appVersion"), "appVersionCode": primary.get("appVersionCode"),
+            "updateStatus": primary.get("updateStatus"),
+            "managedUpdates": primary.get("managedUpdates") is True,
             "requestedUpdateCode": pending_update(primary, now, primary.get("appVersionCode")),
             "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
             "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
@@ -384,6 +388,40 @@ def pending_update(device, now, installed):
     return None
 
 
+def server_release(target):
+    # Only the release publisher can write into this bucket. Clients select a version, never a URL.
+    bucket = os.environ.get("SERVER_RELEASE_BUCKET")
+    if not bucket:
+        return None
+    key = {"Bucket": bucket, "Key": f"releases/{os.environ['ENVIRONMENT_NAME']}/android/{target}.apk"}
+    storage = boto3.client("s3", config=Config(signature_version="s3v4"))
+    try:
+        obj = storage.head_object(**key)
+    except ClientError as error:
+        if error.response["Error"]["Code"] in {"403", "404", "NoSuchKey", "NotFound"}:
+            return None
+        raise
+    digest = obj.get("Metadata", {}).get("sha256", "")
+    size = obj["ContentLength"]
+    if not re.fullmatch("[0-9a-f]{64}", digest) or not 0 < size <= 180 * 1024 * 1024:
+        return None
+    return {"versionCode": target, "sha256": digest, "bytes": size,
+            "url": storage.generate_presigned_url("get_object", Params=key, ExpiresIn=300)}
+
+
+def update_package(principal, device_id):
+    if principal.device_id != device_id:
+        raise AccessDenied("device_mismatch")
+    server = get_owned("DEVICE", device_id, principal.tenant_id)
+    if server.get("role") != "GREENHOUSE_SERVER" or server.get("accountId") != principal.account_id:
+        raise AccessDenied("server_device")
+    target = pending_update(server, int(datetime.now(timezone.utc).timestamp()), server.get("appVersionCode"))
+    if not target or server.get("managedUpdates") is not True:
+        raise AccessDenied("no_managed_update")
+    release = server_release(target)
+    return response(200, release) if release else response(409, {"error": "release_unavailable"})
+
+
 def request_server_update(event, principal: Principal, device_id: str):
     require_device_id(device_id)
     require_client_requester(principal)
@@ -399,10 +437,12 @@ def request_server_update(event, principal: Principal, device_id: str):
     installed = int(server.get("appVersionCode", 0))
     if not FIRST_UPDATE_RECEIVER <= installed < target:
         return response(409, {"error": "server_not_eligible"})
+    if server.get("managedUpdates") is True and not server_release(target):
+        return response(409, {"error": "release_unavailable"})
     now = int(datetime.now(timezone.utc).timestamp())
     table.update_item(
         Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
-        UpdateExpression="SET requestedUpdateCode=:target, updateUntil=:expires",
+        UpdateExpression="SET requestedUpdateCode=:target, updateUntil=:expires REMOVE updateStatus",
         ConditionExpression=("tenantId=:tenant AND accountId=:account AND #role=:server AND enabled=:yes "
                              "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:no) "
                              "AND appVersionCode=:installed"),
@@ -1083,6 +1123,14 @@ def heartbeat(event, principal: Principal, device_id: str):
         ":adminEntity": "DEVICE",
         ":adminSort": f"{int(device.get('createdAt', now)):020d}#{device_id}",
     }
+    set_parts.append("managedUpdates=:managed")
+    expression_values[":managed"] = body.get("managedUpdates") is True
+    status = body.get("updateStatus")
+    if status in ("DOWNLOADING", "INSTALLING", "RETRY", "APPROVAL_REQUIRED"):
+        set_parts.append("updateStatus=:updateStatus")
+        expression_values[":updateStatus"] = status
+    else:
+        remove_parts.append("updateStatus")
     installed = body.get("appVersionCode")
     if type(installed) is int and 0 < installed <= 2_100_000_000:
         set_parts.append("appVersionCode=:build")
@@ -1193,7 +1241,7 @@ def handler(event, _context):
             return archive(event, principal, require_resource_id(parts[2]), parts[4], method,
                            table=table, get_owned=get_owned, checkout_for=play_test_checkout, catalog_for=play_catalog, response=response)
         if device_authenticated and not (
-            (method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "stream-sessions") or
+            (method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] in {"stream-sessions", "update-package"}) or
             (method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat") or
             (method in {"POST", "DELETE"} and len(parts) in {3, 4} and parts[:2] == ["v1", "stream-sessions"]) or
             (method == "GET" and parts == ["v1", "alerts"]) or
@@ -1201,6 +1249,8 @@ def handler(event, _context):
             (method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "backup")
         ):
             raise AccessDenied("device_route_not_allowed")
+        if method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "update-package":
+            return update_package(principal, parts[2])
         if method == "GET" and parts == ["v1", "devices"]:
             return list_devices(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "state":

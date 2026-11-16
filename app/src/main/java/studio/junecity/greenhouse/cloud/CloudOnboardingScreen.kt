@@ -516,6 +516,7 @@ internal fun accountErrorMessage(error: Throwable): String {
         }
         .joinToString(" ")
     return when {
+        raw.contains("release_unavailable") -> "This version has not been published for remote installation yet."
         raw.contains("already signed in", ignoreCase = true) ||
             raw.contains("signed in user", ignoreCase = true) ->
             "An older app session was cleared. Tap Sign in again."
