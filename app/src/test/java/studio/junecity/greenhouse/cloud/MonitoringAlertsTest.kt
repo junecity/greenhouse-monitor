@@ -26,6 +26,18 @@ class MonitoringAlertsTest {
         assertEquals(GreenhouseHeartbeat("server-1", "greenhouse-1", 42L, false, true), gateway.heartbeat)
     }
 
+    @Test fun ordinaryInstallRequiresTheExplicitMatchingClientCommand() {
+        val modes = listOf("MANAGED", "SELF_UPDATE", "CONFIRM_ON_SERVER", "MANUAL", "UNKNOWN")
+        assertFalse(ServerUpdateCommand(82, "SELF_UPDATE").authorizes("SELF_UPDATE"))
+        for (server in modes) {
+            assertEquals(server == "MANAGED", ServerUpdateCommand(82).authorizes(server))
+            for (requested in modes) assertEquals(
+                requested == server && server in listOf("MANAGED", "SELF_UPDATE", "CONFIRM_ON_SERVER"),
+                ServerUpdateCommand(82, requested, "fixture-order").authorizes(server)
+            )
+        }
+    }
+
     @Test fun cloudAlertCodecPreservesSafetyFields() {
         val alert = CloudJsonCodec.alert(JSONObject("""{
             "id":"1700000000-aaaaaaaa",
@@ -67,7 +79,7 @@ class MonitoringAlertsTest {
 
     private class RecordingGateway : GreenhouseCloudGateway {
         var heartbeat: GreenhouseHeartbeat? = null
-        override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): Int? { this.heartbeat = heartbeat; return null }
+        override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): ServerUpdateCommand? { this.heartbeat = heartbeat; return null }
         override suspend fun createPairingChallenge(serverDeviceId: String) = error("unused")
         override suspend fun claimPairingChallenge(displayCode: String, viewerDeviceId: String) = error("unused")
         override suspend fun entitlement() = error("unused")

@@ -25,7 +25,9 @@ data class RegisteredDevice(
     val appVersion: String? = null, val appVersionCode: Int? = null, val requestedUpdateCode: Int? = null,
     val managedUpdates: Boolean = false, val updateStatus: String? = null,
     val latestReleaseCode: Int? = null, val latestReleaseName: String? = null,
-    val hasReleaseCatalog: Boolean = latestReleaseCode != null
+    val hasReleaseCatalog: Boolean = latestReleaseCode != null,
+    val updateMode: String? = null,
+    val requestedUpdateMode: String? = null
 )
 
 /** An account-level client can select among several greenhouse servers. */
@@ -177,8 +179,19 @@ data class GreenhouseHeartbeat(
     val lastSensorSyncEpochMs: Long? = null,
     val lastDataUploadEpochMs: Long? = null,
     val appVersion: String? = null,
-    val managedUpdates: Boolean = false, val updateStatus: String? = null
+    val managedUpdates: Boolean = false, val updateStatus: String? = null,
+    val updateMode: String? = null, val updateStatusRequestId: String? = null
 )
+
+data class ServerUpdateCommand(val versionCode: Int, val requestedMode: String? = null, val id: String? = null) {
+    fun key(deviceId: String) = if (id == null) "$deviceId/$versionCode" else "$deviceId/$versionCode/$id"
+
+    fun authorizes(mode: String) = when (mode) {
+        "MANAGED" -> requestedMode == null || requestedMode == mode
+        "SELF_UPDATE", "CONFIRM_ON_SERVER" -> requestedMode == mode && !id.isNullOrBlank()
+        else -> false
+    }
+}
 
 interface GreenhouseCloudGateway {
     suspend fun createPairingChallenge(serverDeviceId: String): PairingChallenge
@@ -186,6 +199,6 @@ interface GreenhouseCloudGateway {
     suspend fun entitlement(): EntitlementSnapshot
     suspend fun createRemoteStreamingSession(greenhouseId: String, viewerDeviceId: String): RemoteStreamingSession
     suspend fun endRemoteStreamingSession(sessionId: String)
-    suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): Int?
+    suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): ServerUpdateCommand?
 }
 

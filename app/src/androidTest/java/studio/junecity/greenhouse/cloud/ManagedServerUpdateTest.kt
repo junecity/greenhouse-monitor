@@ -8,6 +8,10 @@ import studio.junecity.greenhouse.BuildConfig
 import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import java.io.File
+import android.content.Intent
+import android.os.Build
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -24,10 +28,13 @@ class ManagedServerUpdateTest {
     // The host starts the stock installed app after instrumentation exits, then requests
     // the published release from the paired client and checks the server's next heartbeat.
     @Test fun enrollDisposableLiveServer() {
-        assumeTrue(InstrumentationRegistry.getArguments().getString("disposableLiveServer") == "true")
+        val args = InstrumentationRegistry.getArguments()
+        val direct = args.getString("disposableLiveDirect") == "true"
+        assumeTrue(direct || args.getString("disposableLiveServer") == "true")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = SecureSettingsStore(context)
-        check(ManagedServerUpdate.enabled(context) && store.cloudEnrollment() == null)
+        check(store.cloudEnrollment() == null)
+        if (direct) check(ManagedServerUpdate.canEnableDirectUpdates(context)) else check(ManagedServerUpdate.enabled(context))
         val fixture = File(context.cacheDir, "live-ota-enrollment.json")
         val enrollment = try {
             val fields = JSONObject(fixture.readText())
@@ -43,6 +50,11 @@ class ManagedServerUpdateTest {
             registered.id == enrollment.deviceId && registered.tenantId == enrollment.tenantId &&
             registered.greenhouseId == enrollment.greenhouseId)
         store.saveCloudEnrollment(enrollment)
+        if (direct && args.getString("enableDirectUpdates") == "true") {
+            check(context.packageManager.canRequestPackageInstalls())
+            ManagedServerUpdate.setDirectUpdatesEnabled(context, enrollment, true)
+            check(ManagedServerUpdate.mode(context, enrollment) in listOf("SELF_UPDATE", "CONFIRM_ON_SERVER"))
+        }
         // The runner exits immediately, before a normal activity stop would flush apply().
         check(context.getSharedPreferences("secure_greenhouse_settings", 0).edit().commit())
         check(store.cloudEnrollment() == enrollment)
@@ -57,10 +69,15 @@ class ManagedServerUpdateTest {
 
     // Explicitly run only on a disposable, offline device-owner emulator with a staged higher build.
     // The host checks the new installed version, retained enrollment and monitoring after Android replaces this process.
-    @Test fun upgradeDisposableOwner() {
-        assumeTrue(InstrumentationRegistry.getArguments().getString("disposableOwner") == "true")
+    @Test fun upgradeDisposableOwner() = upgradeDisposableServer(direct = false)
+
+    @Test fun upgradeDisposableDirect() = upgradeDisposableServer(direct = true)
+
+    private fun upgradeDisposableServer(direct: Boolean) {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue(args.getString(if (direct) "disposableDirect" else "disposableOwner") == "true")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        check(ManagedServerUpdate.enabled(context))
+        check(ManagedServerUpdate.enabled(context) != direct)
         check(SecureSettingsStore(context).cloudEnrollment() == null)
         val artifact = File(context.cacheDir, "fixture-upgrade.apk")
         val target = BuildConfig.VERSION_CODE + 1
@@ -77,6 +94,7 @@ class ManagedServerUpdateTest {
             }
         }
         val hash = digest.digest().joinToString("") { "%02x".format(it) }
+        val requestId = "order-81-fixture".takeIf { direct }
         var permitCount = 0
         var downloads = 0
         val transport = OkHttpClient.Builder().addInterceptor { chain ->
@@ -86,7 +104,7 @@ class ManagedServerUpdateTest {
                     check(request.url.encodedPath == "/v1/device/devices/${enrollment.deviceId}/update-package")
                     check(request.header("x-greenhouse-device-secret") == enrollment.deviceSecret)
                     permitCount++
-                    JSONObject().put("versionCode", target).put("sha256", hash).put("bytes", artifact.length())
+                    JSONObject().put("versionCode", target).put("sha256", hash).put("bytes", artifact.length()).put("requestedUpdateId", requestId)
                         .put("url", "https://release.example.test/android/$target.apk").toString().toResponseBody()
                 }
                 "release.example.test" -> {
@@ -100,7 +118,41 @@ class ManagedServerUpdateTest {
         }.build()
         val gateway = AuthenticatedCloudGateway(CloudApiConfig("https://api.example.test", enrollment.deviceId),
             deviceSecret = enrollment.deviceSecret, client = transport)
-        runBlocking { ManagedServerUpdate.install(context, gateway, enrollment, target, transport) }
+        if (direct) {
+            check(ManagedServerUpdate.canEnableDirectUpdates(context))
+            check(ManagedServerUpdate.mode(context, enrollment) == "MANUAL")
+            check(context.packageManager.canRequestPackageInstalls() == (args.getString("permissionDenied") != "true"))
+            ManagedServerUpdate.setDirectUpdatesEnabled(context, enrollment, true)
+            check(!ManagedServerUpdate.directUpdatesOptedIn(context, enrollment.copy(deviceSecret = "repaired-fixture")))
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                check(ManagedServerUpdate.mode(context, enrollment) == "MANUAL")
+                check(runCatching { runBlocking { ManagedServerUpdate.install(context, gateway, enrollment, target, transport, "SELF_UPDATE", requestId) } }.isFailure)
+                SecureSettingsStore(context).clearCloudEnrollment()
+                return
+            }
+        }
+        val mode = ManagedServerUpdate.mode(context, enrollment)
+        runBlocking { ManagedServerUpdate.install(context, gateway, enrollment, target, transport, mode, requestId) }
         check(permitCount == 2 && downloads == 1)
+        if (direct && Build.VERSION.SDK_INT < 31) runBlocking {
+            withTimeout(15_000L) {
+                while (ManagedServerUpdate.status(context, enrollment.deviceId) != "APPROVAL_REQUIRED") delay(100L)
+            }
+            val installer = context.packageManager.packageInstaller
+            val id = installer.mySessions.single { it.appPackageName == context.packageName }.sessionId
+            check(!ManagedServerUpdate.due(context, ServerUpdateCommand(target, mode, requestId).key(enrollment.deviceId)))
+            if (args.getString("disableBeforeApproval") == "true") {
+                ManagedServerUpdate.setDirectUpdatesEnabled(context, enrollment, false)
+                check(installer.getSessionInfo(id) == null || !ManagedServerUpdate.openPendingApproval(context, enrollment))
+                check(runCatching { ManagedServerUpdate.authorizedConfirmation(context, id, enrollment, gateway) }.isFailure)
+                SecureSettingsStore(context).clearCloudEnrollment()
+            } else {
+                // Use the signed release fixture in place of the live server's last approval check.
+                // The normal Settings/notification activity calls the same validation, then opens this OS Intent.
+                val open = ManagedServerUpdate.authorizedConfirmation(context, id, enrollment, gateway)
+                check(permitCount == 3 && open.component != null)
+                context.startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
     }
 }

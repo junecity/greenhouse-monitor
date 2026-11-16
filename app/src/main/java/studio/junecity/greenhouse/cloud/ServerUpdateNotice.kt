@@ -33,6 +33,19 @@ internal data class ReportedVersion(val label: String, val comparison: ServerVer
 
 internal data class ServerUpdateControl(val detail: String, val target: Int? = null)
 
+internal enum class InstallMode { MANAGED, SELF_UPDATE, CONFIRM_ON_SERVER, MANUAL }
+
+internal fun RegisteredDevice.installMode(requested: Boolean = false): InstallMode {
+    val reported = if (requested) requestedUpdateMode ?: updateMode else updateMode
+    if (reported == null) return if (managedUpdates) InstallMode.MANAGED else InstallMode.MANUAL
+    return InstallMode.entries.firstOrNull { it.name == reported } ?: InstallMode.MANUAL
+}
+
+internal fun remoteSetupHelp(installedBuild: Int?): String =
+    if (installedBuild == null || installedBuild < 81)
+        "Update Greenhouse Studio on the greenhouse phone first. With the latest direct download, open Settings → Connectivity → Allow remote updates."
+    else "On the greenhouse phone, open Settings → Connectivity → Allow remote updates. Google Play installations update through Play."
+
 internal fun serverUpdateControl(device: RegisteredDevice, clientCode: Int = BuildConfig.VERSION_CODE): ServerUpdateControl? {
     val installed = device.appVersionCode ?: return null
     if (!device.enabled || device.role != CloudDeviceRole.GreenhouseServer) return null
@@ -41,8 +54,8 @@ internal fun serverUpdateControl(device: RegisteredDevice, clientCode: Int = Bui
     val pending = device.requestedUpdateCode
     if (pending != null && pending > installed) {
         val progress = when {
-            device.updateStatus == "APPROVAL_REQUIRED" -> "Android requires installation on the server phone."
-            !device.managedUpdates -> "Install reminder sent to the server phone."
+            device.installMode(requested = true) == InstallMode.MANUAL -> "Install reminder sent to the server phone."
+            device.updateStatus == "APPROVAL_REQUIRED" -> "Approve the update on the greenhouse phone in Settings → Connectivity."
             device.updateStatus == "DOWNLOADING" -> "Downloading the update."
             device.updateStatus == "INSTALLING" -> "Installing the update. Monitoring will restart."
             device.updateStatus == "RETRY" -> "Update interrupted. The server will retry."
@@ -50,8 +63,7 @@ internal fun serverUpdateControl(device: RegisteredDevice, clientCode: Int = Bui
         }
         return ServerUpdateControl("Build $pending · $progress")
     }
-    // Old backends only support a notification for an ordinary installation. A one-tap
-    // install requires a published release and explicit managed-only request support.
+    // Old backends only support a notification for an ordinary installation.
     val available = device.latestReleaseCode ?: if (!device.hasReleaseCatalog && !device.managedUpdates) clientCode else null
     if (available == null) return ServerUpdateControl(
         if (device.hasReleaseCatalog) "No server update is published." else "Remote release information is unavailable."
@@ -60,12 +72,15 @@ internal fun serverUpdateControl(device: RegisteredDevice, clientCode: Int = Bui
         if (available == installed) "Server is up to date." else "Server has a newer build than the published release."
     ) else null
     val release = device.latestReleaseName?.takeIf { it.isNotBlank() } ?: "build $available"
-    val instructions = when {
-        installed < 73 -> "Install this update on the server phone to enable future update requests."
-        device.managedUpdates -> "One tap installs the update and restarts monitoring when the server checks in."
-        else -> "For unattended updates, enroll the server phone once as an Android device owner. This phone can send an install reminder."
+    val instructions = if (installed < 73) "Install this update on the server phone to enable future update requests."
+    else when (device.installMode()) {
+        InstallMode.MANAGED -> "One tap installs the update and restarts monitoring when the server checks in."
+        InstallMode.SELF_UPDATE -> "The server can install this update when it checks in. Android may ask for approval."
+        InstallMode.CONFIRM_ON_SERVER -> "Start the update here, then tap Install on the greenhouse phone."
+        InstallMode.MANUAL -> remoteSetupHelp(installed)
     }
-    return ServerUpdateControl("Update available · $release\n$instructions", available.takeIf { installed >= 73 })
+    val label = if (device.updateStatus == "DECLINED") "Previous update declined on the server phone. Update available" else "Update available"
+    return ServerUpdateControl("$label · $release\n$instructions", available.takeIf { installed >= 73 })
 }
 
 internal fun resolveServerVersion(item: AccountDevice, report: studio.junecity.greenhouse.model.DeviceStatus?): ReportedVersion {

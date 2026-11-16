@@ -49,9 +49,14 @@ class AuthenticatedCloudGateway(
         request("POST", "/v1/devices", JSONObject().put("deviceId", config.deviceId).put("role", "VIEWER_CLIENT"))
     )
 
-    suspend fun requestServerUpdate(deviceId: String, versionCode: Int, requireManaged: Boolean) {
+    suspend fun requestServerUpdate(deviceId: String, versionCode: Int, requireManaged: Boolean, updateMode: String? = null) {
         request("POST", "/v1/devices/${segment(deviceId)}/update-request",
-            JSONObject().put("versionCode", versionCode).put("requireManaged", requireManaged))
+            JSONObject().put("versionCode", versionCode).put("requireManaged", requireManaged).putOpt("updateMode", updateMode))
+    }
+
+    internal suspend fun requestServerUpdate(device: RegisteredDevice, versionCode: Int) {
+        val mode = device.installMode()
+        requestServerUpdate(device.id, versionCode, mode == InstallMode.MANAGED, device.updateMode?.let { mode.name })
     }
 
     internal suspend fun serverUpdatePackage(): JSONObject =
@@ -154,7 +159,7 @@ class AuthenticatedCloudGateway(
         requestOrNull("DELETE", "/v1/stream-sessions/${segment(sessionId)}")
     }
 
-    override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): Int? {
+    override suspend fun reportHeartbeat(heartbeat: GreenhouseHeartbeat): ServerUpdateCommand? {
         return requestOrNull(
             "POST", "/v1/devices/${segment(heartbeat.serverDeviceId)}/heartbeat",
             JSONObject().put("greenhouseId", heartbeat.greenhouseId)
@@ -171,10 +176,17 @@ class AuthenticatedCloudGateway(
                 .put("lastSensorSyncEpochMs", heartbeat.lastSensorSyncEpochMs)
                 .put("lastDataUploadEpochMs", heartbeat.lastDataUploadEpochMs)
                 .put("managedUpdates", heartbeat.managedUpdates)
+                .put("updateMode", heartbeat.updateMode)
+                .put("updateStatusRequestId", heartbeat.updateStatusRequestId)
                 .put("updateStatus", heartbeat.updateStatus)
                 .put("appVersion", heartbeat.appVersion)
                 .put("appVersionCode", studio.junecity.greenhouse.BuildConfig.VERSION_CODE)
-        )?.optInt("requestedUpdateCode")?.takeIf { it > 0 }
+        )?.let { response ->
+            response.optInt("requestedUpdateCode").takeIf { it > 0 }?.let {
+                ServerUpdateCommand(it, response.optString("requestedUpdateMode").takeUnless { response.isNull("requestedUpdateMode") },
+                    response.optString("requestedUpdateId").takeUnless { response.isNull("requestedUpdateId") })
+            }
+        }
     }
 
     suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
@@ -329,7 +341,7 @@ object CloudJsonCodec {
         json.optNullableString("appVersion"), json.optInt("appVersionCode").takeIf { it > 0 },
         json.optInt("requestedUpdateCode").takeIf { it > 0 }, json.optBoolean("managedUpdates"), json.optNullableString("updateStatus"),
         json.optInt("latestReleaseCode").takeIf { it > 0 }, json.optNullableString("latestReleaseName"),
-        json.has("latestReleaseCode")
+        json.has("latestReleaseCode"), json.optNullableString("updateMode"), json.optNullableString("requestedUpdateMode")
     )
 
     fun entitlement(json: JSONObject): EntitlementSnapshot {

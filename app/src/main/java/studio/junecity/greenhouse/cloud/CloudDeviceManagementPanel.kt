@@ -144,7 +144,7 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit, report:
                         }
                     }
                     if (item.device.enabled) ServerVersionRow(item, report, d, t) { target ->
-                        gateway.requestServerUpdate(item.device.id, target, requireManaged = item.device.managedUpdates)
+                        gateway.requestServerUpdate(item.device, target)
                         devices = gateway.devices()
                     }
                 }
@@ -342,7 +342,7 @@ fun CloudServerPairingPanel(
             }
             approved -> {
                 Text("Greenhouse server approved", color = DashboardTokens.Green, fontSize = t(18f), fontWeight = FontWeight.ExtraBold)
-                Text("The other phone is now registered as this account's greenhouse server.", color = DashboardTokens.Muted, fontSize = t(13f))
+                Text("Your client can now monitor this greenhouse.", color = DashboardTokens.Muted, fontSize = t(15f))
                 DeviceAction("Pair another server", true, d, t, Modifier.fillMaxWidth()) { generateNewCode() }
             }
             pendingRequest != null -> {
@@ -365,7 +365,7 @@ fun CloudServerPairingPanel(
             invitation == null && activeServer != null -> {
                 ServerConnectionStatus(activeServer.device, inventoryVerified, t)
                 ServerVersionRow(activeServer, report, d, t) { target ->
-                    gateway.requestServerUpdate(activeServer.device.id, target, requireManaged = activeServer.device.managedUpdates)
+                    gateway.requestServerUpdate(activeServer.device, target)
                     refreshDevices(gateway)
                 }
                 Text("Disconnect temporarily, revoke its credentials, or replace it without losing greenhouse settings.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
@@ -497,7 +497,7 @@ private fun DeviceRow(title: String, subtitle: String, status: Color, d: (Float)
 }
 
 @Composable
-private fun DeviceAction(
+internal fun DeviceAction(
     label: String,
     primary: Boolean,
     d: (Float) -> Dp,
@@ -562,6 +562,14 @@ internal fun ServerVersionRow(
         color = if (control?.target != null || version.comparison in listOf(ServerVersion.Older, ServerVersion.Newer))
             DashboardTokens.Amber else DashboardTokens.Muted,
         fontSize = t(15f))
+    if (device.installMode() == InstallMode.MANUAL && device.enabled && !device.communicationSuspended &&
+        control?.target == null && device.requestedUpdateCode == null) {
+        var showSetup by remember(device.id) { mutableStateOf(false) }
+        androidx.compose.material3.TextButton(onClick = { showSetup = !showSetup }) {
+            Text(if (showSetup) "Hide setup steps" else "Set up remote updates", color = DashboardTokens.Amber)
+        }
+        if (showSetup) Text(remoteSetupHelp(device.appVersionCode), color = DashboardTokens.Muted, fontSize = t(15f))
+    }
     // Keep each request bound to the server that was displayed at the moment of the tap.
     val scope = rememberCoroutineScope()
     var sending by remember(device.id) { mutableStateOf(false) }
@@ -570,8 +578,9 @@ internal fun ServerVersionRow(
     if (sending) {
         Text("Sending update request…", color = DashboardTokens.Muted, fontSize = t(15f))
     } else if (target != null) {
-        DeviceAction(if (device.managedUpdates) "Update server" else "Send install reminder",
-            device.managedUpdates, d, t, Modifier.fillMaxWidth()) {
+        val canInstall = device.installMode() != InstallMode.MANUAL
+        DeviceAction(if (canInstall) "Update server" else "Send install reminder",
+            canInstall, d, t, Modifier.fillMaxWidth()) {
             if (!sending) {
                 sending = true
                 error = null

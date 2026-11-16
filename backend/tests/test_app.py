@@ -594,6 +594,106 @@ class BootstrapApiTests(unittest.TestCase):
                     self.assertIn("managedUpdates=:previousManaged", update["ConditionExpression"])
                     self.assertEqual(before, update["ExpressionAttributeValues"][":previousManaged"])
 
+    def test_opted_in_server_receives_only_requested_installer_mode_and_catalog_package(self):
+        owner = {"tenantId": "tenant-existing", "accountId": "account-existing"}
+        sid, cid = "server-12345678", "client-12345678"
+        secret = "test-device-credential" * 2
+        server = {**owner, "enabled": True, "role": "GREENHOUSE_SERVER", "deviceId": sid, "appVersionCode": 81,
+                  "managedUpdates": False, "deviceSecretHash": hashlib.sha256(secret.encode()).hexdigest()}
+        app.table = FakeTable({("USER#cognito-subject", "ACCOUNT"): owner,
+                               ("ACCOUNT#account-existing", "METADATA"): {"state": "ACTIVE"},
+                               (f"DEVICE#{sid}", "METADATA"): server,
+                               (f"DEVICE#{cid}", "METADATA"): {**owner, "enabled": True, "role": "VIEWER_CLIENT"}})
+        app.table.query_items = [server]
+        def call_server(route, body=None, credential=secret):
+            path = f"/v1/device/devices/{sid}" if credential else f"/v1/devices/{sid}"
+            e = event(f"{path}/{route}", method="POST" if body else "GET", device_id=sid, body=body)
+            if credential:
+                e["headers"]["x-greenhouse-device-secret"] = credential
+            return app.handler(e, None)
+        def request(target=82, actor=cid, **fields):
+            return app.handler(event(f"/v1/devices/{sid}/update-request", device_id=actor,
+                                     body={"versionCode": target, "requireManaged": False, **fields}), None)
+        catalog = {"versionCode": 82, "versionName": "test"}
+        for mode in app.ORDINARY_INSTALL_MODES:
+            with self.subTest(mode=mode), patch.dict(server, {"updateMode": mode}), \
+                    patch.object(app, "latest_server_release", return_value=catalog), \
+                    patch.object(app, "inventory_server_release", return_value=catalog), \
+                    patch.object(app, "server_release", return_value={"versionCode": 82}) as release:
+                beat = {"appVersionCode": 81, "updateMode": mode, "sensorConnectionHealthy": True}
+                self.assertEqual(403, call_server("heartbeat", beat, credential=None)["statusCode"])
+                self.assertEqual(403, call_server("update-package")["statusCode"])
+                self.assertEqual(409, request(target=83, updateMode=mode)["statusCode"])
+                self.assertEqual(403, request(actor=sid, updateMode=mode)["statusCode"])
+                self.assertEqual(400, request(updateMode="MANAGED")["statusCode"])
+                self.assertEqual(400, request(updateMode="unexpected")["statusCode"])
+                self.assertEqual(409, request(updateMode="MANUAL")["statusCode"])
+                self.assertEqual(202, request(updateMode=mode)["statusCode"])
+                update = app.table.updates[-1]
+                values = update["ExpressionAttributeValues"]
+                self.assertEqual(mode, values[":mode"])
+                self.assertIn("updateMode=:previousMode", update["ConditionExpression"])
+                self.assertEqual(mode, values[":previousMode"])
+                order_id = values[":orderId"]
+                server.update(requestedUpdateCode=82, updateUntil=values[":expires"], requestedUpdateMode=values[":mode"],
+                              requestedUpdateId=order_id, updateRequiresManaged=values[":managed"])
+                command = {"requestedUpdateCode": 82, "requestedUpdateMode": mode, "requestedUpdateId": order_id}
+                self.assertEqual(command, json.loads(call_server("heartbeat", beat)["body"]))
+                self.assertEqual(order_id, json.loads(request(updateMode=mode)["body"])["requestedUpdateId"])
+                row = json.loads(app.handler(event("/v1/devices", method="GET", device_id=cid), None)["body"])["devices"][0]
+                self.assertEqual((mode, mode, False), (row["updateMode"], row["requestedUpdateMode"], row["managedUpdates"]))
+                self.assertEqual(403, call_server("update-package", credential=None)["statusCode"])
+                package = call_server("update-package")
+                self.assertEqual(200, package["statusCode"])
+                self.assertEqual(order_id, json.loads(package["body"])["requestedUpdateId"])
+                release.assert_called_once_with(82)
+                with patch.dict(server, {"updateMode": "MANUAL"}):
+                    self.assertEqual(403, call_server("update-package")["statusCode"])
+                declined = {**beat, "updateStatus": "DECLINED", "updateStatusRequestId": order_id}
+                stale = call_server("heartbeat", {**declined, "updateStatusRequestId": "previous-order"})
+                self.assertEqual(command, json.loads(stale["body"]))
+                self.assertNotIn(":updateStatus", app.table.client.transactions[-1][0]["Update"]["ExpressionAttributeValues"])
+                self.assertEqual(204, call_server("heartbeat", declined)["statusCode"])
+                change = app.table.client.transactions[-1][0]["Update"]
+                self.assertEqual("DECLINED", change["ExpressionAttributeValues"][":updateStatus"])
+                self.assertIn("requestedUpdateId=:orderId", change["ConditionExpression"])
+                self.assertTrue(set(app.UPDATE_ORDER_FIELDS) <= set(change["UpdateExpression"].split(" REMOVE ")[1].split(", ")))
+                with patch.dict(server):
+                    for field in app.UPDATE_ORDER_FIELDS:
+                        server.pop(field)
+                    self.assertEqual(403, call_server("update-package")["statusCode"])
+                    self.assertNotEqual(order_id, json.loads(request(updateMode=mode)["body"])["requestedUpdateId"])
+                # An old client on an opted-in server still orders only a reminder.
+                self.assertEqual(202, request()["statusCode"])
+                server.pop("requestedUpdateId")
+                server["requestedUpdateMode"] = app.table.updates[-1]["ExpressionAttributeValues"][":mode"]
+                self.assertEqual("MANUAL", server["requestedUpdateMode"])
+                for legacy in (False, True):
+                    if legacy:
+                        del server["requestedUpdateMode"]
+                    self.assertEqual(403, call_server("update-package")["statusCode"])
+                    self.assertEqual({"requestedUpdateCode": 82}, json.loads(call_server("heartbeat", beat)["body"]))
+                release.assert_called_once()
+
+    def test_phone_consent_or_installer_capability_transition_discards_the_old_order(self):
+        owner = {"tenantId": "tenant-existing", "accountId": "account-existing"}
+        sid = "server-12345678"
+        server = {**owner, "enabled": True, "role": "GREENHOUSE_SERVER", "deviceId": sid, "appVersionCode": 81,
+                  "managedUpdates": False, "requestedUpdateCode": 82, "updateUntil": 4102444800}
+        app.table = FakeTable({("USER#cognito-subject", "ACCOUNT"): owner, (f"DEVICE#{sid}", "METADATA"): server})
+        for previous, following in [("MANUAL", "SELF_UPDATE"), ("SELF_UPDATE", "CONFIRM_ON_SERVER"),
+                                    ("CONFIRM_ON_SERVER", "MANUAL")]:
+            with self.subTest(previous=previous, following=following), patch.dict(server, {"updateMode": previous}):
+                result = app.handler(event(f"/v1/devices/{sid}/heartbeat", device_id=sid,
+                                           body={"appVersionCode": 81, "sensorConnectionHealthy": True,
+                                                 "updateMode": following, "updateStatus": "INSTALLING"}), None)
+                self.assertEqual(204, result["statusCode"])
+                update = app.table.client.transactions[-1][0]["Update"]
+                removed = update["UpdateExpression"].split(" REMOVE ")[1].split(", ")
+                self.assertTrue(set(app.UPDATE_ORDER_FIELDS) <= set(removed))
+                self.assertEqual(previous, update["ExpressionAttributeValues"][":previousMode"])
+                self.assertEqual(following, update["ExpressionAttributeValues"][":mode"])
+
     def test_disconnect_preserves_credentials_while_revoke_invalidates_them(self):
         fake = FakeTable({
             ("USER#cognito-subject", "ACCOUNT"): {"accountId": "account-existing", "tenantId": "tenant-existing"},

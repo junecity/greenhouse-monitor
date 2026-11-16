@@ -32,6 +32,11 @@ def publish(apk, stack_name, signer):
     pkg = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", manifest, re.M)
     if not pkg or pkg[1] != "studio.junecity.greenhouse" or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,39}", pkg[3]):
         raise ValueError("APK package or version is invalid")
+    if int(pkg[2]) >= 81:
+        permissions = set(re.findall(r"^uses-permission: name='([^']+)'", manifest, re.M))
+        required = {"android.permission.REQUEST_INSTALL_PACKAGES", "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"}
+        if not required.issubset(permissions):
+            raise ValueError("Build the private server APK with GREENHOUSE_DIRECT_SERVER_UPDATES=true")
     cert = subprocess.check_output(["apksigner", "verify", "--print-certs", str(apk)], text=True)
     certs = re.findall(r"^Signer #\d+ certificate SHA-256 digest: (\w+)$", cert, re.M)
     if certs != [signer.lower()]:

@@ -57,6 +57,8 @@ import com.journeyapps.barcodescanner.ScanOptions
 import studio.junecity.greenhouse.camera.CameraPairing
 import studio.junecity.greenhouse.camera.CameraPairingStore
 import studio.junecity.greenhouse.camera.CameraStreamServer
+import studio.junecity.greenhouse.cloud.ManagedServerUpdate
+import studio.junecity.greenhouse.cloud.ServerUpdateSettings
 import studio.junecity.greenhouse.cloud.CloudDeviceManagementPanel
 import studio.junecity.greenhouse.cloud.CloudServerPairingPanel
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
@@ -288,7 +290,10 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     return SettingsCategory.entries.filter {
         when(it){
             SettingsCategory.Camera -> !state.standalone && role!=CloudDeviceRole.ViewerClient
-            SettingsCategory.Connectivity -> state.standalone || role==CloudDeviceRole.ViewerClient
+            SettingsCategory.Connectivity -> state.standalone || role==CloudDeviceRole.ViewerClient ||
+                (role == CloudDeviceRole.GreenhouseServer && BuildConfig.DIRECT_SERVER_UPDATES &&
+                    (ManagedServerUpdate.canEnableDirectUpdates(context) ||
+                        ManagedServerUpdate.enabled(context)))
             else -> true
         }
     }
@@ -551,7 +556,13 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 }
 
 @Composable private fun ConnectivitySettings(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSave:(String)->Unit){
+    val context = LocalContext.current
+    val enrollment = remember(context) { SecureSettingsStore(context).cloudEnrollment() }
     LazyColumn(Modifier.fillMaxSize().padding(d(16f)),verticalArrangement=Arrangement.spacedBy(d(12f))){
+        if (enrollment?.role == CloudDeviceRole.GreenhouseServer) {
+            item { ServerUpdateSettings(enrollment, d, t) }
+            return@LazyColumn
+        }
         if (state.standalone) item { Text("Add a greenhouse phone for live video, short clips and timelapses. Your sensors already work on this phone.", color=DashboardTokens.Muted, fontSize=16.sp) }
         item { CloudServerPairingPanel(d, t, Modifier.fillMaxWidth(), state.serverStatus) }
         if(!state.standalone)item { ActionButton("Sync readings",d,t,onRefresh) }

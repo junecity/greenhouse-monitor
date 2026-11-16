@@ -130,24 +130,26 @@ Short clips and timelapses use Android app-private storage and require no archiv
 
 ### Remote updates for a dedicated greenhouse phone
 
-On the client, open **Settings → Connectivity**, select the paired greenhouse and tap **Update server** when a newer release is offered. Manage phones also lists each eligible server separately. The client compares the server's reported build with the current private release. The client can request a release newer than its own build. Each request targets one server and remains available for seven days. An online server picks it up on its next successful monitoring heartbeat, normally within a minute. After the signed upgrade, the app reopens and reports its installed version. Internet access on both phones is sufficient.
+**Customer setup on the phones.** For the directly distributed Greenhouse Studio APK, pair the greenhouse phone normally. On a server running 2.37 or older, install the new same-signer APK over the existing app once, keeping its data and pairing. Use 2.38 or later on the client as well.
 
-A server with ordinary Android app permissions can receive **Send install reminder**. To use one-tap remote installation, enroll the dedicated greenhouse phone once as described below and allow its next heartbeat to report the change.
+1. On the greenhouse phone, open **Settings → Connectivity → Allow remote updates**.
+2. On Android’s permission screen, enable **Allow from this source** for Greenhouse Studio and return to the app. Leave monitoring running for its next heartbeat.
+3. When a newer release is available, open **Settings → Connectivity** on the client, select the greenhouse and tap **Update server**. The phones can use different internet connections. Repeat setup on each greenhouse phone that should accept update requests.
 
-**One-time setup.** Install the compatible, same-signer APK on the dedicated server and enroll Greenhouse Studio as the Android device owner through supported dedicated-device provisioning. Existing personal installations can use **Send install reminder** and open the notification on the server. On an eligible account-free development handset, Android's ADB provisioning command is shown below. This is a one-time, local, privileged setup. Back up greenhouse settings and history before considering any change to device management. A phone already managed by a different organization must use its existing administrator. Some phones require provisioning during initial setup. Pairing with a greenhouse account does not grant Android management rights.
+On ordinary Android 10–11 phones (including the Moto G7 on Android 10), the server offers the system installer for each update. Tap the update notification on that phone and confirm **Install**. On eligible Android 12+ phones the app can request unattended self-update. If Android asks for confirmation, tap its notification or use **Settings → Connectivity → Approve update** on the server. Declining ends that request. A paired client can tap **Update server** again to start a new one. An already fully managed greenhouse phone keeps its existing unattended path. Turning remote updates off on the server withdraws its permission for future requests. Heartbeat and alert monitoring resume after a successful update. On an ordinary phone, tap the monitoring notification to reopen the dashboard and camera if Android keeps the app in the background. [Android PackageInstaller](https://developer.android.com/reference/android/content/pm/PackageInstaller.SessionParams#setRequireUserAction(int))
 
-```sh
-adb -s "$SERVER_SERIAL" shell dpm set-device-owner studio.junecity.greenhouse/.cloud.GreenhouseDeviceAdmin
-```
+This option belongs to the direct APK distribution. Build it with `-PGREENHOUSE_DIRECT_SERVER_UPDATES=true` or the dedicated development APK build script. Standard builds omit the install permissions and leave customer updates to their distribution channel. [Google Play install-permission policy](https://support.google.com/googleplay/android-developer/answer/12085295)
+
+The client compares the server’s reported build with the current private release. Each request targets one server and lasts seven days. The server picks it up on its next successful monitoring heartbeat, normally within a minute. Legacy ordinary phones can still receive an install reminder. A reminder cannot authorize an install after a later opt-in.
 
 **Publishing a version for client discovery.** Deploy the application stack with the private artifact bucket in `ServerReleaseBucketName`. Use the previously enrolled signing certificate's SHA-256 fingerprint and put Android build-tools (`aapt`, `apksigner`), Java and AWS CLI on the publisher's PATH. Supply the profile and region for the same isolated stack:
 
 ```sh
 AWS_PROFILE=greenhouse-dev AWS_REGION=us-east-1 python3 scripts/publish-server-release.py \
-  'build-out/Greenhouse Studio 2.37.0.apk' --stack greenhouse-monitor-dev \
+  'build-out/Greenhouse Studio 2.38.0.apk' --stack greenhouse-monitor-dev \
   --signer-sha256 "$TRUSTED_SIGNER_SHA256"
 ```
 
-The publisher checks the APK signature, package and build number, creates an immutable `releases/<environment>/android/<code>.apk`, checks the stored length, checksum and metadata, then conditionally updates `latest.json`. Re-running the command with the same file is safe. Existing installed clients that predate catalog support keep their original version-based behavior. New clients refresh device status from the API. Each running Lambda can cache discovery for up to 30 seconds. A managed installation request revalidates the available release before queueing.
+The publisher checks the APK signature, package and build number, creates an immutable `releases/<environment>/android/<code>.apk`, checks the stored length, checksum and metadata, then conditionally updates `latest.json`. Re-running the command with the same file is safe. Existing installed clients that predate catalog support keep their original version-based behavior. New clients refresh device status from the API. Each running Lambda can cache discovery for up to 30 seconds. An installation request revalidates the available release before queueing.
 
 Publish a higher signed build for corrections. The device checks file length, SHA-256, package identity, signing certificate and version, and rechecks authorization after download. No arbitrary URL, shell command or downgrade is accepted. To withdraw a pending release, remove that version from the private distribution prefix. An install already committed to Android can still finish. Existing development APKs use the enrolled development signing identity. Use a maintained production signing and distribution policy before customer rollout. Test a full update on an enrolled physical server before updating multiple phones.

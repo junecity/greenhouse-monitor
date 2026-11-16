@@ -18,7 +18,7 @@ class CloudBootReceiver : BroadcastReceiver() {
         CloudAlertService.sync(context, enabled = true)
         if (enrollment.role == CloudDeviceRole.GreenhouseServer) {
             CloudHeartbeatService.sync(context, enabled = true)
-            if (updated) context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
+            if (updated && ManagedServerUpdate.enabled(context)) context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
                 context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }

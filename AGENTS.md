@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.38.0 (81) · Phone-only remote update setup
+- A paired greenhouse phone running a direct APK can enable remote updates under Settings → Connectivity. Android 12+ can install an eligible signed self-update. Android 10–11 uses the system installer confirmation on the server. A pre-2.38 standard server needs one in-place APK upgrade before enrollment. Existing device owners keep their unattended path.
+- ServerUpdateSettings, ServerUpdateNotice and CloudDeviceManagementPanel display the mode reported by the server. ManagedServerUpdate, ServerInstallApprovalActivity and CloudHeartbeatService bind opt-in and install authority to the server enrollment and explicit client order. Pending confirmations can reopen from Settings. Declining cancels that order. The backend rechecks ownership, capability and the published artifact. See docs/AWS_DEPLOYMENT.md. Play builds omit the direct-install permissions.
+- Passed 166 JVM tests, 90 backend tests, Android lint (zero errors), Android 15 setup/client UI tests and 32 live checks on the dedicated development service. Ordinary Android 10 and 15 emulators installed signed updates and resumed monitoring. Physical customer phones and OEM-specific installer behavior remain to be verified. See CHANGELOG for delivery and end-to-end coverage.
+
 ## 2026-11-15 · Greenhouse Studio 2.37.0 (80) · One-tap server updates
 - Settings → Connectivity and Manage phones use the published release from authorized device inventory. Update server queues a managed install for the selected greenhouse phone. Ordinary phones show a manual reminder and enrollment guidance. The server checks the request again before installation.
 - Android cloud contracts, gateway, update notice and device management UI share this flow. backend/src/app.py, infrastructure/template.yaml and scripts/publish-server-release.py bind it to the verified APK in the environment’s private release catalog. Keep immutable signed APKs and update latest.json after verifying the object. See docs/AWS_DEPLOYMENT.md for publishing and device-owner enrollment.

@@ -1440,6 +1440,49 @@ class StandaloneEditorTest {
             find("Client $client  ·  Server 3.0.0\nServer is up to date.")
             scenario.onActivity { observed.value = server.copy(device = server.device.copy(managedUpdates = false)) }
             find("Send install reminder")
+            scenario.onActivity { observed.value = server.copy(device = server.device.copy(managedUpdates = false, updateMode = "CONFIRM_ON_SERVER")) }
+            click("Update server")
+            scenario.onActivity {
+                assertEquals(listOf(target, target), requests)
+                observed.value = server.copy(device = server.device.copy(managedUpdates = false, updateMode = "CONFIRM_ON_SERVER",
+                    requestedUpdateCode = target, requestedUpdateMode = "CONFIRM_ON_SERVER", updateStatus = "APPROVAL_REQUIRED"))
+            }
+            find("Client $client  ·  Server $client\nBuild $target · Approve the update on the greenhouse phone in Settings → Connectivity.")
+        }
+    }
+
+    @Test fun directlyInstalledServerEnablesUpdatesFromAndroidSettingsAndCanTurnThemOff() {
+        val context = instrumentation.targetContext
+        val secure = SecureSettingsStore(context)
+        val updates = studio.junecity.greenhouse.cloud.ManagedServerUpdate
+        assumeTrue("Requires an isolated direct-download installation", secure.cloudEnrollment() == null &&
+            updates.canEnableDirectUpdates(context) && !context.packageManager.canRequestPackageInstalls())
+        val server = CloudEnrollment("ui-server", "ui-house", CloudDeviceRole.GreenhouseServer, "ui-test-secret")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    secure.saveCloudEnrollment(server)
+                    activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    activity.setContent {
+                        StageScreen(GreenhouseUiState(screen = AppScreen.Settings), DeviceStatus(80,true,true),
+                            java.time.LocalDateTime.now(),{},{},{},{},{_,_,_->},{_,_->},{},{},{_,_,_->},{},Modifier.fillMaxSize())
+                    }
+                }
+                click("General")
+                click("Connectivity")
+                click("Allow remote updates")
+                click("Allow from this source")
+                assertTrue(ui.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+                find("Turn off remote updates")
+                assertTrue(context.packageManager.canRequestPackageInstalls())
+                assertTrue(updates.mode(context, server) in listOf("SELF_UPDATE", "CONFIRM_ON_SERVER"))
+                click("Turn off remote updates")
+                find("Allow remote updates")
+                assertEquals("MANUAL", updates.mode(context, server))
+            }
+        } finally {
+            updates.setDirectUpdatesEnabled(context, server, false)
+            secure.clearCloudEnrollment()
         }
     }
 

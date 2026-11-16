@@ -4,6 +4,7 @@ import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.sensors.isLocalRadio
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -71,11 +72,14 @@ class CloudHeartbeatService : Service() {
         super.onCreate()
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Greenhouse cloud monitoring", NotificationManager.IMPORTANCE_LOW))
+        val openApp = packageManager.getLaunchIntentForPackage(packageName)?.let {
+            PendingIntent.getActivity(this, NOTIFICATION_ID, it, PendingIntent.FLAG_IMMUTABLE)
+        }
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_greenhouse)
             .setContentTitle("Greenhouse monitoring active")
             .setContentText("Reporting server health securely")
-            .setOngoing(true).setOnlyAlertOnce(true).build()
+            .setContentIntent(openApp).setOngoing(true).setOnlyAlertOnce(true).build()
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
     }
@@ -113,7 +117,8 @@ class CloudHeartbeatService : Service() {
                 val device = AndroidDeviceStatusProvider(context).current().copy(
                     appVersion = BuildConfig.VERSION_NAME, appVersionCode = BuildConfig.VERSION_CODE,
                     sourceDeviceId = enrollment.deviceId)
-                val requestedUpdate = HeartbeatReporter(gateway).report(MonitoringHealth(
+                val updateMode = ManagedServerUpdate.mode(context, enrollment)
+                val command = HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature,
                     batteryPercent=device.batteryPercent, charging=device.charging,
                     networkType=if (device.wifiConnected) "WIFI" else device.network.uppercase(),
@@ -125,16 +130,20 @@ class CloudHeartbeatService : Service() {
                     ).joinToString(", ").ifBlank { null },
                     cameraStatus=if(packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))"AVAILABLE" else "UNAVAILABLE",
                     lastSensorSyncEpochMs=sensors.maxOfOrNull(GoveeSensor::updatedAtEpochMs),
-                    managedUpdates=ManagedServerUpdate.enabled(context),
+                    managedUpdates=updateMode == "MANAGED", updateMode=updateMode,
                     updateStatus=ManagedServerUpdate.status(context, enrollment.deviceId),
+                    updateStatusRequestId=ManagedServerUpdate.statusRequestId(context, enrollment.deviceId),
                     lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
                 ))
                 ServerHeartbeatReceipt.record(enrollment.deviceId)
-                if (requestedUpdate != null && ManagedServerUpdate.enabled(context)) {
-                    if (update?.isActive != true && ManagedServerUpdate.due(context, "${enrollment.deviceId}/$requestedUpdate")) {
+                val requestedUpdate = command?.versionCode
+                val install = command?.authorizes(updateMode) == true
+                ManagedServerUpdate.reconcileSession(context, enrollment, command.takeIf { install }, updateMode)
+                if (command != null && install) {
+                    if (update?.isActive != true && ManagedServerUpdate.due(context, command.key(enrollment.deviceId))) {
                         update = launch {
                             try {
-                                ManagedServerUpdate.install(context, gateway, enrollment, requestedUpdate)
+                                ManagedServerUpdate.install(context, gateway, enrollment, command.versionCode, mode = updateMode, requestId = command.id)
                             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
@@ -165,6 +174,11 @@ class CloudHeartbeatService : Service() {
                         }
                     }
                 }
+            }
+            val heartbeatError = result.exceptionOrNull() as? CloudApiException
+            if (heartbeatError?.statusCode in listOf(401, 403, 404)) {
+                update?.cancel()
+                ManagedServerUpdate.cancelSession(this@CloudHeartbeatService)
             }
             failures = if (result.isSuccess) 0 else failures + 1
             delay(HeartbeatRetryPolicy.delayMs(failures))

@@ -361,6 +361,7 @@ def list_devices(principal: Principal):
         if primary.get("tenantId") != principal.tenant_id or primary.get("accountId") != principal.account_id:
             continue
         last_heartbeat = int(primary.get("lastHeartbeat", 0))
+        target = pending_update(primary, now, primary.get("appVersionCode"))
         devices.append({
             "id": item["deviceId"], "tenantId": item["tenantId"], "role": item["role"],
             "enabled": bool(primary.get("enabled")), "communicationSuspended": bool(primary.get("communicationSuspended")),
@@ -368,7 +369,10 @@ def list_devices(principal: Principal):
             "appVersion": primary.get("appVersion"), "appVersionCode": primary.get("appVersionCode"),
             "updateStatus": primary.get("updateStatus"),
             "managedUpdates": primary.get("managedUpdates") is True,
-            "requestedUpdateCode": pending_update(primary, now, primary.get("appVersionCode")),
+            "updateMode": update_mode(primary),
+            "requestedUpdateCode": target,
+            "requestedUpdateMode": requested_update_mode(primary) if target else None,
+            "requestedUpdateId": primary.get("requestedUpdateId") if target else None,
             "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
             "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
             "online": bool(primary.get("enabled")) and not primary.get("communicationSuspended") and last_heartbeat > 0 and now - last_heartbeat <= 180,
@@ -384,6 +388,8 @@ def list_devices(principal: Principal):
 
 # Builds before 73 do not understand the heartbeat update notice.
 FIRST_UPDATE_RECEIVER = 73
+ORDINARY_INSTALL_MODES = ("CONFIRM_ON_SERVER", "SELF_UPDATE")
+UPDATE_ORDER_FIELDS = ("requestedUpdateCode", "updateUntil", "updateRequiresManaged", "requestedUpdateMode", "requestedUpdateId")
 _release_cache = None
 
 
@@ -404,10 +410,33 @@ def inventory_server_release():
     return release
 
 
+def update_mode(device):
+    if device.get("managedUpdates") is True:
+        return "MANAGED"
+    mode = device.get("updateMode")
+    return mode if mode in ORDINARY_INSTALL_MODES else "MANUAL"
+
+
+def requested_update_mode(device):
+    # Legacy requests on an ordinary phone can only deliver a reminder.
+    return device.get("requestedUpdateMode", "MANAGED" if device.get("managedUpdates") is True else "MANUAL")
+
+
+def same_update_mode_condition(device, values):
+    if "updateMode" not in device:
+        return "attribute_not_exists(updateMode)"
+    values[":previousMode"] = device["updateMode"]
+    return "updateMode=:previousMode"
+
+
 def pending_update(device, now, installed):
     target = int(device.get("requestedUpdateCode", 0))
+    order = requested_update_mode(device)
+    capability = update_mode(device)
     if (installed and FIRST_UPDATE_RECEIVER <= installed < target
             and device.get("enabled") and not device.get("communicationSuspended")
+            and (order == capability or (order == "MANUAL" and capability in ORDINARY_INSTALL_MODES))
+            and (order not in ORDINARY_INSTALL_MODES or device.get("requestedUpdateId"))
             and ("updateRequiresManaged" not in device or
                  device["updateRequiresManaged"] is (device.get("managedUpdates") is True))
             and device.get("updateUntil", 0) > now):
@@ -473,16 +502,21 @@ def server_release(target, *, include_url=True):
     return release
 
 
-def update_package(principal, device_id):
+def update_package(principal, device_id, device_authenticated=False):
     if principal.device_id != device_id:
         raise AccessDenied("device_mismatch")
     server = get_owned("DEVICE", device_id, principal.tenant_id)
     if server.get("role") != "GREENHOUSE_SERVER" or server.get("accountId") != principal.account_id:
         raise AccessDenied("server_device")
     target = pending_update(server, int(datetime.now(timezone.utc).timestamp()), server.get("appVersionCode"))
-    if not target or server.get("managedUpdates") is not True:
+    mode = requested_update_mode(server)
+    if not target or mode == "MANUAL":
         raise AccessDenied("no_managed_update")
+    if mode in ORDINARY_INSTALL_MODES and server.get("deviceSecretHash") and not device_authenticated:
+        raise AccessDenied("device_credential_required")
     release = server_release(target)
+    if release and mode in ORDINARY_INSTALL_MODES:
+        release["requestedUpdateId"] = server["requestedUpdateId"]
     return response(200, release) if release else response(409, {"error": "release_unavailable"})
 
 
@@ -506,31 +540,59 @@ def request_server_update(event, principal: Principal, device_id: str):
         return response(400, {"error": "invalid_managed_requirement"})
     if require_managed != reported_managed:
         return response(409, {"error": "server_enrollment_required" if require_managed else "server_enrollment_changed"})
+    # A request without the new field must retain its original meaning even
+    # when the same ordinary server has subsequently gained install capability.
+    mode = body.get("updateMode", "MANAGED" if require_managed else "MANUAL")
+    if mode not in ("MANUAL", "MANAGED", *ORDINARY_INSTALL_MODES) or (mode == "MANAGED") != require_managed:
+        return response(400, {"error": "invalid_update_mode"})
+    if "updateMode" in body and mode != update_mode(server):
+        return response(409, {"error": "server_enrollment_changed"})
     installed = int(server.get("appVersionCode", 0))
     if not FIRST_UPDATE_RECEIVER <= installed < target:
         return response(409, {"error": "server_not_eligible"})
-    if require_managed and "requireManaged" in body:
+    if mode in ORDINARY_INSTALL_MODES or (require_managed and ("requireManaged" in body or "updateMode" in body)):
         latest = latest_server_release()
         if not latest or target != latest["versionCode"]:
             return response(409, {"error": "release_unavailable"})
     elif require_managed and not server_release(target, include_url=False):
         return response(409, {"error": "release_unavailable"})
     now = int(datetime.now(timezone.utc).timestamp())
+    ordinary_install = mode in ORDINARY_INSTALL_MODES
+    if ordinary_install and mode == requested_update_mode(server) and target == pending_update(server, now, installed):
+        # Repeated taps or a retried POST must not replace an installer already in flight.
+        return response(202, {"requestedUpdateCode": target, "requestedUpdateId": server["requestedUpdateId"]})
+    values = {":target": target, ":expires": now + 7 * 86400,
+              ":tenant": principal.tenant_id, ":account": principal.account_id,
+              ":server": "GREENHOUSE_SERVER", ":yes": True, ":no": False,
+              ":installed": installed, ":managed": require_managed, ":mode": mode}
+    capability_condition = same_update_mode_condition(server, values)
+    command_expression = ("SET requestedUpdateCode=:target, updateUntil=:expires, updateRequiresManaged=:managed, "
+                          "requestedUpdateMode=:mode")
+    result = {"requestedUpdateCode": target}
+    if ordinary_install:
+        command_id = uuid.uuid4().hex
+        result["requestedUpdateId"] = command_id
+        values[":orderId"] = command_id
+        if "requestedUpdateId" in server:
+            values[":oldOrderId"] = server["requestedUpdateId"]
+            capability_condition += " AND requestedUpdateId=:oldOrderId"
+        else:
+            capability_condition += " AND attribute_not_exists(requestedUpdateId)"
+        command_expression += ", requestedUpdateId=:orderId REMOVE updateStatus"
+    else:
+        command_expression += " REMOVE updateStatus, requestedUpdateId"
     table.update_item(
         Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
-        UpdateExpression="SET requestedUpdateCode=:target, updateUntil=:expires, updateRequiresManaged=:managed REMOVE updateStatus",
+        UpdateExpression=command_expression,
         ConditionExpression=("tenantId=:tenant AND accountId=:account AND #role=:server AND enabled=:yes "
                              "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:no) "
                              "AND appVersionCode=:installed AND " +
                              ("managedUpdates=:yes" if require_managed else
-                              "(attribute_not_exists(managedUpdates) OR managedUpdates=:no)")),
+                              "(attribute_not_exists(managedUpdates) OR managedUpdates=:no)") + " AND " + capability_condition),
         ExpressionAttributeNames={"#role": "role"},
-        ExpressionAttributeValues={":target": target, ":expires": now + 7 * 86400,
-                                   ":tenant": principal.tenant_id, ":account": principal.account_id,
-                                   ":server": "GREENHOUSE_SERVER", ":yes": True, ":no": False,
-                                   ":installed": installed, ":managed": require_managed},
+        ExpressionAttributeValues=values,
     )
-    return response(202, {"requestedUpdateCode": target})
+    return response(202, result)
 
 
 def set_device_state(event, principal: Principal, device_id: str):
@@ -550,7 +612,7 @@ def set_device_state(event, principal: Principal, device_id: str):
     if enabled:
         expression += " REMOVE revokedAt, revokedBy"
     else:
-        expression += ", revokedAt=:now, revokedBy=:requester"
+        expression += ", revokedAt=:now, revokedBy=:requester REMOVE updateStatus, " + ", ".join(UPDATE_ORDER_FIELDS)
     values = {":enabled": enabled, ":tenant": principal.tenant_id, ":account": principal.account_id}
     if not enabled:
         values[":now"] = now
@@ -592,6 +654,8 @@ def set_device_connection(event, principal: Principal, device_id: str):
     suspended = not body["connected"]
     now = int(datetime.now(timezone.utc).timestamp())
     expression = "SET communicationSuspended=:suspended, connectionChangedAt=:now, connectionChangedBy=:requester"
+    if suspended:
+        expression += " REMOVE updateStatus, " + ", ".join(UPDATE_ORDER_FIELDS)
     values = {
         ":suspended": suspended, ":now": now, ":requester": principal.device_id,
         ":tenant": principal.tenant_id, ":account": principal.account_id,
@@ -731,7 +795,8 @@ def approve_server_pairing(principal: Principal, request_id: str):
             "UpdateExpression": (
                 "SET greenhouseId=:greenhouse, enabled=:enabled, communicationSuspended=:connected, "
                 "deviceSecretHash=:secret, reauthorizedAt=:now, adminEntity=:entity, adminSort=:sort "
-                "REMOVE revokedAt, revokedBy, replacedAt, replacedBy"
+                "REMOVE revokedAt, revokedBy, replacedAt, replacedBy, managedUpdates, updateMode, updateStatus, "
+                + ", ".join(UPDATE_ORDER_FIELDS)
             ),
             "ConditionExpression": "tenantId=:tenant AND accountId=:account AND #role=:role",
             "ExpressionAttributeNames": {"#role": "role"},
@@ -1169,11 +1234,12 @@ def acknowledge_alert(principal: Principal, alert_id: str):
     return response(204, {})
 
 
-def heartbeat(event, principal: Principal, device_id: str):
+def heartbeat(event, principal: Principal, device_id: str, device_authenticated=False):
     if principal.device_id != device_id:
         raise AccessDenied("device_mismatch")
     device = get_owned("DEVICE", device_id, principal.tenant_id)
-    if device.get("role") != "GREENHOUSE_SERVER" or not device.get("enabled") or device.get("communicationSuspended"):
+    if (device.get("role") != "GREENHOUSE_SERVER" or device.get("accountId") != principal.account_id
+            or not device.get("enabled") or device.get("communicationSuspended")):
         raise AccessDenied("server_device")
     body = json.loads(event.get("body") or "{}")
     now = int(datetime.now(timezone.utc).timestamp())
@@ -1202,22 +1268,20 @@ def heartbeat(event, principal: Principal, device_id: str):
         ":adminEntity": "DEVICE",
         ":adminSort": f"{int(device.get('createdAt', now)):020d}#{device_id}",
     }
-    set_parts.append("managedUpdates=:managed")
+    set_parts.extend(["managedUpdates=:managed", "updateMode=:mode"])
     managed = body.get("managedUpdates") is True
+    mode = update_mode(body)
+    if "updateMode" in body and body["updateMode"] != mode:
+        return response(400, {"error": "invalid_update_mode"})
+    if mode in ORDINARY_INSTALL_MODES and device.get("deviceSecretHash") and not device_authenticated:
+        raise AccessDenied("device_credential_required")
     previously_managed = device.get("managedUpdates") is True
-    mode_changed = managed != previously_managed
+    mode_changed = mode != update_mode(device)
     expression_values[":managed"] = managed
+    expression_values[":mode"] = mode
     # Clear the complete old order on enrollment transitions, including legacy
     # orders without a recorded intent. This also covers an order arriving
     # between the strongly consistent read above and this heartbeat write.
-    if mode_changed:
-        remove_parts.extend(["requestedUpdateCode", "updateUntil", "updateRequiresManaged"])
-    status = body.get("updateStatus")
-    if not mode_changed and status in ("DOWNLOADING", "INSTALLING", "RETRY", "APPROVAL_REQUIRED"):
-        set_parts.append("updateStatus=:updateStatus")
-        expression_values[":updateStatus"] = status
-    else:
-        remove_parts.append("updateStatus")
     installed = body.get("appVersionCode")
     if type(installed) is int and 0 < installed <= 2_100_000_000:
         set_parts.append("appVersionCode=:build")
@@ -1225,6 +1289,32 @@ def heartbeat(event, principal: Principal, device_id: str):
     else:
         installed = None
         remove_parts.append("appVersionCode")
+    target = None if mode_changed else pending_update(device, now, installed)
+    order_id = device.get("requestedUpdateId")
+    order_condition = ""
+    status = body.get("updateStatus")
+    progress_states = ("DOWNLOADING", "INSTALLING", "RETRY", "APPROVAL_REQUIRED")
+    if mode_changed:
+        remove_parts.extend((*UPDATE_ORDER_FIELDS, "updateStatus"))
+    elif mode in ORDINARY_INSTALL_MODES:
+        if order_id and installed and installed >= device.get("requestedUpdateCode", 0):
+            order_condition = " AND requestedUpdateId=:orderId"
+            remove_parts.extend((*UPDATE_ORDER_FIELDS, "updateStatus"))
+        elif target and order_id and order_id == body.get("updateStatusRequestId") and status in (*progress_states, "DECLINED"):
+            # A late confirmation/cancel callback cannot overwrite the next order.
+            order_condition = " AND requestedUpdateId=:orderId"
+            set_parts.append("updateStatus=:updateStatus")
+            expression_values[":updateStatus"] = status
+            if status == "DECLINED":
+                remove_parts.extend(UPDATE_ORDER_FIELDS)
+                target = None
+        if order_condition:
+            expression_values[":orderId"] = order_id
+    elif status in progress_states:
+        set_parts.append("updateStatus=:updateStatus")
+        expression_values[":updateStatus"] = status
+    else:
+        remove_parts.append("updateStatus")
     if app_version:
         set_parts.append("appVersion=:appVersion")
         expression_values[":appVersion"] = app_version
@@ -1284,7 +1374,10 @@ def heartbeat(event, principal: Principal, device_id: str):
             greenhouse_id=device.get("greenhouseId"), device_id=device_id,
             alert_type="CRITICAL_TEMPERATURE", created_at=now,
         ))
-    condition = "tenantId=:tenant"
+    condition = ("tenantId=:tenant AND accountId=:account AND enabled=:enabled "
+                 "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:unsuspended)")
+    expression_values.update({":account": principal.account_id, ":enabled": True, ":unsuspended": False})
+    condition += " AND " + same_update_mode_condition(device, expression_values) + order_condition
     expression_values[":previousManaged"] = previously_managed
     condition += (" AND managedUpdates=:previousManaged" if previously_managed else
                   " AND (attribute_not_exists(managedUpdates) OR managedUpdates=:previousManaged)")
@@ -1302,8 +1395,13 @@ def heartbeat(event, principal: Principal, device_id: str):
         "ConditionExpression": "attribute_not_exists(pk)",
     }} for alert in alert_records)
     table.meta.client.transact_write_items(TransactItems=transaction)
-    target = None if mode_changed else pending_update(device, now, installed)
-    return response(200, {"requestedUpdateCode": target}) if target else response(204, {})
+    if not target:
+        return response(204, {})
+    command = {"requestedUpdateCode": target}
+    if requested_update_mode(device) in ORDINARY_INSTALL_MODES:
+        command["requestedUpdateMode"] = requested_update_mode(device)
+        command["requestedUpdateId"] = order_id
+    return response(200, command)
 
 
 def handler(event, _context):
@@ -1340,7 +1438,7 @@ def handler(event, _context):
         ):
             raise AccessDenied("device_route_not_allowed")
         if method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "update-package":
-            return update_package(principal, parts[2])
+            return update_package(principal, parts[2], device_authenticated)
         if method == "GET" and parts == ["v1", "devices"]:
             return list_devices(principal)
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "state":
@@ -1380,7 +1478,7 @@ def handler(event, _context):
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge":
             return acknowledge_alert(principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":
-            return heartbeat(event, principal, parts[2])
+            return heartbeat(event, principal, parts[2], device_authenticated)
         return response(404, {"error": "not_found"})
     except AccessDenied as error:
         print(json.dumps({

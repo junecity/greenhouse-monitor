@@ -65,6 +65,8 @@
             <meta-data android:name="android.app.device_admin" android:resource="@xml/greenhouse_device_admin" />
             <intent-filter><action android:name="android.app.action.DEVICE_ADMIN_ENABLED" /></intent-filter>
         </receiver>
+        <activity android:name=".cloud.ServerInstallApprovalActivity" android:exported="false"
+            android:excludeFromRecents="true" />
         <receiver android:name=".cloud.ServerInstallResult" android:exported="false" />
         <receiver
             android:name=".cloud.CloudBootReceiver"

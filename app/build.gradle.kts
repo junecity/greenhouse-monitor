@@ -11,6 +11,11 @@ val armOnlyBuild = providers.gradleProperty("GREENHOUSE_ARM_ONLY")
     .map(String::toBoolean)
     .getOrElse(false)
 
+val directServerUpdates = providers.gradleProperty("GREENHOUSE_DIRECT_SERVER_UPDATES")
+    .orElse(providers.environmentVariable("GREENHOUSE_DIRECT_SERVER_UPDATES"))
+    .map(String::toBooleanStrict)
+    .getOrElse(false)
+
 android {
     namespace = "studio.junecity.greenhouse"
     compileSdk = 36
@@ -20,8 +25,9 @@ android {
         minSdk = 29
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 80
-        versionName = "2.37.0"
+        versionCode = 81
+        versionName = "2.38.0"
+        buildConfigField("boolean", "DIRECT_SERVER_UPDATES", directServerUpdates.toString())
         if (armOnlyBuild) {
             ndk {
                 abiFilters += setOf("armeabi-v7a", "arm64-v8a")
@@ -34,6 +40,11 @@ android {
         buildConfigField("String", "GREENHOUSE_COGNITO_USER_POOL_ID", quotedBuildValue(cloudValue("GREENHOUSE_COGNITO_USER_POOL_ID")))
         buildConfigField("String", "GREENHOUSE_COGNITO_APP_CLIENT_ID", quotedBuildValue(cloudValue("GREENHOUSE_COGNITO_APP_CLIENT_ID")))
         buildConfigField("String", "GREENHOUSE_AWS_API_BASE_URL", quotedBuildValue(cloudValue("GREENHOUSE_AWS_API_BASE_URL")))
+    }
+    if (directServerUpdates) {
+        for (type in listOf("debug", "release")) {
+            sourceSets.getByName(type).manifest.srcFile("src/direct/AndroidManifest.xml")
+        }
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {

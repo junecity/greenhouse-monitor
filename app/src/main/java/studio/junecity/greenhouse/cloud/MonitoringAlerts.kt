@@ -64,14 +64,15 @@ data class MonitoringHealth(
     val lastDataUploadEpochMs: Long? = null,
     val appVersion: String? = null,
     val wifiSignalStrength: Int? = null,
-    val managedUpdates: Boolean = false, val updateStatus: String? = null
+    val managedUpdates: Boolean = false, val updateStatus: String? = null,
+    val updateMode: String? = null, val updateStatusRequestId: String? = null
 )
 
 class HeartbeatReporter(
     private val gateway: GreenhouseCloudGateway,
     private val nowEpochMs: () -> Long = System::currentTimeMillis
 ) {
-    suspend fun report(health: MonitoringHealth): Int? = gateway.reportHeartbeat(
+    suspend fun report(health: MonitoringHealth): ServerUpdateCommand? = gateway.reportHeartbeat(
         GreenhouseHeartbeat(
             serverDeviceId = health.serverDeviceId,
             greenhouseId = health.greenhouseId,
@@ -87,7 +88,8 @@ class HeartbeatReporter(
             cameraStatus = health.cameraStatus,
             lastSensorSyncEpochMs = health.lastSensorSyncEpochMs,
             lastDataUploadEpochMs = health.lastDataUploadEpochMs,
-            appVersion = health.appVersion, managedUpdates = health.managedUpdates, updateStatus = health.updateStatus
+            appVersion = health.appVersion, managedUpdates = health.managedUpdates, updateStatus = health.updateStatus,
+            updateMode = health.updateMode, updateStatusRequestId = health.updateStatusRequestId
         )
     )
 }

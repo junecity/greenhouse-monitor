@@ -42,6 +42,7 @@ done
 
 cd "$project_root"
 ./gradlew --no-daemon assembleDebug \
+  -PGREENHOUSE_DIRECT_SERVER_UPDATES=true \
   -PGREENHOUSE_AWS_REGION="$aws_region" \
   -PGREENHOUSE_COGNITO_USER_POOL_ID="$user_pool_id" \
   -PGREENHOUSE_COGNITO_APP_CLIENT_ID="$android_client_id" \

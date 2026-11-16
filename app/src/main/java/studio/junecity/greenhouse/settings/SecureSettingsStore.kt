@@ -12,6 +12,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
+import studio.junecity.greenhouse.cloud.ManagedServerUpdate
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import java.util.UUID
 
@@ -80,7 +81,10 @@ class SecureSettingsStore(private val context: Context) {
     fun cloudSession(): CloudSession? = loadEncrypted("cloud_session")?.let { runCatching { CloudSession.parse(it) }.getOrNull() }
     fun clearCloudSession() = prefs.edit().remove("cloud_session").apply()
     fun saveCloudEnrollment(value: CloudEnrollment) {
-        if (cloudEnrollment()?.widgetScope() != value.widgetScope())
+        val previous = cloudEnrollment()
+        if (previous?.role == CloudDeviceRole.GreenhouseServer && previous != value)
+            ManagedServerUpdate.forgetEnrollment(context)
+        if (previous?.widgetScope() != value.widgetScope())
             context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
         saveEncrypted("cloud_enrollment", value.toJson())
         ClimateWidget.changed(context)
@@ -94,6 +98,7 @@ class SecureSettingsStore(private val context: Context) {
         return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     fun clearCloudEnrollment() {
+        ManagedServerUpdate.forgetEnrollment(context)
         prefs.edit().remove("cloud_enrollment").apply()
         context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
         ClimateWidget.changed(context)

@@ -82,7 +82,39 @@ class ServerVersionTest {
             CloudTokenProvider { "fixture" }, client = transport)
         val server = api.devices().single().device
         val target = requireNotNull(serverUpdateControl(server, clientCode = 78)?.target)
-        api.requestServerUpdate(server.id, target, requireManaged = server.managedUpdates)
+        api.requestServerUpdate(server, target)
         assertEquals(false, responses.hasNext())
+    }
+
+    @Test fun clientSendsOnlyTheModeReportedByTheSelectedServer() = kotlinx.coroutines.runBlocking {
+        for (mode in InstallMode.entries) {
+            val device = CloudJsonCodec.device(org.json.JSONObject().put("id", "sensor-house-phone")
+                .put("role", "GREENHOUSE_SERVER").put("updateMode", mode.name).put("managedUpdates", mode == InstallMode.MANAGED)
+                .put("appVersionCode", 81).put("latestReleaseCode", 82))
+            val sent = mutableListOf<String>()
+            val http = okhttp3.OkHttpClient.Builder().addInterceptor { call ->
+                val request = call.request()
+                val json = org.json.JSONObject(okio.Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                assertEquals("/v1/devices/sensor-house-phone/update-request", request.url.encodedPath)
+                assertEquals(82, json.getInt("versionCode"))
+                assertEquals(mode == InstallMode.MANAGED, json.getBoolean("requireManaged"))
+                sent += json.getString("updateMode")
+                okhttp3.Response.Builder().request(request).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(200).message("OK").body("{}".toResponseBody()).build()
+            }.build()
+            val gateway = AuthenticatedCloudGateway(CloudApiConfig("https://fixture.invalid", "client-001"),
+                CloudTokenProvider { "fixture" }, client = http)
+            gateway.requestServerUpdate(device, requireNotNull(serverUpdateControl(device)?.target))
+            assertEquals(listOf(mode.name), sent)
+        }
+    }
+
+    @Test fun clientExplainsConfirmationAndRespectsAnOutstandingManualReminder() {
+        val server = item.device.copy(appVersionCode = 81, latestReleaseCode = 82, updateMode = "CONFIRM_ON_SERVER")
+        assertTrue(requireNotNull(serverUpdateControl(server)).detail.contains("tap Install"))
+        val request = server.copy(requestedUpdateCode = 82, requestedUpdateMode = "CONFIRM_ON_SERVER", updateStatus = "APPROVAL_REQUIRED")
+        assertTrue(requireNotNull(serverUpdateControl(request)).detail.contains("Approve the update on the greenhouse phone"))
+        assertTrue(requireNotNull(serverUpdateControl(request.copy(requestedUpdateMode = "MANUAL"))).detail.contains("Install reminder sent"))
+        assertEquals(InstallMode.MANUAL, server.copy(updateMode = "UNRECOGNIZED").installMode())
     }
 }
