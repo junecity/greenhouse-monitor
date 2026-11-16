@@ -7,8 +7,6 @@ import android.content.Context
 import android.os.ParcelUuid
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import studio.junecity.greenhouse.cloud.CloudDeviceRole
-import studio.junecity.greenhouse.cloud.HeartbeatHealthStore
 import studio.junecity.greenhouse.data.AlertNotifier
 import studio.junecity.greenhouse.data.HistoryStore
 import studio.junecity.greenhouse.model.GoveeSensor
@@ -108,7 +106,6 @@ internal suspend fun collectEnvironmental(context: Context, owner: CloudEnrollme
     val secure = SecureSettingsStore(context)
     val store = CurrentSensorStore(context, suffix)
     val alerts = AlertNotifier(context, suffix)
-    val prefs = AppPreferencesStore(context, suffix)
     HistoryStore(context, suffix).use { history ->
         while (currentCoroutineContext().isActive && secure.cloudEnrollment() == owner) {
             val sensors = store.load().filter { it.id.startsWith("ess:") }
@@ -122,10 +119,6 @@ internal suspend fun collectEnvironmental(context: Context, owner: CloudEnrollme
                         if (it.id == sensor.id) it.copy(temperatureF = temp, humidityPercent = humidity, online = true, updatedAtEpochMs = now) else it
                     } }
                     all.find { it.id == sensor.id }?.let { history.insert(it); alerts.evaluate(it) }
-                    if (owner?.role == CloudDeviceRole.GreenhouseServer) {
-                        val rules = prefs.load().notifications
-                        HeartbeatHealthStore(context).save(all.filter { it.isFresh() }, rules.lowTemperatureF, rules.highTemperatureF)
-                    }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Keep the last timestamp; the dashboard ages the reading out. */ }
             }

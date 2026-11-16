@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.38.1 (82) · Critical temperature alerts
+- CloudHeartbeatService evaluates current, assigned sensors against the collecting phone’s saved limits. TemperatureAssessment retains unresolved sensor IDs per enrollment and floor plan. Fresh safe readings retire those sensors. Missing observations do not establish recovery. An older boolean-only server cannot supply the original reading or threshold.
+- backend/src/app.py and alerts.py bind one alert to each temperature incident and validate its source before returning it. AuthenticatedCloudGateway and CloudAlertService remove recovered tray entries after a complete verified poll. MainActivity and ZoneInsights show the app-posted reason when opening the matching alert.
+- CriticalAlarm and TemperatureSound use the alarm output for an explicitly enabled five-second override. CriticalSoundSettings reports muted output, silent channels and Do Not Disturb restrictions. Android 10 and 15 emulator tests checked playback and volume restoration. A physical handset sound check remains pending. No database migration. See CHANGELOG for release checks.
+
 ## 2026-11-15 · Greenhouse Studio 2.38.0 (81) · Phone-only remote update setup
 - A paired greenhouse phone running a direct APK can enable remote updates under Settings → Connectivity. Android 12+ can install an eligible signed self-update. Android 10–11 uses the system installer confirmation on the server. A pre-2.38 standard server needs one in-place APK upgrade before enrollment. Existing device owners keep their unattended path.
 - ServerUpdateSettings, ServerUpdateNotice and CloudDeviceManagementPanel display the mode reported by the server. ManagedServerUpdate, ServerInstallApprovalActivity and CloudHeartbeatService bind opt-in and install authority to the server enrollment and explicit client order. Pending confirmations can reopen from Settings. Declining cancels that order. The backend rechecks ownership, capability and the published artifact. See docs/AWS_DEPLOYMENT.md. Play builds omit the direct-install permissions.

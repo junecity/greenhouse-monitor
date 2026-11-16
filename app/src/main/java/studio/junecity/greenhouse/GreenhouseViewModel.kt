@@ -165,8 +165,6 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = storage.sensors.colorSlots(), goveeConnected = true, message = "Updated ${sensors.size} sensors")
                 withContext(Dispatchers.IO) {
                     sensors.filterNot { it.isLocalRadio() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it) }
-                    if (!owner.isStandaloneClient()) HeartbeatHealthStore(getApplication()).save(sensors,
-                        prefs.notifications.lowTemperatureF, prefs.notifications.highTemperatureF)
                 }
                 if (stores != storage) return@launch
                 loadHistory()

@@ -166,6 +166,12 @@ class AuthenticatedCloudGateway(
                 .put("recordedAtEpochMs", heartbeat.recordedAtEpochMs)
                 .put("sensorConnectionHealthy", heartbeat.sensorConnectionHealthy)
                 .put("criticalTemperature", heartbeat.criticalTemperature)
+                .put("temperatureEvaluated", heartbeat.temperatureEvaluated)
+                .put("temperatureBreach", heartbeat.temperatureBreach?.let { breach ->
+                    JSONObject().put("sensorName", breach.sensorName)
+                        .put("temperatureF", breach.temperatureF).put("limitF", breach.limitF)
+                        .put("direction", breach.direction.name).put("measuredAt", breach.measuredAtEpochMs / 1000)
+                })
                 .put("batteryPercent", heartbeat.batteryPercent)
                 .put("charging", heartbeat.charging)
                 .put("networkType", heartbeat.networkType)
@@ -191,7 +197,7 @@ class AuthenticatedCloudGateway(
 
     suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
         val json = request("GET", "/v1/alerts")
-        val values = json.optJSONArray("alerts") ?: JSONArray()
+        val values = json.getJSONArray("alerts")
         val alerts = (0 until values.length()).map { CloudJsonCodec.alert(values.getJSONObject(it)) }
         val inventory = if (viewer && !json.optBoolean("offlineIncidentsVerified") &&
             alerts.any { it.type == MonitoringAlertType.ServerOffline }) {
@@ -201,7 +207,8 @@ class AuthenticatedCloudGateway(
         val visible = if (!viewer && !json.optBoolean("offlineIncidentsVerified") && ServerHeartbeatReceipt.recent(config.deviceId)) {
             active.filterNot { it.type == MonitoringAlertType.ServerOffline && it.serverId == config.deviceId }
         } else active
-        return AlertInbox(visible, json.optBoolean("complete", alerts.size < 50))
+        return AlertInbox(visible, json.optBoolean("complete", alerts.size < 50),
+            json.optBoolean("complete") && json.optBoolean("criticalIncidentsVerified"))
     }
 
     suspend fun acknowledgeAlert(alertId: String) {

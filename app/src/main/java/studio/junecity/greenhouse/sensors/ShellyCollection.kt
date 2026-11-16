@@ -4,7 +4,6 @@ import android.content.Context
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.produceIn
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
-import studio.junecity.greenhouse.cloud.HeartbeatHealthStore
 import studio.junecity.greenhouse.data.AlertNotifier
 import studio.junecity.greenhouse.data.HistoryStore
 import studio.junecity.greenhouse.model.GoveeSensor
@@ -76,10 +75,6 @@ internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, su
                                 }
                             }
                             if (all.none { it.isShelly() }) break
-                            if (changed && owner?.role == CloudDeviceRole.GreenhouseServer) {
-                                val rules = preferences.load().notifications
-                                HeartbeatHealthStore(context).save(all.filter { it.isFresh() }, rules.lowTemperatureF, rules.highTemperatureF)
-                            }
                         }
                     } finally { events.cancel() }
                 }

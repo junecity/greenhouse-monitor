@@ -16,6 +16,8 @@ internal enum class TemperatureSound(val channelId: String, val label: String, v
     Sweep("temperature_sweep", "Rising siren", "temperature_sweep"),
     Custom("temperature_custom", "My phone sound");
 
+    fun bundledUri(context: Context): Uri? = rawName?.let { Uri.parse("android.resource://${context.packageName}/raw/$it") }
+
     fun channel(context: Context): NotificationChannel {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.getNotificationChannel(channelId)?.let { return it }
@@ -23,8 +25,7 @@ internal enum class TemperatureSound(val channelId: String, val label: String, v
         val channel = NotificationChannel(channelId, name, NotificationManager.IMPORTANCE_HIGH).apply {
             enableVibration(true)
             if (this@TemperatureSound == Existing) description = "Critical temperature and server-offline safety alerts"
-            rawName?.let {
-                val uri = Uri.parse("android.resource://${context.packageName}/raw/$it")
+            bundledUri(context)?.let { uri ->
                 setSound(uri, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
             }
@@ -46,9 +47,7 @@ internal enum class TemperatureSound(val channelId: String, val label: String, v
     fun test(context: Context): String {
         val manager = context.getSystemService(NotificationManager::class.java)
         val current = channel(context)
-        if (!manager.areNotificationsEnabled()) return "Allow Greenhouse Studio notifications in Android settings."
-        if (current.importance < NotificationManager.IMPORTANCE_DEFAULT || current.sound == null)
-            return "This alert is silent. Open Sound settings to enable sound."
+        CriticalAlarm.soundIssue(context, current)?.let { return it }
         val boosted = CriticalAlarm.play(context, current)
         val notice = NotificationCompat.Builder(context, current.id)
             .setSmallIcon(R.drawable.ic_notification_greenhouse)
@@ -59,7 +58,8 @@ internal enum class TemperatureSound(val channelId: String, val label: String, v
             .setTimeoutAfter(10_000).setAutoCancel(true).build()
         manager.notify("temperature_sound_test", 1, notice)
         return if (boosted) "Loud test played. Your previous alarm volume will be restored."
-        else "Test sent using Android notification settings."
+        else if (CriticalAlarm.enabled(context)) "Android could not start the loud alarm. Choose Double pulse and test again."
+        else "Test sent at your Android notification volume."
     }
 
     companion object {

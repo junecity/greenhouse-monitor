@@ -48,15 +48,16 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
 
 @Composable internal fun InsightsDialog(
     mode: Insight, state: GreenhouseUiState, d: (Float) -> Dp, t: (Float) -> TextUnit,
-    alertSensor: String? = null, allowVideo: Boolean = false, alertTime: Long? = null, close: () -> Unit
+    alertSensor: String? = null, allowVideo: Boolean = false, alertTime: Long? = null,
+    alertReason: String? = null, close: () -> Unit
 ) {
     CompositionLocalProvider(LocalSensorSlots provides sensorSlots(state)) {
-        InsightBody(mode, state, d, t, alertSensor, allowVideo, alertTime, close)
+        InsightBody(mode, state, d, t, alertSensor, allowVideo, alertTime, alertReason, close)
     }
 }
 
 @Composable private fun InsightBody(mode: Insight, state: GreenhouseUiState, d: (Float)->Dp, t: (Float)->TextUnit,
-    alertSensor: String?, allowVideo: Boolean, alertTime: Long?, close: ()->Unit) {
+    alertSensor: String?, allowVideo: Boolean, alertTime: Long?, alertReason: String?, close: ()->Unit) {
     val g = state.preferences.activeGreenhouse
     val sensors = state.sensors.filter { it.greenhouseId == g.id }
     val ids = sensors.map { it.id }.toSet()
@@ -125,6 +126,7 @@ private fun minutes(ms: Long) = "${ms / 60_000} min"
                         Insight.Alert -> {
                             val eventTime = (alertTime ?: now).coerceAtMost(now)
                             Text("Alert · ${clock(eventTime)}")
+                            alertReason?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                             val relevant = sensors.filter { alertSensor == null || it.id == alertSensor }
                             val marker = g.sensorPositions[alertSensor]
                             if (marker != null) {

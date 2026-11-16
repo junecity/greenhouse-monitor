@@ -169,7 +169,7 @@ class MainActivity : ComponentActivity() {
                             { (it * .5f).dp },
                             { it.sp }, target.sensor,
                             !state.standalone && enrollment?.role == CloudDeviceRole.ViewerClient,
-                            target.time, dismiss)
+                            target.time, remember(target) { target.postedReason(applicationContext) }, dismiss)
                     } else {
                         androidx.compose.material3.AlertDialog(onDismissRequest = dismiss,
                             text = { androidx.compose.material3.Text("This alert belongs to another greenhouse or device registration.") },

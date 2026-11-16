@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -200,6 +201,75 @@ class BootstrapApiTests(unittest.TestCase):
                 fake.items[("DEVICE#source", "METADATA")] = dict(server, **change)
                 result = app.handler(event("/v1/alerts", method="GET", device_id="viewer-12345678"), None)
                 self.assertEqual([], json.loads(result["body"])["alerts"])
+
+    def test_temperature_incident_stays_stable_until_a_measured_recovery(self):
+        server = {"greenhouseId": "house", "accountId": "a", "tenantId": "t",
+                  "role": "GREENHOUSE_SERVER", "enabled": True}
+        fake = FakeTable({("DEVICE#server", "METADATA"): server})
+        app.table = fake
+        who = app.Principal("a", "t", "server")
+        breach = {"direction": "LOW", "temperatureF": 38.5, "limitF": 40,
+                  "sensorName": "North bench", "measuredAt": int(time.time())}
+
+        def send(critical, evaluated=True, **details):
+            result = app.heartbeat({"body": json.dumps(dict(sensorConnectionHealthy=True,
+                criticalTemperature=critical, temperatureEvaluated=evaluated, **details))}, who, "server")
+            self.assertEqual(204, result["statusCode"])
+            return fake.client.transactions[-1]
+
+        initial, put = send(True, temperatureBreach=breach)
+        incident = put["Put"]["Item"]
+        self.assertEqual("North bench measured 38.5°F, below the low limit of 40°F.", incident["message"])
+        self.assertEqual(incident["id"], initial["Update"]["ExpressionAttributeValues"][":incidentId"])
+        server.update(criticalTemperature=True, criticalAlertedAt=incident["createdAt"],
+                      criticalIncidentId=incident["id"], criticalAlertMessage=incident["message"])
+        for body in [dict(critical=True, temperatureBreach=breach), dict(critical=False, evaluated=False),
+                     dict(critical=True, temperatureBreach=dict(breach, measuredAt=0))]:
+            with self.subTest(body=body):
+                repeated, = send(**body)
+                self.assertNotIn("criticalAlertedAt", repeated["Update"]["UpdateExpression"])
+                self.assertNotIn("criticalIncidentId", repeated["Update"]["UpdateExpression"])
+                expected_evaluated = body.get("temperatureBreach", {}).get("measuredAt", 0) > 0
+                self.assertEqual(expected_evaluated, repeated["Update"]["ExpressionAttributeValues"][":evaluated"])
+        recovered, = send(False)
+        self.assertIn("criticalIncidentId=:previousIncident", recovered["Update"]["ConditionExpression"])
+        self.assertIn("criticalIncidentId", recovered["Update"]["UpdateExpression"].split(" REMOVE ")[1])
+        server.pop("criticalIncidentId")
+        server.pop("criticalAlertedAt")
+        _, next_put = send(True, temperatureBreach=breach)
+        self.assertNotEqual(incident["id"], next_put["Put"]["Item"]["id"])
+
+    def test_pending_temperature_requires_current_owned_incident_even_for_legacy_clients(self):
+        who = app.Principal("a", "t", "viewer")
+        server = {"tenantId": "t", "accountId": "a", "greenhouseId": "house", "enabled": True,
+                  "role": "GREENHOUSE_SERVER", "criticalTemperature": True, "criticalAlertedAt": 30}
+        newer = app.new_alert(account_id="a", tenant_id="t", greenhouse_id="house", device_id="server",
+                              alert_type="CRITICAL_TEMPERATURE", alert_id="newer", created_at=20)
+        older = dict(newer, id="older", createdAt=10)
+        app.table = FakeTable({("DEVICE#server", "METADATA"): server,
+                               ("DEVICE#viewer", "METADATA"): {"tenantId": "t", "accountId": "a", "enabled": True}})
+        app.table.query_items = [newer, older]
+
+        def pending():
+            payload = json.loads(app.pending_alerts(who)["body"])
+            self.assertTrue(payload["criticalIncidentsVerified"])
+            self.assertTrue(payload["complete"])
+            return payload["alerts"]
+
+        self.assertEqual(["newer"], [row["id"] for row in pending()])
+        newer["acknowledgedAt"] = 25
+        self.assertEqual([], pending())
+        del newer["acknowledgedAt"]
+        server.update(criticalIncidentId="newer", criticalAlertMessage="North bench measured 38°F, below the low limit of 40°F.")
+        self.assertEqual(server["criticalAlertMessage"], pending()[0]["message"])
+        server["temperatureEvaluated"] = False
+        self.assertIn("Waiting for a fresh reading", pending()[0]["message"])
+        for change in [{"criticalTemperature": False}, {"criticalIncidentId": "another-episode"},
+                       {"greenhouseId": "other-house"}, {"accountId": "other-account"}, {"tenantId": "other-tenant"},
+                       {"enabled": False}, {"communicationSuspended": True}]:
+            with self.subTest(change=change):
+                app.table.items[("DEVICE#server", "METADATA")] = dict(server, **change)
+                self.assertEqual([], pending())
 
     def test_acknowledgement_is_conditioned_on_account_and_tenant(self):
         fake = FakeTable({

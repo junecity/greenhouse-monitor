@@ -9,6 +9,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import studio.junecity.greenhouse.cloud.CriticalAlarm
 import studio.junecity.greenhouse.cloud.TemperatureSound
 
@@ -19,6 +22,20 @@ internal fun CriticalSoundSettings() {
     var loud by remember { mutableStateOf(CriticalAlarm.enabled(context)) }
     var menu by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
+    var soundIssue by remember { mutableStateOf<String?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, context, sound, loud) {
+        fun checkSound() { soundIssue = CriticalAlarm.soundIssue(context, sound.channel(context), loud) }
+        checkSound()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                message = ""
+                checkSound()
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     fun openSettings() {
         try {
             context.startActivity(sound.soundSettings(context))
@@ -52,12 +69,13 @@ internal fun CriticalSoundSettings() {
                     message = ""
                 })
             }
-            Text("Briefly uses maximum alarm volume for critical high or low temperature. Do Not Disturb and Android notification settings still apply.", color = DashboardTokens.Muted)
+            Text("Plays for five seconds at maximum alarm volume when a new critical temperature alert arrives. Do Not Disturb and Android notification settings apply.", color = DashboardTokens.Muted)
+            soundIssue?.let { Text(it, color = DashboardTokens.Amber) }
             Row {
                 TextButton(onClick = { message = sound.test(context) }) { Text("Test sound", color = DashboardTokens.Amber) }
                 TextButton(onClick = { openSettings() }) { Text("Sound settings", color = DashboardTokens.Amber) }
             }
-            if (message.isNotEmpty()) Text(message, color = DashboardTokens.Muted)
+            if (message.isNotEmpty() && message != soundIssue) Text(message, color = DashboardTokens.Muted)
         }
     }
 }

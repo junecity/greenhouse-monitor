@@ -180,7 +180,8 @@ data class GreenhouseHeartbeat(
     val lastDataUploadEpochMs: Long? = null,
     val appVersion: String? = null,
     val managedUpdates: Boolean = false, val updateStatus: String? = null,
-    val updateMode: String? = null, val updateStatusRequestId: String? = null
+    val updateMode: String? = null, val updateStatusRequestId: String? = null,
+    val temperatureEvaluated: Boolean? = null, val temperatureBreach: TemperatureBreach? = null
 )
 
 data class ServerUpdateCommand(val versionCode: Int, val requestedMode: String? = null, val id: String? = null) {

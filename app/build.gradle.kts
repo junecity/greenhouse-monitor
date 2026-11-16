@@ -25,8 +25,8 @@ android {
         minSdk = 29
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 81
-        versionName = "2.38.0"
+        versionCode = 82
+        versionName = "2.38.1"
         buildConfigField("boolean", "DIRECT_SERVER_UPDATES", directServerUpdates.toString())
         if (armOnlyBuild) {
             ndk {

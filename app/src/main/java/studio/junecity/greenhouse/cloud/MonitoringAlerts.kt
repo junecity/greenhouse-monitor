@@ -20,7 +20,11 @@ data class MonitoringAlert(
     val serverId: String? = null
 )
 
-data class AlertInbox(val alerts: List<MonitoringAlert>, val complete: Boolean)
+data class AlertInbox(
+    val alerts: List<MonitoringAlert>,
+    val complete: Boolean,
+    val criticalIncidentsVerified: Boolean = false
+)
 
 internal fun currentAlerts(alerts: List<MonitoringAlert>, devices: List<RegisteredDevice>?): List<MonitoringAlert> {
     val servers = devices?.associateBy { it.id }
@@ -30,7 +34,11 @@ internal fun currentAlerts(alerts: List<MonitoringAlert>, devices: List<Register
         server == null || (server.enabled && !server.communicationSuspended && !server.online &&
             server.greenhouseId == alert.greenhouseId && (server.lastSeenAtEpochMs ?: 0) < alert.occurredAtEpochMs)
     }.groupBy { it.serverId ?: it.greenhouseId }.values.map { incidents -> incidents.maxBy { it.occurredAtEpochMs } }
-    return alerts.filter { it.type != MonitoringAlertType.ServerOffline } + outages
+    // Old API responses can contain several unacknowledged records for the same server.
+    val temperatures = alerts.filter { it.type == MonitoringAlertType.CriticalTemperature }
+        .groupBy { it.greenhouseId to it.serverId }.values.map { incidents -> incidents.maxBy { it.occurredAtEpochMs } }
+    return alerts.filter { it.type != MonitoringAlertType.ServerOffline && it.type != MonitoringAlertType.CriticalTemperature } +
+        outages + temperatures
 }
 
 /** Keeps safety events independent from ordinary informational preferences. */
@@ -65,7 +73,8 @@ data class MonitoringHealth(
     val appVersion: String? = null,
     val wifiSignalStrength: Int? = null,
     val managedUpdates: Boolean = false, val updateStatus: String? = null,
-    val updateMode: String? = null, val updateStatusRequestId: String? = null
+    val updateMode: String? = null, val updateStatusRequestId: String? = null,
+    val temperatureEvaluated: Boolean? = null, val temperatureBreach: TemperatureBreach? = null
 )
 
 class HeartbeatReporter(
@@ -79,6 +88,7 @@ class HeartbeatReporter(
             recordedAtEpochMs = nowEpochMs(),
             sensorConnectionHealthy = health.sensorConnectionHealthy,
             criticalTemperature = health.criticalTemperature,
+            temperatureEvaluated = health.temperatureEvaluated, temperatureBreach = health.temperatureBreach,
             batteryPercent = health.batteryPercent,
             charging = health.charging,
             networkType = health.networkType,

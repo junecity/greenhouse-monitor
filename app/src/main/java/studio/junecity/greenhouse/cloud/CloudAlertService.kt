@@ -20,7 +20,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import studio.junecity.greenhouse.MainActivity
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 
 object CloudAlertPollingPolicy {
@@ -32,17 +31,23 @@ object CloudAlertPollingPolicy {
     }
 }
 
+private const val CRITICAL_TITLE = "Critical greenhouse temperature"
 private const val OFFLINE_TITLE = "Greenhouse server offline"
 private val CRITICAL_CHANNEL = TemperatureSound.Existing.channelId
 
-internal fun clearRecoveredOfflineAlerts(notifications: NotificationManager, alerts: List<MonitoringAlert>) {
-    val currentIds = alerts.filter { it.type == MonitoringAlertType.ServerOffline }.map { it.id.hashCode() }.toSet()
-    // The channel and title also identify notifications posted before the upgrade.
-    notifications.activeNotifications.filter { posted ->
-        posted.notification.channelId == CRITICAL_CHANNEL &&
-            posted.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() == OFFLINE_TITLE &&
-            posted.id !in currentIds
-    }.forEach { notifications.cancel(it.id) }
+internal fun clearRecoveredCloudAlerts(notifications: NotificationManager, inbox: AlertInbox) {
+    if (!inbox.complete) return
+    val current = inbox.alerts.mapTo(mutableSetOf()) { it.id.hashCode() }
+    // Match both current alerts and legacy, untagged notices already in the tray after an upgrade.
+    for (posted in notifications.activeNotifications) {
+        if (posted.tag != null || posted.id in current) continue
+        val channel = posted.notification.channelId
+        val title = posted.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString()
+        val offline = title == OFFLINE_TITLE && channel == CRITICAL_CHANNEL
+        val temperature = inbox.criticalIncidentsVerified && title == CRITICAL_TITLE &&
+            TemperatureSound.entries.any { it.channelId == channel }
+        if (offline || temperature) notifications.cancel(posted.id)
+    }
 }
 
 class CloudAlertService : Service() {
@@ -85,56 +90,13 @@ class CloudAlertService : Service() {
                 failures = 0
                 val inbox = result.getOrThrow()
                 val alerts = inbox.alerts
-                if (inbox.complete) clearRecoveredOfflineAlerts(notifications, alerts)
-                alerts.forEach { showAlert(it, enrollment.role) }
+                clearRecoveredCloudAlerts(notifications, inbox)
+                alerts.forEach { postCloudAlert(this, it, enrollment.role) }
             } else {
                 failures++
             }
             delay(CloudAlertPollingPolicy.delayMs(failures))
         }
-    }
-
-    private fun showAlert(alert: MonitoringAlert, role: CloudDeviceRole) {
-        val notificationId = alert.id.hashCode()
-        val openApp = studio.junecity.greenhouse.data.AlertDestination.pending(
-            this, notificationId, alert.greenhouseId, null, true, alert.occurredAtEpochMs
-        )
-        val acknowledge = PendingIntent.getBroadcast(
-            this,
-            notificationId,
-            Intent(this, CloudAlertAcknowledgeReceiver::class.java)
-                .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_ALERT_ID, alert.id)
-                .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_NOTIFICATION_ID, notificationId),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val channel = alertChannel(this, alert, role)
-        val title = when (alert.type) {
-            MonitoringAlertType.CriticalTemperature -> "Critical greenhouse temperature"
-            MonitoringAlertType.ServerOffline -> OFFLINE_TITLE
-            MonitoringAlertType.SensorCommunicationFailure -> "Greenhouse sensor connection"
-            MonitoringAlertType.Information -> "Greenhouse status"
-        }
-        val message = if (alert.type == MonitoringAlertType.ServerOffline) {
-            "The monitoring service has missed the greenhouse server’s heartbeat."
-        } else alert.message
-        val builder = NotificationCompat.Builder(this, channel)
-            .setSmallIcon(R.drawable.ic_notification_greenhouse)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setContentIntent(openApp)
-            .addAction(0, "Acknowledge", acknowledge)
-            .setAutoCancel(false)
-            .setOngoing(alert.requiresAcknowledgement)
-            .setOnlyAlertOnce(true)
-        if (!alert.requiresAcknowledgement) builder.setDeleteIntent(acknowledge)
-        if (role == CloudDeviceRole.ViewerClient && alert.type == MonitoringAlertType.CriticalTemperature &&
-            CriticalAlarm.enabled(this) && notifications.activeNotifications.none { it.id == notificationId && it.tag == null } &&
-            CriticalAlarm.play(this, notifications.getNotificationChannel(channel))) builder.setSilent(true)
-        val notification = builder.build()
-        runCatching { notifications.notify(notificationId, notification) }
     }
 
     override fun onDestroy() { scope.cancel(); super.onDestroy() }
@@ -160,6 +122,55 @@ class CloudAlertService : Service() {
         }
     }
 }
+
+internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: CloudDeviceRole) {
+    val notifications = context.getSystemService(NotificationManager::class.java)
+    val notificationId = alert.id.hashCode()
+    val openApp = studio.junecity.greenhouse.data.AlertDestination.pending(
+        context, notificationId, alert.greenhouseId, null, true, alert.occurredAtEpochMs
+    )
+    val acknowledge = PendingIntent.getBroadcast(
+        context,
+        notificationId,
+        Intent(context, CloudAlertAcknowledgeReceiver::class.java)
+            .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_ALERT_ID, alert.id)
+            .putExtra(CloudAlertAcknowledgeReceiver.EXTRA_NOTIFICATION_ID, notificationId),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    val channel = CloudAlertService.alertChannel(context, alert, role)
+    val title = when (alert.type) {
+        MonitoringAlertType.CriticalTemperature -> CRITICAL_TITLE
+        MonitoringAlertType.ServerOffline -> OFFLINE_TITLE
+        MonitoringAlertType.SensorCommunicationFailure -> "Greenhouse sensor connection"
+        MonitoringAlertType.Information -> "Greenhouse status"
+    }
+    val message = if (alert.type == MonitoringAlertType.ServerOffline) {
+        "The monitoring service has missed the greenhouse server’s heartbeat."
+    } else alert.message
+    val builder = NotificationCompat.Builder(context, channel)
+        .setSmallIcon(R.drawable.ic_notification_greenhouse)
+        .setContentTitle(title)
+        .addExtras(android.os.Bundle().apply {
+            putString(studio.junecity.greenhouse.data.AlertDestination.HOUSE_KEY, alert.greenhouseId)
+        })
+        .setWhen(alert.occurredAtEpochMs).setShowWhen(true)
+        .setContentText(message)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_ALARM)
+        .setContentIntent(openApp)
+        .addAction(0, "Acknowledge", acknowledge)
+        .setAutoCancel(false)
+        .setOngoing(alert.requiresAcknowledgement)
+        .setOnlyAlertOnce(true)
+    if (!alert.requiresAcknowledgement) builder.setDeleteIntent(acknowledge)
+    if (role == CloudDeviceRole.ViewerClient && alert.type == MonitoringAlertType.CriticalTemperature &&
+        CriticalAlarm.enabled(context) && notifications.activeNotifications.none { it.id == notificationId && it.tag == null } &&
+        CriticalAlarm.play(context, notifications.getNotificationChannel(channel))) builder.setSilent(true)
+    val notification = builder.build()
+    runCatching { notifications.notify(notificationId, notification) }
+}
+
 
 class CloudAlertAcknowledgeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

@@ -677,11 +677,12 @@ class StandaloneEditorTest {
         val old="fixture-old".hashCode()
         val current="fixture-active".hashCode()
         val heat="fixture-hot".hashCode()
+        val unrelated="fixture-other-notice".hashCode()
         fun post(id:Int,title:String) = manager.notify(id, android.app.Notification.Builder(context,channel)
             .setSmallIcon(android.R.drawable.ic_dialog_alert).setContentTitle(title).build())
         fun awaitIds(expected:Set<Int>) {
             repeat(30) {
-                if(manager.activeNotifications.map { it.id }.toSet().intersect(setOf(old,current,heat))==expected) return
+                if(manager.activeNotifications.map { it.id }.toSet().intersect(setOf(old,current,heat,unrelated))==expected) return
                 SystemClock.sleep(100)
             }
             fail("Expected posted notification IDs: $expected")
@@ -694,11 +695,17 @@ class StandaloneEditorTest {
             val active=studio.junecity.greenhouse.cloud.MonitoringAlert("fixture-active","house",
                 studio.junecity.greenhouse.cloud.MonitoringAlertType.ServerOffline,
                 studio.junecity.greenhouse.cloud.MonitoringAlertPriority.High,"offline",123,true)
-            studio.junecity.greenhouse.cloud.clearRecoveredOfflineAlerts(manager,listOf(active))
+            studio.junecity.greenhouse.cloud.clearRecoveredCloudAlerts(manager, studio.junecity.greenhouse.cloud.AlertInbox(listOf(active), true))
             awaitIds(setOf(current,heat))
-            studio.junecity.greenhouse.cloud.clearRecoveredOfflineAlerts(manager,emptyList())
+            studio.junecity.greenhouse.cloud.clearRecoveredCloudAlerts(manager, studio.junecity.greenhouse.cloud.AlertInbox(emptyList(), true))
             awaitIds(setOf(heat))
-        } finally { listOf(old,current,heat).forEach(manager::cancel) }
+            post(unrelated,"Other notification")
+            val incomplete = studio.junecity.greenhouse.cloud.AlertInbox(emptyList(), false, criticalIncidentsVerified = true)
+            studio.junecity.greenhouse.cloud.clearRecoveredCloudAlerts(manager, incomplete)
+            awaitIds(setOf(heat, unrelated))
+            studio.junecity.greenhouse.cloud.clearRecoveredCloudAlerts(manager, incomplete.copy(complete = true))
+            awaitIds(setOf(unrelated))
+        } finally { listOf(old,current,heat,unrelated).forEach(manager::cancel) }
     }
 
     @Test fun shapePresetsSaveAndRoundTripThroughTheZoneFootprint() {

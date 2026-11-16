@@ -1,7 +1,7 @@
 package studio.junecity.greenhouse.cloud
 
 import studio.junecity.greenhouse.R
-import studio.junecity.greenhouse.sensors.isLocalRadio
+import studio.junecity.greenhouse.model.sensorHouse
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -29,18 +29,6 @@ import studio.junecity.greenhouse.data.AndroidDeviceStatusProvider
 import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.CurrentSensorStore
 import studio.junecity.greenhouse.settings.SecureSettingsStore
-
-data class HeartbeatHealth(val sensorConnectionHealthy: Boolean, val criticalTemperature: Boolean)
-
-class HeartbeatHealthStore(context: Context) {
-    private val values = context.getSharedPreferences("greenhouse_heartbeat_health", Context.MODE_PRIVATE)
-    fun save(sensors: List<GoveeSensor>, lowF: Double, highF: Double) {
-        val online = sensors.isNotEmpty() && sensors.any(GoveeSensor::online)
-        val critical = sensors.asSequence().filter(GoveeSensor::online).mapNotNull(GoveeSensor::temperatureF).any { it < lowF || it > highF }
-        values.edit().putBoolean("sensorHealthy", online).putBoolean("criticalTemperature", critical).apply()
-    }
-    fun load() = HeartbeatHealth(values.getBoolean("sensorHealthy", false), values.getBoolean("criticalTemperature", false))
-}
 
 object HeartbeatRetryPolicy {
     fun delayMs(consecutiveFailures: Int): Long = when (consecutiveFailures.coerceAtLeast(0)) {
@@ -107,19 +95,23 @@ class CloudHeartbeatService : Service() {
         while (isActive) {
             val result = runCatching {
                 val context = this@CloudHeartbeatService
-                val sensors = CurrentSensorStore(context).load()
-                val healthStore = HeartbeatHealthStore(context)
-                if (sensors.any { it.isLocalRadio() }) {
-                    val limits = AppPreferencesStore(context).load().notifications
-                    healthStore.save(sensors.filter { it.isFresh() }, limits.lowTemperatureF, limits.highTemperatureF)
-                }
-                val health = healthStore.load()
+                val prefs = AppPreferencesStore(context).load()
+                val house = prefs.activeGreenhouse.id
+                val sensors = CurrentSensorStore(context).load().filter { prefs.sensorHouse(it) == house }
+                val limits = prefs.notifications
+                val incident = TemperatureIncidentSensors(context, enrollment, house)
+                val previousOffenders = incident.load()
+                val health = assessTemperature(sensors, limits.lowTemperatureF, limits.highTemperatureF,
+                    System.currentTimeMillis(), previousOffenders)
+                // A lost response or process restart must not forget a reported breach before its recovery is delivered.
+                incident.save(previousOffenders + health.outstandingSensorIds)
                 val device = AndroidDeviceStatusProvider(context).current().copy(
                     appVersion = BuildConfig.VERSION_NAME, appVersionCode = BuildConfig.VERSION_CODE,
                     sourceDeviceId = enrollment.deviceId)
                 val updateMode = ManagedServerUpdate.mode(context, enrollment)
                 val command = HeartbeatReporter(gateway).report(MonitoringHealth(
-                    enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.criticalTemperature,
+                    enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.breach != null,
+                    temperatureEvaluated = health.evaluated, temperatureBreach = health.breach,
                     batteryPercent=device.batteryPercent, charging=device.charging,
                     networkType=if (device.wifiConnected) "WIFI" else device.network.uppercase(),
                     wifiSignalStrength=device.signalDbm.takeIf { device.wifiConnected },
@@ -135,6 +127,7 @@ class CloudHeartbeatService : Service() {
                     updateStatusRequestId=ManagedServerUpdate.statusRequestId(context, enrollment.deviceId),
                     lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
                 ))
+                incident.save(health.outstandingSensorIds)
                 ServerHeartbeatReceipt.record(enrollment.deviceId)
                 val requestedUpdate = command?.versionCode
                 val install = command?.authorizes(updateMode) == true
@@ -159,9 +152,7 @@ class CloudHeartbeatService : Service() {
                 // A slow backup must never block the next heartbeat or overlap another upload.
                 if (backup?.isActive != true) {
                     backup?.join()
-                    val prefs = AppPreferencesStore(context).load()
-                    val house = prefs.activeGreenhouseId
-                    val available = sensors.filter { it.greenhouseId == house }.associate { it.id to it.name }
+                    val available = sensors.associate { it.id to it.name }
                     if (prefs.activeGreenhouse != publishedPlan || available != publishedSensors ||
                         System.currentTimeMillis() - lastUpload.get() >= prefs.activeRefreshMinutes * 60_000L) {
                         backup = launch {

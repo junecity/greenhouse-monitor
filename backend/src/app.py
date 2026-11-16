@@ -17,7 +17,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
 
 from camera_archive import archive
-from alerts import new_alert
+from alerts import LEGACY_TEMPERATURE_MESSAGE, new_alert, temperature_breach_message
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
 from google_play_verifier import GooglePlayVerificationError, verify_google_play_purchase
@@ -1174,46 +1174,77 @@ def pending_alerts(principal: Principal):
         raise AccessDenied("device_disabled")
     alerts = []
     server_states = {}
-    def current_offline_incident(item):
+    legacy_temperature_sources = set()
+
+    def incident_server(item):
         server_id = item.get("deviceId")
         if not server_id or not item.get("greenhouseId"):
-            return False
+            return None
         if server_id not in server_states:
             server = table.get_item(Key={"pk": f"DEVICE#{server_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item", {})
             server_states[server_id] = server
         server = server_states[server_id]
-        return (server.get("tenantId") == principal.tenant_id and server.get("accountId") == principal.account_id
+        if (server.get("tenantId") == principal.tenant_id and server.get("accountId") == principal.account_id
                 and server.get("greenhouseId") == item["greenhouseId"] and server.get("role") == "GREENHOUSE_SERVER"
-                and server.get("enabled") and not server.get("communicationSuspended")
-                and server.get("offlineAlertedAt") == item["createdAt"])
+                and server.get("enabled") and not server.get("communicationSuspended")):
+            return server
+        return None
+
+    def current_temperature_incident(item, server):
+        # The original server rewrote the timestamp on every critical heartbeat.
+        # Until that episode resolves, its newest alert (even if acknowledged)
+        # is the only candidate. New episodes have an exact ID.
+        if not server or not server.get("criticalTemperature") or "criticalAlertedAt" not in server:
+            return False
+        if server.get("criticalIncidentId"):
+            return server["criticalIncidentId"] == item["id"]
+        source = item["deviceId"]
+        if source in legacy_temperature_sources or item["createdAt"] > server["criticalAlertedAt"]:
+            return False
+        legacy_temperature_sources.add(source)
+        return True
 
     exclusive_start_key = None
     for _ in range(MAX_ALERT_QUERY_PAGES):
         query = {
             "KeyConditionExpression": Key("pk").eq(f"ACCOUNT#{principal.account_id}") & Key("sk").begins_with("ALERT#"),
             "ScanIndexForward": False,
+            "ConsistentRead": True,
             "Limit": 50,
         }
         if exclusive_start_key:
             query["ExclusiveStartKey"] = exclusive_start_key
         result = table.query(**query)
         for item in result.get("Items", []):
-            if item.get("tenantId") == principal.tenant_id and "acknowledgedAt" not in item:
-                if item["type"] == "SERVER_OFFLINE" and not current_offline_incident(item):
+            if item.get("tenantId") != principal.tenant_id:
+                continue
+            message = item["message"]
+            if item["type"] == "SERVER_OFFLINE":
+                server = incident_server(item)
+                if not server or server.get("offlineAlertedAt") != item["createdAt"]:
                     continue
-                alerts.append({
-                    "id": item["id"], "greenhouseId": item.get("greenhouseId"),
-                    "deviceId": item.get("deviceId"), "type": item["type"],
-                    "priority": item["priority"], "message": item["message"],
-                    "createdAtEpochMs": int(item["createdAt"]) * 1000,
-                    "requiresAcknowledgement": bool(item.get("requiresAcknowledgement")),
-                })
-                if len(alerts) >= 50:
-                    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "complete": False})
+            elif item["type"] == "CRITICAL_TEMPERATURE":
+                server = incident_server(item)
+                if not current_temperature_incident(item, server):
+                    continue
+                message = server.get("criticalAlertMessage") or LEGACY_TEMPERATURE_MESSAGE
+                if server.get("temperatureEvaluated") is False:
+                    message += " Waiting for a fresh reading."
+            if "acknowledgedAt" in item:
+                continue
+            alerts.append({
+                "id": item["id"], "greenhouseId": item.get("greenhouseId"),
+                "deviceId": item.get("deviceId"), "type": item["type"],
+                "priority": item["priority"], "message": message,
+                "createdAtEpochMs": int(item["createdAt"]) * 1000,
+                "requiresAcknowledgement": bool(item.get("requiresAcknowledgement")),
+            })
+            if len(alerts) >= 50:
+                return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "complete": False})
         exclusive_start_key = result.get("LastEvaluatedKey")
         if not exclusive_start_key:
             break
-    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "complete": not exclusive_start_key})
+    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "complete": not exclusive_start_key})
 
 
 def acknowledge_alert(principal: Principal, alert_id: str):
@@ -1245,7 +1276,11 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     now = int(datetime.now(timezone.utc).timestamp())
     shard = sum(device_id.encode()) % 16
     sensor_healthy = bool(body.get("sensorConnectionHealthy"))
-    critical_temperature = bool(body.get("criticalTemperature"))
+    critical_temperature = body.get("criticalTemperature") is True
+    critical_message = temperature_breach_message(body.get("temperatureBreach"), now)
+    evaluated = type(body.get("criticalTemperature")) is bool and body.get("temperatureEvaluated", True) is True
+    if "temperatureEvaluated" in body and critical_temperature and not critical_message:
+        evaluated = False
     app_version = str(body.get("appVersion", ""))[:32]
     sensor_count = body.get("sensorCount")
     sensor_provider = str(body.get("sensorProvider", ""))[:64]
@@ -1259,12 +1294,12 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     last_data_upload_ms = body.get("lastDataUploadEpochMs")
     set_parts = [
         "lastHeartbeat=:now", "heartbeatShard=:shard", "sensorConnectionHealthy=:sensor",
-        "criticalTemperature=:critical", "adminEntity=:adminEntity", "adminSort=:adminSort",
+        "temperatureEvaluated=:evaluated", "adminEntity=:adminEntity", "adminSort=:adminSort",
     ]
     remove_parts = ["offlineAlertedAt"]
     expression_values = {
         ":now": now, ":shard": shard, ":sensor": sensor_healthy,
-        ":critical": critical_temperature, ":tenant": principal.tenant_id,
+        ":evaluated": evaluated, ":tenant": principal.tenant_id,
         ":adminEntity": "DEVICE",
         ":adminSort": f"{int(device.get('createdAt', now)):020d}#{device_id}",
     }
@@ -1354,10 +1389,6 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
         remove_parts.append("sensorAlertedAt")
     else:
         set_parts.append("sensorAlertedAt=:now")
-    if critical_temperature:
-        set_parts.append("criticalAlertedAt=:now")
-    else:
-        remove_parts.append("criticalAlertedAt")
     alert_records = []
     marker_conditions = []
     if not sensor_healthy and "sensorAlertedAt" not in device:
@@ -1367,13 +1398,34 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
             greenhouse_id=device.get("greenhouseId"), device_id=device_id,
             alert_type="SENSOR_COMMUNICATION_FAILURE", created_at=now,
         ))
-    if critical_temperature and "criticalAlertedAt" not in device:
-        marker_conditions.append("attribute_not_exists(criticalAlertedAt)")
-        alert_records.append(new_alert(
-            account_id=principal.account_id, tenant_id=principal.tenant_id,
-            greenhouse_id=device.get("greenhouseId"), device_id=device_id,
-            alert_type="CRITICAL_TEMPERATURE", created_at=now,
-        ))
+    if evaluated:
+        set_parts.append("criticalTemperature=:critical")
+        expression_values[":critical"] = critical_temperature
+        # Compare the previous episode so a delayed write cannot clear a newer
+        # alert or resurrect an episode that recovered during this transaction.
+        if device.get("criticalIncidentId"):
+            marker_conditions.append("criticalIncidentId=:previousIncident")
+            expression_values[":previousIncident"] = device["criticalIncidentId"]
+        elif "criticalAlertedAt" in device:
+            marker_conditions.append("criticalAlertedAt=:previousMarker AND attribute_not_exists(criticalIncidentId)")
+            expression_values[":previousMarker"] = device["criticalAlertedAt"]
+        else:
+            marker_conditions.append("attribute_not_exists(criticalAlertedAt)")
+        if critical_temperature:
+            if "criticalAlertedAt" not in device:
+                alert = new_alert(account_id=principal.account_id, tenant_id=principal.tenant_id,
+                                  greenhouse_id=device.get("greenhouseId"), device_id=device_id,
+                                  alert_type="CRITICAL_TEMPERATURE", created_at=now)
+                if critical_message:
+                    alert["message"] = critical_message
+                alert_records.append(alert)
+                set_parts.extend(["criticalAlertedAt=:now", "criticalIncidentId=:incidentId"])
+                expression_values[":incidentId"] = alert["id"]
+            if critical_message:
+                set_parts.append("criticalAlertMessage=:alertMessage")
+                expression_values[":alertMessage"] = critical_message
+        else:
+            remove_parts.extend(["criticalAlertedAt", "criticalIncidentId", "criticalAlertMessage"])
     condition = ("tenantId=:tenant AND accountId=:account AND enabled=:enabled "
                  "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:unsuspended)")
     expression_values.update({":account": principal.account_id, ":enabled": True, ":unsuspended": False})
