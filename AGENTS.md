@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Development remote update service deployed
+- The dedicated development stack now serves the approved signed Android build 77 from its private release prefix. Use the existing CloudFormation execution role for updates. Keep release keys immutable and publish subsequent signed builds before requesting them.
+- A temporary isolated client and server exercised the deployed API with Cognito SRP login, an authorized update request, heartbeat delivery, signed APK download and completion. Read back the current server heartbeat’s managedUpdates flag to distinguish Android enrollment from ordinary pairing. The production stack and a physical unattended installation were outside this deployment.
+
+
 ## 2026-11-15 · Greenhouse Studio 2.35.0 (77)
 - Dedicated servers configured with GreenhouseDeviceAdmin as Android device owner can apply a newer signed APK on a paired client’s request. ManagedServerUpdate verifies the requested version, digest, package and signer, and rechecks authorization before committing. CloudBootReceiver resumes monitoring after replacement. Ordinary installations still use the existing manual request.
 - CloudHeartbeatService, AuthenticatedCloudGateway, device management UI, backend/src/app.py and the SAM template carry capabilities, request status and private package delivery. See docs/AWS_DEPLOYMENT.md for one-time device setup and release publication.
