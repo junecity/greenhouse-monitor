@@ -118,6 +118,7 @@ class CloudHeartbeatService : Service() {
                 val reply = HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.breach != null,
                     temperatureEvaluated = health.evaluated, temperatureBreach = health.breach,
+                    temperatureObservations = health.observations,
                     alertRules = rules.takeIf { it.valid() },
                     appliedAlertRulesRevision = applied?.revision ?: 0,
                     batteryPercent=device.batteryPercent, charging=device.charging,

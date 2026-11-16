@@ -181,7 +181,7 @@ internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: Clou
     val notifications = context.getSystemService(NotificationManager::class.java)
     val notificationId = alert.id.hashCode()
     val openApp = studio.junecity.greenhouse.data.AlertDestination.pending(
-        context, notificationId, alert.greenhouseId, null, true, alert.occurredAtEpochMs, tag
+        context, notificationId, alert.greenhouseId, alert.sensorId, true, alert.occurredAtEpochMs, tag
     )
     val action = if (tag != null) openApp else PendingIntent.getBroadcast(
         context,

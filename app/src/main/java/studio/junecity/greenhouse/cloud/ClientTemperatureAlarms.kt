@@ -41,8 +41,8 @@ internal object ClientTemperatureAlarms {
         val entry = JSONObject(value)
         MonitoringAlert(key.removePrefix(LIVE), entry.getString("house"), MonitoringAlertType.CriticalTemperature,
             MonitoringAlertPriority.Critical, entry.getString("message"), entry.getLong("time"), true,
-            entry.optString("server").ifBlank { null })
-    }.sortedBy { it.occurredAtEpochMs }
+            entry.optString("server").ifBlank { null }, entry.optString("sensor").ifBlank { null })
+    }.sortedWith(compareBy({ it.occurredAtEpochMs }, { it.id }))
 
     @Synchronized fun active(context: Context, enrollment: CloudEnrollment?): List<MonitoringAlert> {
         val prefs = preferences(context)
@@ -72,6 +72,9 @@ internal object ClientTemperatureAlarms {
 
     private fun tag(owner: String, id: String) = "greenhouse.temperature/$owner/$id"
 
+    fun matchesNotification(enrollment: CloudEnrollment?, incident: MonitoringAlert, notificationTag: String?): Boolean =
+        owner(enrollment)?.let { tag(it, incident.id) == notificationTag } == true
+
     /** Called once before networking on service start and after each successful authenticated poll. */
     @Synchronized fun deliver(context: Context, enrollment: CloudEnrollment, inbox: AlertInbox? = null) {
         if (!isCurrent(context, enrollment)) return
@@ -85,7 +88,7 @@ internal object ClientTemperatureAlarms {
             for (alert in critical) {
                 if (alert.id in stopped) continue
                 val entry = JSONObject().put("house", alert.greenhouseId).put("time", alert.occurredAtEpochMs)
-                    .put("message", alert.message).put("server", alert.serverId).toString()
+                    .put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId).toString()
                 if (entry != prefs.getString(LIVE + alert.id, null)) edit.putString(LIVE + alert.id, entry)
             }
             if (inbox.complete && inbox.criticalIncidentsVerified) {

@@ -1725,7 +1725,7 @@ class StandaloneEditorTest {
             assertEquals(id, route.sensor)
             assertEquals("main",route.greenhouse)
         } finally {
-            manager.cancel(id.hashCode())
+            manager.cancel("sensor/$id", id.hashCode())
             state.edit().clear().commit()
         }
     }

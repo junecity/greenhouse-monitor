@@ -89,13 +89,20 @@ class ClientAlarmPromptTest {
         try {
             File(context.cacheDir, "qa-critical-stop.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         } finally { image.recycle() }
-        val second = incident.copy(id = "alarm-ui-2", greenhouseId = "second-house",
-            message = "Roof sensor measured 90°F, above the high limit of 85°F.")
+        val second = incident.copy(id = "alarm-ui-2", occurredAtEpochMs = incident.occurredAtEpochMs + 1000,
+            message = "Roof sensor measured 41°F, below the low limit of 45°F.")
         ClientTemperatureAlarms.deliver(context, owner, AlertInbox(listOf(incident, second), true, true))
         await("Stop all alarms (2)")
         ClientTemperatureAlarms.deliver(context, owner, AlertInbox(emptyList(), true, true))
-        compose.onNodeWithText(second.message).assertExists()
-        compose.onNodeWithText("Stop all alarms (2)").performClick()
+        // In short landscape windows the lazy list only composes one incident at a time.
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(1)
+        compose.onNodeWithText(second.message).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Stop alarm. ${second.message}").performClick()
+        await("Stop alarm")
+        compose.onNodeWithText(second.message).assertDoesNotExist()
+        compose.onNodeWithText(incident.message).assertExists()
+        assertEquals(setOf(second.id), ClientTemperatureAlarms.pendingAcknowledgements(context, owner))
+        compose.onNodeWithText("Stop alarm").performClick()
         compose.waitUntil(5_000) { ClientTemperatureAlarms.active(context, owner).isEmpty() }
         assertEquals(setOf(incident.id, second.id), ClientTemperatureAlarms.pendingAcknowledgements(context, owner))
     }

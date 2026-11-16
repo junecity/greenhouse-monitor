@@ -17,7 +17,8 @@ data class MonitoringAlert(
     val message: String,
     val occurredAtEpochMs: Long,
     val requiresAcknowledgement: Boolean,
-    val serverId: String? = null
+    val serverId: String? = null,
+    val sensorId: String? = null
 )
 
 data class AlertInbox(
@@ -26,7 +27,11 @@ data class AlertInbox(
     val criticalIncidentsVerified: Boolean = false
 )
 
-internal fun currentAlerts(alerts: List<MonitoringAlert>, devices: List<RegisteredDevice>?): List<MonitoringAlert> {
+internal fun currentAlerts(
+    alerts: List<MonitoringAlert>,
+    devices: List<RegisteredDevice>?,
+    criticalIncidentsVerified: Boolean = false
+): List<MonitoringAlert> {
     val servers = devices?.associateBy { it.id }
     val outages = alerts.filter { it.type == MonitoringAlertType.ServerOffline }.filter { alert ->
         val server = servers?.get(alert.serverId)
@@ -34,11 +39,14 @@ internal fun currentAlerts(alerts: List<MonitoringAlert>, devices: List<Register
         server == null || (server.enabled && !server.communicationSuspended && !server.online &&
             server.greenhouseId == alert.greenhouseId && (server.lastSeenAtEpochMs ?: 0) < alert.occurredAtEpochMs)
     }.groupBy { it.serverId ?: it.greenhouseId }.values.map { incidents -> incidents.maxBy { it.occurredAtEpochMs } }
-    // Old API responses can contain several unacknowledged records for the same server.
     val temperatures = alerts.filter { it.type == MonitoringAlertType.CriticalTemperature }
-        .groupBy { it.greenhouseId to it.serverId }.values.map { incidents -> incidents.maxBy { it.occurredAtEpochMs } }
+    // A verified inbox has already checked each incident's recovery and acknowledgement.
+    // A legacy inbox without that check can contain obsolete episodes for the same source.
+    val activeTemperatures = if (criticalIncidentsVerified) temperatures else temperatures
+        .groupBy { Triple(it.greenhouseId, it.serverId, it.sensorId) }
+        .values.map { incidents -> incidents.maxBy { it.occurredAtEpochMs } }
     return alerts.filter { it.type != MonitoringAlertType.ServerOffline && it.type != MonitoringAlertType.CriticalTemperature } +
-        outages + temperatures
+        outages + activeTemperatures
 }
 
 /** Keeps safety events independent from ordinary informational preferences. */
@@ -75,7 +83,8 @@ data class MonitoringHealth(
     val managedUpdates: Boolean = false, val updateStatus: String? = null,
     val updateMode: String? = null, val updateStatusRequestId: String? = null,
     val temperatureEvaluated: Boolean? = null, val temperatureBreach: TemperatureBreach? = null,
-    val alertRules: AlertRules? = null, val appliedAlertRulesRevision: Int? = null
+    val alertRules: AlertRules? = null, val appliedAlertRulesRevision: Int? = null,
+    val temperatureObservations: List<TemperatureObservation>? = null
 )
 
 class HeartbeatReporter(
@@ -90,6 +99,7 @@ class HeartbeatReporter(
             sensorConnectionHealthy = health.sensorConnectionHealthy,
             criticalTemperature = health.criticalTemperature,
             temperatureEvaluated = health.temperatureEvaluated, temperatureBreach = health.temperatureBreach,
+            temperatureObservations = health.temperatureObservations,
             alertRules = health.alertRules, appliedAlertRulesRevision = health.appliedAlertRulesRevision,
             batteryPercent = health.batteryPercent,
             charging = health.charging,

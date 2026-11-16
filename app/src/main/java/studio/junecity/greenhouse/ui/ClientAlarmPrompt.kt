@@ -13,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -22,6 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -45,9 +48,19 @@ internal fun activeTemperatureAlarms(enrollment: CloudEnrollment?): List<Monitor
 }
 
 @Composable
-internal fun ClientAlarmPrompt(alarms: List<MonitoringAlert>, enrollment: CloudEnrollment?, showReadings: Boolean, onStopped: () -> Unit = {}) {
+internal fun ClientAlarmPrompt(
+    alarms: List<MonitoringAlert>,
+    enrollment: CloudEnrollment?,
+    showReadings: Boolean,
+    openedIncidentId: String? = null,
+    onStopped: (Set<String>) -> Unit = {}
+) {
     if (alarms.isEmpty()) return
     val context = LocalContext.current
+    fun stop(ids: Set<String>) {
+        ClientTemperatureAlarms.stop(context, enrollment, ids)
+        onStopped(ids)
+    }
     AlertDialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
@@ -61,30 +74,43 @@ internal fun ClientAlarmPrompt(alarms: List<MonitoringAlert>, enrollment: CloudE
             }
         },
         text = {
-            if (showReadings) {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(alarms, key = { it.id }) { alert ->
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            val occurred = DateUtils.formatDateTime(context, alert.occurredAtEpochMs,
-                                DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)
-                            Text(occurred, color = DashboardTokens.Muted, style = MaterialTheme.typography.labelMedium)
-                            Text(alert.message, style = MaterialTheme.typography.bodyLarge)
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!showReadings) item {
+                    Text("You can stop this phone’s alarm while it reconnects to your account.")
+                }
+                if (showReadings || alarms.size > 1) {
+                    items(alarms.sortedByDescending { it.id == openedIncidentId }, key = { it.id }) { alert ->
+                        val occurred = DateUtils.formatDateTime(context, alert.occurredAtEpochMs,
+                            DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(occurred, color = DashboardTokens.Muted, style = MaterialTheme.typography.labelMedium)
+                                if (showReadings) Text(alert.message, style = MaterialTheme.typography.bodyLarge)
+                                else if (alert.id == openedIncidentId) Text("Opened notification")
+                            }
+                            if (alarms.size > 1) {
+                                TextButton(onClick = { stop(setOf(alert.id)) }, modifier = Modifier.semantics {
+                                    contentDescription = if (showReadings) "Stop alarm. ${alert.message}" else "Stop alarm from $occurred"
+                                }) {
+                                    Text("Stop this alarm", color = DashboardTokens.Amber, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
-            } else {
-                Text("You can stop this phone’s alarm while it reconnects to your account.")
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    ClientTemperatureAlarms.stop(context, enrollment, alarms.mapTo(mutableSetOf()) { it.id })
-                    onStopped()
-                }, modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = DashboardTokens.Amber, contentColor = DashboardTokens.Background)
-            ) {
-                Text(if (alarms.size == 1) "Stop alarm" else "Stop all alarms (${alarms.size})", fontWeight = FontWeight.Bold)
+            if (alarms.size == 1) {
+                Button(onClick = { stop(setOf(alarms.single().id)) }, modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = DashboardTokens.Amber, contentColor = DashboardTokens.Background)) {
+                    Text("Stop alarm", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                TextButton(onClick = { stop(alarms.mapTo(mutableSetOf()) { it.id }) }) {
+                    Text("Stop all alarms (${alarms.size})", color = DashboardTokens.Muted)
+                }
             }
         }
     )

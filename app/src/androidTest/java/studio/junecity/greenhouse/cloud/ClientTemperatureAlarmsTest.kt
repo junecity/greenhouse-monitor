@@ -109,4 +109,26 @@ class ClientTemperatureAlarmsTest {
         assertTrue(ClientTemperatureAlarms.active(context, newOwner).isEmpty())
         assertTrue(ClientTemperatureAlarms.pendingAcknowledgements(context, newOwner).isEmpty())
     }
+
+    @Test fun acknowledgedBenchAndNewRoofBreachWithTheSameLimitRingIndependently() {
+        val bench = alert("bench-first", owner.greenhouseId).copy(sensorId = "bench", serverId = "same-server")
+        val roof = bench.copy(id = "roof-first", sensorId = "roof", message = "Roof measured 88°F above 82°F.")
+        ClientTemperatureAlarms.deliver(context, owner, inbox(bench))
+        assertTrue(CriticalAlarm.isIncidentPlaying())
+        ClientTemperatureAlarms.stop(context, owner, setOf(bench.id))
+        assertFalse(CriticalAlarm.isIncidentPlaying())
+        ClientTemperatureAlarms.deliver(context, owner, inbox(bench, roof))
+        assertEquals(listOf(roof), active())
+        assertTrue(CriticalAlarm.isIncidentPlaying())
+        // The bench returned to normal and later crossed the same threshold again.
+        val benchAgain = bench.copy(id = "bench-next", occurredAtEpochMs = bench.occurredAtEpochMs + 60_000)
+        ClientTemperatureAlarms.deliver(context, owner, inbox(roof, benchAgain))
+        assertEquals(listOf(roof, benchAgain), active())
+        ClientTemperatureAlarms.stop(context, owner, setOf(roof.id))
+        assertTrue(CriticalAlarm.isIncidentPlaying())
+        assertEquals(listOf(benchAgain), active())
+        ClientTemperatureAlarms.stop(context, owner, setOf(benchAgain.id))
+        assertFalse(CriticalAlarm.isIncidentPlaying())
+        assertEquals(setOf(bench.id, roof.id, benchAgain.id), ClientTemperatureAlarms.pendingAcknowledgements(context, owner))
+    }
 }

@@ -16,11 +16,21 @@ data class TemperatureBreach(
     enum class Direction { LOW, HIGH }
 }
 
+data class TemperatureObservation(
+    val sensorId: String,
+    val sensorName: String,
+    val temperatureF: Double,
+    val lowF: Double,
+    val highF: Double,
+    val measuredAtEpochMs: Long
+)
+
 internal data class TemperatureAssessment(
     val sensorConnectionHealthy: Boolean,
     val evaluated: Boolean,
     val breach: TemperatureBreach?,
-    val outstandingSensorIds: Set<String>
+    val outstandingSensorIds: Set<String>,
+    val observations: List<TemperatureObservation>
 )
 
 /** Apply the currently configured limits to the selected house's actual observations at heartbeat time. */
@@ -33,20 +43,24 @@ internal fun assessTemperature(
         val timeout = if (sensor.isLocalRadio()) 10 * 60_000L else 30 * 60_000L
         sensor.online && sensor.updatedAtEpochMs > 0 && sensor.updatedAtEpochMs in (now - timeout)..now
     }
-    val recent = sensors.filter {
+    val inventory = sensors.sortedByDescending { it.updatedAtEpochMs }.distinctBy { it.id }
+    val recent = inventory.filter {
         it.online && it.updatedAtEpochMs > 0 && it.updatedAtEpochMs in (now - 10 * 60_000L)..now &&
-            it.temperatureF != null && it.temperatureF in -459.67..1000.0
+            it.id.isNotBlank() && it.temperatureF != null && it.temperatureF in -459.67..1000.0
     }
     if (recent.isEmpty() || !lowF.isFinite() || !highF.isFinite() || lowF >= highF) {
-        return TemperatureAssessment(connected, false, null, previousOffenders)
+        return TemperatureAssessment(connected, false, null, previousOffenders, emptyList())
     }
     // Retain a prior offending sensor until it reports again. A complete inventory can also
     // retire sensors that have been explicitly removed from the house.
-    val complete = recent.size == sensors.size
+    val complete = recent.size == inventory.size
     val outstanding = if (complete) mutableSetOf() else previousOffenders.toMutableSet()
     var worst: TemperatureBreach? = null
+    val observations = ArrayList<TemperatureObservation>(recent.size)
     for (sensor in recent) {
         val value = requireNotNull(sensor.temperatureF)
+        val name = sensor.name.trim().take(96).ifBlank { "Temperature sensor" }
+        observations.add(TemperatureObservation(sensor.id, name, value, lowF, highF, sensor.updatedAtEpochMs))
         val direction = when {
             value < lowF -> TemperatureBreach.Direction.LOW
             value > highF -> TemperatureBreach.Direction.HIGH
@@ -58,12 +72,11 @@ internal fun assessTemperature(
         outstanding.add(sensor.id)
         val limit = if (direction == TemperatureBreach.Direction.LOW) lowF else highF
         if (worst == null || abs(value - limit) > abs(worst.temperatureF - worst.limitF)) {
-            worst = TemperatureBreach(sensor.name.trim().take(96).ifBlank { "Temperature sensor" },
-                value, limit, direction, sensor.updatedAtEpochMs)
+            worst = TemperatureBreach(name, value, limit, direction, sensor.updatedAtEpochMs)
         }
     }
     val recovered = complete || (previousOffenders.isNotEmpty() && outstanding.isEmpty())
-    return TemperatureAssessment(true, worst != null || recovered, worst, outstanding)
+    return TemperatureAssessment(true, worst != null || recovered, worst, outstanding, observations)
 }
 
 /** IDs of thermometers in an unresolved incident. Never reuse thresholds or readings from this store. */

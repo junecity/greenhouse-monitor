@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-16 · Greenhouse Studio 2.41.0 (85) · Independent temperature alarms
+
+- Keep one high/low setting per greenhouse. TemperatureAssessment, CloudHeartbeatService and AuthenticatedCloudGateway report fresh observations by stable sensor ID and preserve the older aggregate heartbeat. AlertNotifier tracks local sensor crossings and uses separate notification identities even when sensor IDs have matching Java hashes.
+- backend/src/sensor_temperature.py and app.py track each episode in the existing DynamoDB table. A fresh in-range reading rearms the sensor. Repeated or delayed readings, missing reports and acknowledgements cannot create a new episode for the same ongoing breach. The active inbox is independent of the historical alert query limit. Old collector builds retain their greenhouse-wide behavior. Upgrading during an existing excursion can deliver one new sensor-specific alarm.
+- ClientTemperatureAlarms, MonitoringAlerts, CloudAlertService, MainActivity and ClientAlarmPrompt preserve individual stops, an explicit stop-all action and one shared sound for all remaining delivered alarms. Test coverage includes two identically named sensors with the same limit and 60 simultaneous sensors. 181 JVM and 110 backend tests passed, along with 28 Android instrumentation executions across API 29 and 35. Lint reported zero errors.
+- The signed APK is on Drive. Deploy the application Lambda and publish build 85 to the server-update catalog when the development AWS login is renewed. Then verify delivery and sound on an enrolled physical pair. No table migration or additional IAM permissions.
+
 ## 2026-11-16 · Greenhouse Studio 2.40.0 (84) · Persistent client temperature alarm
 
 - CloudAlertService and ClientTemperatureAlarms retain each delivered critical temperature incident for its enrolled client and tenant until an in-app stop. Recovery, tray dismissal and service restarts preserve it. Stop silences the displayed incidents on that phone immediately and queues acknowledgement for retry. SecureSettingsStore clears prior owner state on enrollment change. CloudBootReceiver restarts active alarms after an app upgrade or device boot even when dashboard auto-start is off.

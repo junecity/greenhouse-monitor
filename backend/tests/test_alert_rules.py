@@ -16,8 +16,7 @@ BASE = {"lowTemperatureF": 41.5, "highTemperatureF": 92.5, "lowHumidity": 31.2,
         "highHumidity": 88.7, "temperatureAlerts": True, "humidityAlerts": True, "offlineAlerts": False}
 
 
-@mock_aws
-class GreenhouseAlertRulesTests(unittest.TestCase):
+class GreenhouseFixture(unittest.TestCase):
     house = "greenhouse-first"
     other = "greenhouse-other"
     client = "client-fixture"
@@ -25,6 +24,9 @@ class GreenhouseAlertRulesTests(unittest.TestCase):
     secret = "test-device-secret" * 3
 
     def setUp(self):
+        cloud = mock_aws()
+        cloud.start()
+        self.addCleanup(cloud.stop)
         self.db = boto3.resource("dynamodb", region_name="us-east-1").create_table(
             TableName="test-alert-rules", BillingMode="PAY_PER_REQUEST",
             KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
@@ -60,6 +62,8 @@ class GreenhouseAlertRulesTests(unittest.TestCase):
         return self.api(f"/v1/device/devices/{self.server}/heartbeat",
                         {"sensorConnectionHealthy": True, "alertRules": rules, "appliedAlertRulesRevision": applied, **fields}, True)
 
+
+class GreenhouseAlertRulesTests(GreenhouseFixture):
     def test_seed_client_edit_ack_and_restart(self):
         self.assertEqual((200, {"revision": 0, "rules": None, "appliedRevision": 0}), self.rules())
         self.assertEqual(200, self.beat()[0])

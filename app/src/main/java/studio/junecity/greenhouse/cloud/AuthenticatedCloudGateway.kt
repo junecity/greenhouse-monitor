@@ -167,6 +167,13 @@ class AuthenticatedCloudGateway(
                 .put("sensorConnectionHealthy", heartbeat.sensorConnectionHealthy)
                 .put("criticalTemperature", heartbeat.criticalTemperature)
                 .put("temperatureEvaluated", heartbeat.temperatureEvaluated)
+                .put("temperatureObservations", heartbeat.temperatureObservations?.let { observations ->
+                    JSONArray(observations.map { observation ->
+                        JSONObject().put("sensorId", observation.sensorId).put("sensorName", observation.sensorName)
+                            .put("temperatureF", observation.temperatureF).put("lowF", observation.lowF)
+                            .put("highF", observation.highF).put("measuredAtEpochMs", observation.measuredAtEpochMs)
+                    })
+                })
                 .put("alertRules", heartbeat.alertRules?.toJson() ?: JSONObject.NULL.takeIf { heartbeat.appliedAlertRulesRevision != null })
                 .put("appliedAlertRulesRevision", heartbeat.appliedAlertRulesRevision)
                 .put("temperatureBreach", heartbeat.temperatureBreach?.let { breach ->
@@ -206,12 +213,13 @@ class AuthenticatedCloudGateway(
             alerts.any { it.type == MonitoringAlertType.ServerOffline }) {
             runCatching { devices().map { it.device } }.getOrNull()
         } else null
-        val active = currentAlerts(alerts, inventory)
+        val verified = json.optBoolean("criticalIncidentsVerified")
+        val active = currentAlerts(alerts, inventory, verified)
         val visible = if (!viewer && !json.optBoolean("offlineIncidentsVerified") && ServerHeartbeatReceipt.recent(config.deviceId)) {
             active.filterNot { it.type == MonitoringAlertType.ServerOffline && it.serverId == config.deviceId }
         } else active
         return AlertInbox(visible, json.optBoolean("complete", alerts.size < 50),
-            json.optBoolean("complete") && json.optBoolean("criticalIncidentsVerified"))
+            json.optBoolean("complete") && verified)
     }
 
     suspend fun acknowledgeAlert(alertId: String) {
@@ -329,6 +337,7 @@ object CloudJsonCodec {
         occurredAtEpochMs = json.getLong("createdAtEpochMs"),
         requiresAcknowledgement = json.optBoolean("requiresAcknowledgement"),
         serverId = json.optNullableString("deviceId"),
+        sensorId = json.optNullableString("sensorId"),
     )
 
     fun pairing(json: JSONObject) = PairingChallenge(

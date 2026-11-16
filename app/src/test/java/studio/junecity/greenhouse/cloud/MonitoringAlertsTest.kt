@@ -1,6 +1,11 @@
 package studio.junecity.greenhouse.cloud
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -60,6 +65,31 @@ class MonitoringAlertsTest {
         assertEquals(30_000L, CloudAlertPollingPolicy.delayMs(1))
         assertEquals(60_000L, CloudAlertPollingPolicy.delayMs(2))
         assertEquals(120_000L, CloudAlertPollingPolicy.delayMs(9))
+    }
+
+    @Test fun gatewayDeliversIndependentSensorIncidentsOnTheSameServerAtTheSameTemperature() = runBlocking {
+        val template = JSONObject().put("greenhouseId", "house-A").put("deviceId", "server-A")
+            .put("type", "CRITICAL_TEMPERATURE").put("priority", "CRITICAL")
+            .put("message", "Measured 89°F above 82°F.").put("requiresAcknowledgement", true)
+        fun entry(id: String, sensor: String, time: Long) =
+            JSONObject(template.toString()).put("id", id).put("sensorId", sensor).put("createdAtEpochMs", time)
+        val list = org.json.JSONArray().put(entry("a1", "bench", 1000)).put(entry("b1", "roof", 1000))
+        val result = JSONObject().put("alerts", list).put("complete", true)
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                .body(result.toString().toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        val api = AuthenticatedCloudGateway(CloudApiConfig("https://fixture.invalid", "client-01"),
+            CloudTokenProvider { "fixture" }, client = client)
+        for (verified in listOf(true, false)) {
+            result.put("criticalIncidentsVerified", verified)
+            assertEquals(mapOf("a1" to "bench", "b1" to "roof"),
+                api.pendingAlerts(true).alerts.associate { it.id to it.sensorId })
+        }
+        list.put(entry("a2", "bench", 2000))
+        assertEquals(setOf("a2", "b1"), api.pendingAlerts(true).alerts.map { it.id }.toSet())
+        result.put("criticalIncidentsVerified", true)
+        assertEquals(setOf("a1", "a2", "b1"), api.pendingAlerts(true).alerts.map { it.id }.toSet())
     }
 
     @Test fun accountDeviceCodecIncludesRevocationStateAndCreationTime() {

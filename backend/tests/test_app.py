@@ -288,7 +288,7 @@ class BootstrapApiTests(unittest.TestCase):
         ), None)
 
         self.assertEqual(204, result["statusCode"])
-        update = fake.updates[0]
+        update = fake.client.transactions[0][0]["Update"]
         self.assertEqual({"pk": "ACCOUNT#account-existing", "sk": "ALERT#1700000000-aaaaaaaa"}, update["Key"])
         self.assertEqual("tenant-existing", update["ExpressionAttributeValues"][":tenant"])
 

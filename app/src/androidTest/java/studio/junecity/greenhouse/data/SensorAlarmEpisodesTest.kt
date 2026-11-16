@@ -1,0 +1,62 @@
+package studio.junecity.greenhouse.data
+
+import android.app.NotificationManager
+import android.os.SystemClock
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.*
+import org.junit.Test
+import studio.junecity.greenhouse.model.AppPreferences
+import studio.junecity.greenhouse.model.GoveeSensor
+import studio.junecity.greenhouse.model.NotificationPreferences
+import studio.junecity.greenhouse.settings.AppPreferencesStore
+
+class SensorAlarmEpisodesTest {
+    @Test fun clearingOneSensorKeepsTheOtherArmedAtTheSameLimit() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val suffix = "_sensor_episodes"
+        val settings = AppPreferencesStore(context, suffix)
+        val notifier = AlertNotifier(context, suffix)
+        // Same display name and hash force the system to use the stable sensor ID.
+        val first = "qa-sensor-Aa"
+        val second = "qa-sensor-BB"
+        assertEquals(first.hashCode(), second.hashCode())
+        fun read(id: String, degrees: Double, ageMs: Long = 0) = notifier.evaluate(
+            GoveeSensor(id, "H5179", "Bench", degrees, 55.0, true, System.currentTimeMillis() - ageMs)
+        )
+        fun posted(id: String) = manager.activeNotifications.firstOrNull { it.tag == "sensor/$id" }
+        fun awaitState(id: String, present: Boolean) {
+            val deadline = SystemClock.elapsedRealtime() + 3000
+            while ((posted(id) != null) != present && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(30)
+            assertEquals(id, present, posted(id) != null)
+        }
+        try {
+            notifier.forgetSensor(first)
+            notifier.forgetSensor(second)
+            settings.restore(AppPreferences(notifications = NotificationPreferences(highTemperatureF = 82.0)))
+            read(first, 85.0)
+            awaitState(first, true)
+            read(second, 85.0)
+            awaitState(second, true)
+            assertNotEquals(posted(first)!!.notification.contentIntent, posted(second)!!.notification.contentIntent)
+            manager.cancel("sensor/$first", first.hashCode())
+            awaitState(first, false)
+            assertNotNull(posted(second))
+            read(first, 80.0, ageMs = 660_000)
+            read(first, 87.0)
+            read(second, 80.0)
+            manager.cancel("sensor/$second", second.hashCode())
+            awaitState(second, false)
+            read(second, 85.0)
+            awaitState(second, true)
+            assertNull(posted(first))
+            read(first, 78.0)
+            read(first, 85.0)
+            awaitState(first, true)
+        } finally {
+            notifier.forgetSensor(first)
+            notifier.forgetSensor(second)
+            settings.clear()
+        }
+    }
+}

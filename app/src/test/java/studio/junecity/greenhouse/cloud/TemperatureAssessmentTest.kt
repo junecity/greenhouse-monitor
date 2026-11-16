@@ -52,6 +52,33 @@ class TemperatureAssessmentTest {
         assertTrue(bothRecovered.outstandingSensorIds.isEmpty())
     }
 
+    @Test fun equalTemperaturesAndDuplicateDisplayNamesStillReportBothSensorIdentities() {
+        val a = govee.copy(temperatureF = 105.0, name = "Rack")
+        val b = shelly.copy(temperatureF = 105.0, name = "Rack")
+        val first = assess(a, b.copy(temperatureF = 80.0))
+        assertEquals(listOf(105.0, 80.0), first.observations.map { it.temperatureF })
+        val second = assess(a, b)
+        assertEquals(setOf(a.id, b.id), second.observations.map { it.sensorId }.toSet())
+        assertTrue(second.observations.all { it.temperatureF > it.highF && it.sensorName == "Rack" })
+        // Omitting A or observing it offline must not send any healthy observation for A.
+        for (samples in listOf(listOf(b), listOf(a.copy(online = false), b))) {
+            val observed = assessTemperature(samples, 45.0, 100.0, now, setOf(a.id, b.id)).observations
+            assertEquals(listOf(b.id), observed.map { it.sensorId })
+        }
+        val recovered = assess(a.copy(temperatureF = 100.0, updatedAtEpochMs = now), a, b)
+        assertEquals(100.0, recovered.observations.single { it.sensorId == a.id }.temperatureF, 0.0)
+        assertEquals(105.0, recovered.observations.single { it.sensorId == b.id }.temperatureF, 0.0)
+    }
+
+    @Test fun everyFreshSensorReportsEvenIfNoOtherSensorRecoversOrHasAFreshReading() {
+        val many = (1..50).map { govee.copy(id = "shelly:$it", name = "Bench", temperatureF = 102.0) }
+        val stale = shelly.copy(updatedAtEpochMs = now - 600_001)
+        val result = assessTemperature(many + stale, 45.0, 100.0, now)
+        assertEquals(many.map { it.id }.toSet(), result.observations.map { it.sensorId }.toSet())
+        assertTrue(assessTemperature(many, 100.0, 45.0, now).observations.isEmpty())
+        assertTrue(assess(stale, govee.copy(temperatureF = Double.NaN)).observations.isEmpty())
+    }
+
     @Test fun goveeBetweenBackgroundPollsIsConnectedButDoesNotSupplyFreshEvidence() {
         val previous = govee.copy(updatedAtEpochMs = now - 15 * 60_000L)
         assertTrue(assess(previous).sensorConnectionHealthy)
@@ -75,7 +102,8 @@ class TemperatureAssessmentTest {
         val reporter = HeartbeatReporter(api) { now }
         for (assessment in listOf(assess(govee), assess(govee.copy(temperatureF = 55.0)), assess())) {
             reporter.report(MonitoringHealth("server-01", "house-1", assessment.sensorConnectionHealthy,
-                assessment.breach != null, temperatureEvaluated = assessment.evaluated, temperatureBreach = assessment.breach))
+                assessment.breach != null, temperatureEvaluated = assessment.evaluated, temperatureBreach = assessment.breach,
+                temperatureObservations = assessment.observations))
         }
         val evidence = sent.first().getJSONObject("temperatureBreach")
         assertEquals("West bench", evidence.getString("sensorName"))
@@ -86,6 +114,15 @@ class TemperatureAssessmentTest {
         assertEquals(listOf(true, false, false), sent.map { it.getBoolean("criticalTemperature") })
         assertEquals(listOf(true, true, false), sent.map { it.getBoolean("temperatureEvaluated") })
         assertTrue(sent.drop(1).all { it.isNull("temperatureBreach") })
+        val reading = sent.first().getJSONArray("temperatureObservations").getJSONObject(0)
+        assertEquals(govee.id, reading.getString("sensorId"))
+        assertEquals(govee.name, reading.getString("sensorName"))
+        assertEquals(40.0, reading.getDouble("temperatureF"), 0.0)
+        assertEquals(45.0, reading.getDouble("lowF"), 0.0)
+        assertEquals(100.0, reading.getDouble("highF"), 0.0)
+        assertEquals(govee.updatedAtEpochMs, reading.getLong("measuredAtEpochMs"))
+        assertEquals(55.0, sent[1].getJSONArray("temperatureObservations").getJSONObject(0).getDouble("temperatureF"), 0.0)
+        assertEquals(0, sent.last().getJSONArray("temperatureObservations").length())
     }
 
     @Test fun onlyAnExplicitVerifiedCompleteInboxMayRetireTemperatureNotifications() = runBlocking {

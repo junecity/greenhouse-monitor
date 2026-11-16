@@ -30,6 +30,7 @@ import studio.junecity.greenhouse.ui.AppMotion
 import studio.junecity.greenhouse.ui.accessibleMotionDuration
 import studio.junecity.greenhouse.ui.activeTemperatureAlarms
 import studio.junecity.greenhouse.ui.ClientAlarmPrompt
+import studio.junecity.greenhouse.cloud.ClientTemperatureAlarms
 import studio.junecity.greenhouse.camera.CameraStreamServer
 import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.model.Metric
@@ -148,12 +149,15 @@ class MainActivity : ComponentActivity() {
                 portraitMonitoringScreen = state.screen == AppScreen.Settings,
                 rotateMonitoringScreen = showingVolume,
                 alarmOverlay = { showReadings ->
-                    ClientAlarmPrompt(alarms, alarmOwner, showReadings) {
-                        val target = alert
-                        if (target != null && target.cloud && target.device == alarmOwner?.deviceId && alarms.any {
-                                it.greenhouseId == target.greenhouse && it.occurredAtEpochMs == target.time &&
-                                    it.id.hashCode() == target.notificationId
-                            }) {
+                    val opened = alert?.takeIf { it.cloud && it.device == alarmOwner?.deviceId }?.let { target ->
+                        alarms.firstOrNull {
+                            it.greenhouseId == target.greenhouse && it.occurredAtEpochMs == target.time &&
+                                it.id.hashCode() == target.notificationId && (target.notificationTag == null ||
+                                ClientTemperatureAlarms.matchesNotification(alarmOwner, it, target.notificationTag))
+                        }?.id
+                    }
+                    ClientAlarmPrompt(alarms, alarmOwner, showReadings, opened) { stopped ->
+                        if (opened in stopped) {
                             alert = null
                             intent.action = null
                         }
