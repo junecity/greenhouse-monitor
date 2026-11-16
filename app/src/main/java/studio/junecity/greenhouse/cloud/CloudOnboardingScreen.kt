@@ -113,6 +113,7 @@ internal fun CloudOnboardingGate(
     configurationError: String?,
     portraitMonitoringScreen: Boolean = false,
     rotateMonitoringScreen: Boolean = false,
+    alarmOverlay: @Composable (showReadings: Boolean) -> Unit = {},
     onEnrolled: (CloudDeviceRole) -> Unit,
     onSetup: (QuickStartData) -> Unit,
     content: @Composable () -> Unit
@@ -160,6 +161,8 @@ internal fun CloudOnboardingGate(
             }
         )
     }
+    // A disconnected, returning viewer can silence the local alarm while session validation retries.
+    alarmOverlay(showMonitoring && sessionValidated)
 }
 
 @Composable

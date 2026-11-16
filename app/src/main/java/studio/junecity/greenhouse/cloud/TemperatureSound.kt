@@ -45,10 +45,11 @@ internal enum class TemperatureSound(val channelId: String, val label: String, v
         .putExtra(Settings.EXTRA_CHANNEL_ID, channel(context).id)
 
     fun test(context: Context): String {
+        if (CriticalAlarm.isIncidentPlaying()) return "A critical temperature alarm is already sounding."
         val manager = context.getSystemService(NotificationManager::class.java)
         val current = channel(context)
         CriticalAlarm.soundIssue(context, current)?.let { return it }
-        val boosted = CriticalAlarm.play(context, current)
+        val boosted = CriticalAlarm.startPreview(context, current)
         val notice = NotificationCompat.Builder(context, current.id)
             .setSmallIcon(R.drawable.ic_notification_greenhouse)
             .setContentTitle("Critical temperature · Sound test")

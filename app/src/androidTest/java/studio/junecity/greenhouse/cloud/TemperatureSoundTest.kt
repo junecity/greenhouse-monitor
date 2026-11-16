@@ -94,13 +94,15 @@ class TemperatureSoundTest {
         val channel = TemperatureSound.Sweep.channel(context)
         try {
             CriticalAlarm.setEnabled(context, false)
-            assertFalse(CriticalAlarm.play(context, channel))
+            assertFalse(CriticalAlarm.startPreview(context, channel))
             assertEquals(previous, audio.getStreamVolume(AudioManager.STREAM_ALARM))
             setFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
             CriticalAlarm.setEnabled(context, true)
             val quiet = audio.getStreamVolume(AudioManager.STREAM_ALARM)
-            assertFalse(CriticalAlarm.play(context, channel))
-            assertEquals(quiet, audio.getStreamVolume(AudioManager.STREAM_ALARM))
+            assertFalse(CriticalAlarm.startIncident(context, channel))
+            // Android 10 can finish muting the stream after the interruption filter changes.
+            assertTrue(audio.getStreamVolume(AudioManager.STREAM_ALARM) <= quiet)
+            assertFalse(CriticalAlarm.isIncidentPlaying())
         } finally {
             setFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
             CriticalAlarm.setEnabled(context, enabled)
@@ -130,45 +132,80 @@ class TemperatureSoundTest {
         }
     }
 
-    @Test fun realClientDeliveryLoopsOnAlarmStreamOnceWhenNotificationsAreMuted() {
-        val selected = TemperatureSound.selected(context)
+    @Test fun incidentOutlastsPreviewWithMutedNotificationsUntilExplicitStop() {
         val enabled = CriticalAlarm.enabled(context)
         val previousVolume = audio.getStreamVolume(AudioManager.STREAM_ALARM)
         val ringerMode = audio.ringerMode
-        val alert = MonitoringAlert("sound-delivery-${System.nanoTime()}", "test-house",
-            MonitoringAlertType.CriticalTemperature, MonitoringAlertPriority.Critical,
-            "Bench sensor measured 35°F, below the 40°F limit.", System.currentTimeMillis(), true)
+        val channel = TemperatureSound.Pulse.channel(context)
         fun alarmIsPlaying() = audio.activePlaybackConfigurations.any { it.audioAttributes.usage == AudioAttributes.USAGE_ALARM }
         try {
-            TemperatureSound.Pulse.select(context)
             CriticalAlarm.setEnabled(context, true)
             audio.ringerMode = AudioManager.RINGER_MODE_VIBRATE
-            audio.setStreamVolume(AudioManager.STREAM_ALARM, audio.getStreamMinVolume(AudioManager.STREAM_ALARM), 0)
+            audio.setStreamVolume(AudioManager.STREAM_ALARM, 0, 0)
             val low = audio.getStreamVolume(AudioManager.STREAM_ALARM)
-            val mutedRinger = audio.ringerMode // Devices without a vibrator select silent instead.
+            @Suppress("DEPRECATION")
+            val hasVibrator = context.getSystemService(android.os.Vibrator::class.java).hasVibrator()
+            val mutedRinger = if (hasVibrator) AudioManager.RINGER_MODE_VIBRATE else AudioManager.RINGER_MODE_SILENT
             assertTrue(low < audio.getStreamMaxVolume(AudioManager.STREAM_ALARM))
-            assertNotEquals(AudioManager.RINGER_MODE_NORMAL, mutedRinger)
+            assertEquals(mutedRinger, audio.ringerMode)
             assertEquals(0, audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION))
-            postCloudAlert(context, alert, CloudDeviceRole.ViewerClient)
+            // Policy access was only used to configure the emulator's ringer. A customer needn't grant it.
+            shell("cmd notification disallow_dnd ${context.packageName}")
+            assertFalse(manager.isNotificationPolicyAccessGranted)
+            assertTrue(CriticalAlarm.startPreview(context, channel))
+            assertTrue(CriticalAlarm.startIncident(context, channel))
             assertEquals(audio.getStreamMaxVolume(AudioManager.STREAM_ALARM), audio.getStreamVolume(AudioManager.STREAM_ALARM))
-            // The bundled pulse is about three seconds. A loud alert should sound for the full five.
-            SystemClock.sleep(3800)
+            SystemClock.sleep(6500)
             assertTrue("Android should still be rendering alarm audio", alarmIsPlaying())
-            assertTrue(manager.activeNotifications.any { it.id == alert.id.hashCode() })
-            SystemClock.sleep(1650)
-            assertFalse("Five-second window must close", alarmIsPlaying())
-            assertEquals(low, audio.getStreamVolume(AudioManager.STREAM_ALARM))
-            postCloudAlert(context, alert, CloudDeviceRole.ViewerClient)
-            assertFalse("Polling an active notification must not replay the siren", alarmIsPlaying())
+            assertTrue(TemperatureSound.Sweep.test(context).contains("already sounding"))
+            assertTrue(CriticalAlarm.startIncident(context, channel))
+            assertEquals(1, audio.activePlaybackConfigurations.count { it.audioAttributes.usage == AudioAttributes.USAGE_ALARM })
+            CriticalAlarm.stopIncident(context)
+            SystemClock.sleep(200)
+            assertFalse("Explicit stop must release alarm output", alarmIsPlaying())
             assertEquals(low, audio.getStreamVolume(AudioManager.STREAM_ALARM))
             assertEquals(mutedRinger, audio.ringerMode)
         } finally {
-            manager.cancel(alert.id.hashCode())
-            CriticalAlarm.setEnabled(context, false)
+            CriticalAlarm.stopIncident(context)
+            shell("cmd notification allow_dnd ${context.packageName}")
             audio.ringerMode = ringerMode
             audio.setStreamVolume(AudioManager.STREAM_ALARM, previousVolume, 0)
             CriticalAlarm.setEnabled(context, enabled)
-            selected.select(context)
+        }
+    }
+
+    @Test fun explicitVolumeChoiceAndInterruptedVolumeRestorationArePreserved() {
+        val prefs = context.getSharedPreferences("client_alert_audio", android.content.Context.MODE_PRIVATE)
+        val storedChoice = if (prefs.contains("loud_alarm")) CriticalAlarm.enabled(context) else null
+        val stream = AudioManager.STREAM_ALARM
+        val previous = audio.getStreamVolume(stream)
+        val max = audio.getStreamMaxVolume(stream)
+        try {
+            prefs.edit().remove("loud_alarm").commit()
+            assertTrue("Fresh and upgraded phones use the loud alarm by default", CriticalAlarm.enabled(context))
+            CriticalAlarm.setEnabled(context, false)
+            assertFalse(CriticalAlarm.enabled(context))
+            assertTrue(CriticalAlarm.startIncident(context, TemperatureSound.Pulse.channel(context)))
+            SystemClock.sleep(200)
+            assertTrue(audio.activePlaybackConfigurations.any { it.audioAttributes.usage == AudioAttributes.USAGE_NOTIFICATION_EVENT })
+            assertEquals(previous, audio.getStreamVolume(stream))
+            CriticalAlarm.stopIncident(context)
+
+            // Simulate a process exit after the durable volume journal was written.
+            audio.setStreamVolume(stream, max, 0)
+            prefs.edit().putInt("previous_alarm_volume", 2).putInt("raised_alarm_volume", max).commit()
+            CriticalAlarm.recover(context)
+            assertEquals(2, audio.getStreamVolume(stream))
+            assertFalse(prefs.contains("previous_alarm_volume"))
+            // The customer turned the volume down independently.
+            prefs.edit().putInt("previous_alarm_volume", 1).putInt("raised_alarm_volume", max).commit()
+            CriticalAlarm.recover(context)
+            assertEquals(2, audio.getStreamVolume(stream))
+        } finally {
+            CriticalAlarm.stopIncident(context)
+            audio.setStreamVolume(stream, previous, 0)
+            if (storedChoice == null) prefs.edit().remove("loud_alarm").commit()
+            else CriticalAlarm.setEnabled(context, storedChoice)
         }
     }
 
@@ -186,7 +223,7 @@ class TemperatureSoundTest {
             CriticalAlarm.setEnabled(context, true)
             val muted = manager.getNotificationChannel(quietId)
             assertTrue(CriticalAlarm.soundIssue(context, muted)!!.contains("channel is silent"))
-            assertFalse(CriticalAlarm.play(context, muted))
+            assertFalse(CriticalAlarm.startIncident(context, muted))
         } finally {
             CriticalAlarm.setEnabled(context, previouslyEnabled)
             audio.ringerMode = ringer

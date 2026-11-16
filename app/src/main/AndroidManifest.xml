@@ -55,7 +55,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Checks authenticated AWS safety alerts for the paired greenhouse" />
+                android:value="Monitors paired greenhouse safety alerts and sounds critical temperature alarms until stopped" />
         </service>
         <receiver
             android:name=".cloud.CloudAlertAcknowledgeReceiver"

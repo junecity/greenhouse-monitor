@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-16 · Greenhouse Studio 2.40.0 (84) · Persistent client temperature alarm
+
+- CloudAlertService and ClientTemperatureAlarms retain each delivered critical temperature incident for its enrolled client and tenant until an in-app stop. Recovery, tray dismissal and service restarts preserve it. Stop silences the displayed incidents on that phone immediately and queues acknowledgement for retry. SecureSettingsStore clears prior owner state on enrollment change. CloudBootReceiver restarts active alarms after an app upgrade or device boot even when dashboard auto-start is off.
+- CriticalAlarm and TemperatureSound use one looping player for concurrent incidents. The volume override defaults on for a new preference and preserves an explicit opt-out. CriticalSoundSettings offers the bounded preview and explains Android sound restrictions. Opening the notification routes through AlertDestination and MainActivity to ClientAlarmPrompt, which also supports offline stop while CloudOnboardingScreen validates the session.
+- 178 JVM tests and 19 focused instrumentation executions passed across Android 10 and 15. Lint reported zero errors. An additional offline Android 10 process test confirmed actual alarm playback following app replacement and phone reboot, then silence and a queued acknowledgement after an in-app stop. No physical acoustic or live cloud-delivery test this release. The signed client APK is on Drive. The remote-update catalog still has the prior release pending renewed AWS login. No database or backend deployment is required for client alarms.
+
 ## 2026-11-15 · Greenhouse Studio 2.39.0 (83) · Set alerts from a paired phone
 
 - Settings → Alerts edits the selected cloud greenhouse’s temperature and humidity limits and routine switches. AlertSettings displays pending and applied states, handles simultaneous edits and keeps critical sound settings on the viewing phone. Standalone collectors can edit their local plan offline.

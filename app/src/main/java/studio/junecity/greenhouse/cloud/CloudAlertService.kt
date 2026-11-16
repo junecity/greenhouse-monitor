@@ -17,9 +17,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 
 object CloudAlertPollingPolicy {
@@ -54,6 +58,7 @@ class CloudAlertService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val polling = EnrollmentBoundWorker(scope)
     private lateinit var notifications: NotificationManager
+    private val wake = Channel<Unit>(Channel.CONFLATED)
 
     override fun onCreate() {
         super.onCreate()
@@ -72,37 +77,86 @@ class CloudAlertService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        polling.start(SecureSettingsStore(this).cloudEnrollment()) { pollLoop() }
+        val enrollment = SecureSettingsStore(this).cloudEnrollment()
+        polling.start(enrollment) { pollLoop(enrollment) }
+        if (intent?.action == ACKNOWLEDGE) wake.trySend(Unit)
         return START_STICKY
     }
 
-    private suspend fun pollLoop() {
-        val enrollment = SecureSettingsStore(this).cloudEnrollment()
-        val configuration = runCatching { CloudRuntime.configurationOrNull() }.getOrNull()
-        if (enrollment == null || configuration == null) {
-            stopSelf(); return
+    private suspend fun pollLoop(enrollment: CloudEnrollment?) {
+        val security = SecureSettingsStore(this)
+        if (enrollment == null) {
+            stopSelf()
+            return
         }
-        val gateway = runCatching { gatewayForEnrollment(this, configuration, enrollment) }.getOrElse { stopSelf(); return }
+        // Restore outstanding alarms before any operation that needs an internet connection.
+        ClientTemperatureAlarms.deliver(this, enrollment)
+        val configuration = runCatching { CloudRuntime.configurationOrNull() }.getOrNull()
+        if (configuration == null) {
+            if (ClientTemperatureAlarms.active(this, enrollment).isEmpty()) stopSelf()
+            return
+        }
+        val gateway by lazy { gatewayForEnrollment(this, configuration, enrollment) }
+        val viewer = enrollment.role == CloudDeviceRole.ViewerClient
         var failures = 0
-        while (scope.isActive) {
-            val result = runCatching { gateway.pendingAlerts(enrollment.role == CloudDeviceRole.ViewerClient) }
-            if (result.isSuccess) {
+        while (currentCoroutineContext().isActive && security.cloudEnrollment() == enrollment) {
+            val result = runCatching { gateway.pendingAlerts(viewer) }
+            currentCoroutineContext().ensureActive()
+            if (security.cloudEnrollment() != enrollment) return
+            val inbox = result.getOrNull()
+            if (inbox != null) {
                 failures = 0
-                val inbox = result.getOrThrow()
-                val alerts = inbox.alerts
                 clearRecoveredCloudAlerts(notifications, inbox)
-                alerts.forEach { postCloudAlert(this, it, enrollment.role) }
+                if (viewer) ClientTemperatureAlarms.deliver(this, enrollment, inbox)
+                for (alert in inbox.alerts) {
+                    if (!viewer || alert.type != MonitoringAlertType.CriticalTemperature) postCloudAlert(this, alert, enrollment.role)
+                }
             } else {
+                val error = result.exceptionOrNull()
+                if (error is CloudApiException && error.statusCode == 403 && error.message in setOf(
+                        "device_disabled", "device_revoked", "device_missing", "account_missing",
+                        "account_identity_mismatch", "account_suspended", "device_credential_invalid"
+                    )) {
+                    ClientTemperatureAlarms.forgetIfCurrent(this, enrollment)
+                } else {
+                    ClientTemperatureAlarms.deliver(this, enrollment)
+                }
                 failures++
             }
-            delay(CloudAlertPollingPolicy.delayMs(failures))
+            // Per-item acknowledgements are best effort and cannot suppress a new safety alert.
+            if (inbox != null) {
+                for (id in ClientTemperatureAlarms.pendingAcknowledgements(this, enrollment)) {
+                    currentCoroutineContext().ensureActive()
+                    if (security.cloudEnrollment() != enrollment) return
+                    val acknowledged = runCatching { gateway.acknowledgeAlert(id) }
+                    val error = acknowledged.exceptionOrNull()
+                    val noLongerPending = inbox.complete && inbox.criticalIncidentsVerified && inbox.alerts.none { it.id == id }
+                    if (acknowledged.isSuccess || (noLongerPending && error is CloudApiException && error.statusCode in setOf(404, 409))) {
+                        ClientTemperatureAlarms.acknowledged(this, enrollment, id)
+                    } else if (error != null) {
+                        // Avoid a sequence of network timeouts when many alarms were stopped offline.
+                        break
+                    }
+                }
+            }
+            withTimeoutOrNull(CloudAlertPollingPolicy.delayMs(failures)) { wake.receive() }
         }
     }
 
-    override fun onDestroy() { scope.cancel(); super.onDestroy() }
+    override fun onDestroy() {
+        scope.cancel()
+        CriticalAlarm.stopIncident(this)
+        super.onDestroy()
+    }
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        private const val ACKNOWLEDGE = "greenhouse.RETRY_TEMPERATURE_ACK"
+
+        internal fun requestAcknowledgements(context: Context) {
+            runCatching { context.startForegroundService(Intent(context, CloudAlertService::class.java).setAction(ACKNOWLEDGE)) }
+        }
+
         private const val SERVICE_CHANNEL = "greenhouse_cloud_alert_service"
         private const val HIGH_CHANNEL = "greenhouse_cloud_high"
         private const val SERVICE_NOTIFICATION_ID = 4174
@@ -123,13 +177,13 @@ class CloudAlertService : Service() {
     }
 }
 
-internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: CloudDeviceRole) {
+internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: CloudDeviceRole, tag: String? = null, sounding: Boolean = false) {
     val notifications = context.getSystemService(NotificationManager::class.java)
     val notificationId = alert.id.hashCode()
     val openApp = studio.junecity.greenhouse.data.AlertDestination.pending(
-        context, notificationId, alert.greenhouseId, null, true, alert.occurredAtEpochMs
+        context, notificationId, alert.greenhouseId, null, true, alert.occurredAtEpochMs, tag
     )
-    val acknowledge = PendingIntent.getBroadcast(
+    val action = if (tag != null) openApp else PendingIntent.getBroadcast(
         context,
         notificationId,
         Intent(context, CloudAlertAcknowledgeReceiver::class.java)
@@ -159,16 +213,13 @@ internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: Clou
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_ALARM)
         .setContentIntent(openApp)
-        .addAction(0, "Acknowledge", acknowledge)
+        .addAction(0, if (tag == null) "Acknowledge" else "Open alarm", action)
         .setAutoCancel(false)
         .setOngoing(alert.requiresAcknowledgement)
         .setOnlyAlertOnce(true)
-    if (!alert.requiresAcknowledgement) builder.setDeleteIntent(acknowledge)
-    if (role == CloudDeviceRole.ViewerClient && alert.type == MonitoringAlertType.CriticalTemperature &&
-        CriticalAlarm.enabled(context) && notifications.activeNotifications.none { it.id == notificationId && it.tag == null } &&
-        CriticalAlarm.play(context, notifications.getNotificationChannel(channel))) builder.setSilent(true)
-    val notification = builder.build()
-    runCatching { notifications.notify(notificationId, notification) }
+    if (!alert.requiresAcknowledgement && tag == null) builder.setDeleteIntent(action)
+    if (sounding) builder.setSilent(true)
+    runCatching { notifications.notify(tag, notificationId, builder.build()) }
 }
 
 

@@ -1,13 +1,17 @@
 package studio.junecity.greenhouse.ui
 
 import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -61,16 +65,28 @@ internal fun CriticalSoundSettings() {
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Override low or muted volume", Modifier.weight(1f), color = DashboardTokens.White)
-                Switch(checked = loud, onCheckedChange = {
-                    CriticalAlarm.setEnabled(context, it)
-                    loud = it
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+                value = loud, role = Role.Switch, onValueChange = { enabled ->
+                    CriticalAlarm.setEnabled(context, enabled)
+                    loud = enabled
                     message = ""
-                })
+                }
+            ), verticalAlignment = Alignment.CenterVertically) {
+                Text("Override low or muted volume", Modifier.weight(1f), color = DashboardTokens.White)
+                Switch(checked = loud, onCheckedChange = null)
             }
-            Text("Plays for five seconds at maximum alarm volume when a new critical temperature alert arrives. Do Not Disturb and Android notification settings apply.", color = DashboardTokens.Muted)
+            Text(if (loud) "Critical alarms repeat at full alarm volume, even on silent or vibrate. Tap Stop alarm in the app to silence them."
+                else "Critical alarms repeat at your phone’s notification volume until you tap Stop alarm in the app.", color = DashboardTokens.Muted)
             soundIssue?.let { Text(it, color = DashboardTokens.Amber) }
+            if (soundIssue?.contains("Do Not Disturb") == true) {
+                TextButton(onClick = {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS))
+                    } catch (_: ActivityNotFoundException) {
+                        message = "Open Do Not Disturb in your phone’s settings and allow alarms."
+                    }
+                }) { Text("Do Not Disturb settings", color = DashboardTokens.Amber) }
+            }
             Row {
                 TextButton(onClick = { message = sound.test(context) }) { Text("Test sound", color = DashboardTokens.Amber) }
                 TextButton(onClick = { openSettings() }) { Text("Sound settings", color = DashboardTokens.Amber) }

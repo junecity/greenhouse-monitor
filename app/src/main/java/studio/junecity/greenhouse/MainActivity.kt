@@ -28,6 +28,8 @@ import studio.junecity.greenhouse.ui.DashboardScreen
 import studio.junecity.greenhouse.ui.StageScreen
 import studio.junecity.greenhouse.ui.AppMotion
 import studio.junecity.greenhouse.ui.accessibleMotionDuration
+import studio.junecity.greenhouse.ui.activeTemperatureAlarms
+import studio.junecity.greenhouse.ui.ClientAlarmPrompt
 import studio.junecity.greenhouse.camera.CameraStreamServer
 import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.model.Metric
@@ -138,11 +140,25 @@ class MainActivity : ComponentActivity() {
 
             val volume by viewModel.volumeVisible.collectAsStateWithLifecycle()
             val showingVolume = volume && state.screen == AppScreen.Zones
+            val alarmOwner = remember(cloudEnrollmentRevision) { SecureSettingsStore(applicationContext).cloudEnrollment() }
+            val alarms = activeTemperatureAlarms(alarmOwner)
             CloudOnboardingGate(
                 configuration = cloudConfiguration.getOrNull(),
                 configurationError = cloudConfiguration.exceptionOrNull()?.message,
                 portraitMonitoringScreen = state.screen == AppScreen.Settings,
                 rotateMonitoringScreen = showingVolume,
+                alarmOverlay = { showReadings ->
+                    ClientAlarmPrompt(alarms, alarmOwner, showReadings) {
+                        val target = alert
+                        if (target != null && target.cloud && target.device == alarmOwner?.deviceId && alarms.any {
+                                it.greenhouseId == target.greenhouse && it.occurredAtEpochMs == target.time &&
+                                    it.id.hashCode() == target.notificationId
+                            }) {
+                            alert = null
+                            intent.action = null
+                        }
+                    }
+                },
                 onSetup = viewModel::applyQuickStart,
                 onEnrolled = { role ->
                     viewModel.completeCloudEnrollment(role)
@@ -158,7 +174,7 @@ class MainActivity : ComponentActivity() {
                         viewModel.refreshWhileVisible()
                     }
                 }
-                alert?.let { target ->
+                if (alarms.isEmpty()) alert?.let { target ->
                     val active = state.preferences.activeGreenhouse
                     val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
                     val matches = target.device == enrollment?.deviceId &&

@@ -12,20 +12,24 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 
-/** An explicitly enabled, bounded alarm for a new critical temperature incident on this phone. */
+/** One audio output for all ringing client incidents. Only a settings preview has a time limit. */
 internal object CriticalAlarm {
     private const val STREAM = AudioManager.STREAM_ALARM
-    private const val WINDOW_MS = 5_000L
+    private const val PREVIEW_MS = 5_000L
     private val handler = Handler(Looper.getMainLooper())
     private var playing: Ringtone? = null
-    private var stop: Runnable? = null
+    private var incidentChannel: NotificationChannel? = null
+    private var stopPreview: Runnable? = null
     private fun prefs(context: Context) = context.getSharedPreferences("client_alert_audio", Context.MODE_PRIVATE)
 
-    fun enabled(context: Context) = prefs(context).getBoolean("loud_alarm", false)
+    fun enabled(context: Context) = prefs(context).getBoolean("loud_alarm", true)
 
     @Synchronized fun setEnabled(context: Context, enabled: Boolean) {
+        if (enabled == enabled(context)) return
         prefs(context).edit().putBoolean("loud_alarm", enabled).apply()
-        if (!enabled) finish(context)
+        val channel = incidentChannel
+        finish(context)
+        if (channel != null) startIncident(context, channel)
     }
 
     @Synchronized fun recover(context: Context) {
@@ -49,8 +53,9 @@ internal object CriticalAlarm {
     }
 
     @Synchronized private fun finish(context: Context) {
-        stop?.let(handler::removeCallbacks)
-        stop = null
+        stopPreview?.let(handler::removeCallbacks)
+        stopPreview = null
+        incidentChannel = null
         val tone = playing
         playing = null
         try {
@@ -82,43 +87,66 @@ internal object CriticalAlarm {
             if (!alarmsAllowed(manager)) return "Do Not Disturb is blocking the loud alarm. Allow alarms in Android settings to hear it."
             if (audio.isVolumeFixed && audio.getStreamVolume(STREAM) == 0) return "The alarm output is muted. Adjust the volume on the connected audio device."
         } else {
-            if (manager.currentInterruptionFilter == NotificationManager.INTERRUPTION_FILTER_NONE && !channel.canBypassDnd())
-                return "Do Not Disturb is silencing notifications. Check your Android sound settings."
             if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL ||
                 audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION) == 0)
                 return "Notification sound is muted. Turn on Override low or muted volume to use the alarm volume."
+            if (manager.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL && !channel.canBypassDnd())
+                return "Do Not Disturb is silencing notifications. Check your Android sound settings."
         }
         return null
     }
 
-    /** Fall back to ordinary Android notification delivery when policy disallows the override. */
-    @Synchronized fun play(context: Context, channel: NotificationChannel): Boolean {
-        if (!enabled(context)) return false
+    @Synchronized fun isIncidentPlaying() = incidentChannel != null && playing?.isPlaying == true
+
+    @Synchronized fun stopIncident(context: Context) {
+        if (incidentChannel != null) finish(context)
+    }
+
+    @Synchronized fun startIncident(context: Context, channel: NotificationChannel): Boolean {
         val app = context.applicationContext
-        if (soundIssue(app, channel, loud = true) != null) return false
-        if (playing?.isPlaying == true) return true
+        val loud = enabled(app)
+        if (soundIssue(app, channel, loud) != null) {
+            stopIncident(app)
+            return false
+        }
+        if (incidentChannel?.id == channel.id && incidentChannel?.sound == channel.sound && isIncidentPlaying()) return true
+        if (!start(app, channel, loud)) return false
+        incidentChannel = channel
+        return true
+    }
+
+    @Synchronized fun startPreview(context: Context, channel: NotificationChannel): Boolean {
+        val app = context.applicationContext
+        if (isIncidentPlaying() || !enabled(app) || soundIssue(app, channel) != null) return false
+        if (!start(app, channel, loud = true)) return false
+        val preview = playing
+        stopPreview = Runnable {
+            synchronized(this) {
+                if (playing === preview) finish(app)
+            }
+        }.also { handler.postDelayed(it, PREVIEW_MS) }
+        return true
+    }
+
+    private fun start(app: Context, channel: NotificationChannel, loud: Boolean): Boolean {
         finish(app)
         val audio = app.getSystemService(AudioManager::class.java)
         return try {
             val before = audio.getStreamVolume(STREAM)
             val peak = audio.getStreamMaxVolume(STREAM)
-            if (!audio.isVolumeFixed && before < peak) {
+            if (loud && !audio.isVolumeFixed && before < peak) {
                 if (!prefs(app).edit().putInt("previous_alarm_volume", before)
                         .putInt("raised_alarm_volume", peak).commit()) return false
                 audio.setStreamVolume(STREAM, peak, 0)
             }
-            val tone = startTone(app, channel.sound)
-                ?: TemperatureSound.Pulse.bundledUri(app)?.let { startTone(app, it) }
+            val usage = if (loud) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION_EVENT
+            val tone = startTone(app, channel.sound, usage)
+                ?: TemperatureSound.Pulse.bundledUri(app)?.let { startTone(app, it, usage) }
             if (tone == null) {
                 finish(app)
                 false
             } else {
                 playing = tone
-                stop = Runnable {
-                    synchronized(this) {
-                        if (playing === tone) finish(app)
-                    }
-                }.also { handler.postDelayed(it, WINDOW_MS) }
                 true
             }
         } catch (_: RuntimeException) {
@@ -127,11 +155,11 @@ internal object CriticalAlarm {
         }
     }
 
-    private fun startTone(context: Context, uri: Uri): Ringtone? {
+    private fun startTone(context: Context, uri: Uri, usage: Int): Ringtone? {
         var tone: Ringtone? = null
         try {
             tone = RingtoneManager.getRingtone(context, uri) ?: return null
-            tone.audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM)
+            tone.audioAttributes = AudioAttributes.Builder().setUsage(usage)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
             tone.isLooping = true
             tone.play()

@@ -9,12 +9,14 @@ import studio.junecity.greenhouse.settings.SecureSettingsStore
 class CloudBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val updated = intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
-        if (updated) {
-            if (!ManagedServerUpdate.consumeRestart(context)) return
-        } else if (intent.action != Intent.ACTION_BOOT_COMPLETED || !AppPreferencesStore(context).load().autoStart) return
+        if (!updated && intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        val shouldRestart = if (updated) ManagedServerUpdate.consumeRestart(context)
+            else AppPreferencesStore(context).load().autoStart
         val configured = runCatching { CloudRuntime.configurationOrNull() != null }.getOrDefault(false)
         val enrollment = SecureSettingsStore(context).cloudEnrollment()
         if (!configured || enrollment == null) return
+        if (!shouldRestart && (enrollment.role != CloudDeviceRole.ViewerClient ||
+                ClientTemperatureAlarms.active(context, enrollment).isEmpty())) return
         CloudAlertService.sync(context, enabled = true)
         if (enrollment.role == CloudDeviceRole.GreenhouseServer) {
             CloudHeartbeatService.sync(context, enabled = true)
