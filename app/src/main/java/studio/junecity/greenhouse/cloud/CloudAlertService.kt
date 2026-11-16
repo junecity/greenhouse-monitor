@@ -8,18 +8,22 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.Network
+import android.os.PowerManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -57,26 +61,49 @@ internal fun clearRecoveredCloudAlerts(notifications: NotificationManager, inbox
 class CloudAlertService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val polling = EnrollmentBoundWorker(scope)
-    private lateinit var notifications: NotificationManager
+    private var inForeground = false
     private val wake = Channel<Unit>(Channel.CONFLATED)
+
+    private val network = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { wake.trySend(Unit) }
+    }
+    private val idle = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (!getSystemService(PowerManager::class.java).isDeviceIdleMode) wake.trySend(Unit)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
-        notifications = getSystemService(NotificationManager::class.java)
+        val notifications = getSystemService(NotificationManager::class.java)
         notifications.createNotificationChannel(NotificationChannel(SERVICE_CHANNEL, "Greenhouse cloud alerts", NotificationManager.IMPORTANCE_LOW))
         CriticalAlarm.recover(this)
-        TemperatureSound.Existing.channel(this)
-        notifications.createNotificationChannel(NotificationChannel(HIGH_CHANNEL, "Greenhouse equipment alerts", NotificationManager.IMPORTANCE_HIGH))
+        prepareAlertChannels(this)
         val notification = NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_greenhouse)
             .setContentTitle("Greenhouse alert monitoring active")
             .setContentText("Checking greenhouse alerts")
             .setOngoing(true).setOnlyAlertOnce(true).build()
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
-        ServiceCompat.startForeground(this, SERVICE_NOTIFICATION_ID, notification, type)
+        try {
+            ServiceCompat.startForeground(this, SERVICE_NOTIFICATION_ID, notification, type)
+            inForeground = true
+        } catch (failure: RuntimeException) {
+            logStartFailure(failure)
+            return
+        }
+        monitoring = true
+        getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(network)
+        ContextCompat.registerReceiver(this, idle, IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!inForeground) {
+            if (intent?.action != RESTORE) enqueueFallback(this)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         val enrollment = SecureSettingsStore(this).cloudEnrollment()
         polling.start(enrollment) { pollLoop(enrollment) }
         if (intent?.action == ACKNOWLEDGE) wake.trySend(Unit)
@@ -100,61 +127,33 @@ class CloudAlertService : Service() {
         val viewer = enrollment.role == CloudDeviceRole.ViewerClient
         var failures = 0
         while (currentCoroutineContext().isActive && security.cloudEnrollment() == enrollment) {
-            val result = runCatching { gateway.pendingAlerts(viewer) }
-            currentCoroutineContext().ensureActive()
-            if (security.cloudEnrollment() != enrollment) return
-            val inbox = result.getOrNull()
-            if (inbox != null) {
-                failures = 0
-                clearRecoveredCloudAlerts(notifications, inbox)
-                if (viewer) ClientTemperatureAlarms.deliver(this, enrollment, inbox)
-                for (alert in inbox.alerts) {
-                    if (!viewer || alert.type != MonitoringAlertType.CriticalTemperature) postCloudAlert(this, alert, enrollment.role)
-                }
-            } else {
-                val error = result.exceptionOrNull()
-                if (error is CloudApiException && error.statusCode == 403 && error.message in setOf(
-                        "device_disabled", "device_revoked", "device_missing", "account_missing",
-                        "account_identity_mismatch", "account_suspended", "device_credential_invalid"
-                    )) {
-                    ClientTemperatureAlarms.forgetIfCurrent(this, enrollment)
-                } else {
-                    ClientTemperatureAlarms.deliver(this, enrollment)
-                }
-                failures++
-            }
-            // Per-item acknowledgements are best effort and cannot suppress a new safety alert.
-            if (inbox != null) {
-                for (id in ClientTemperatureAlarms.pendingAcknowledgements(this, enrollment)) {
-                    currentCoroutineContext().ensureActive()
-                    if (security.cloudEnrollment() != enrollment) return
-                    val acknowledged = runCatching { gateway.acknowledgeAlert(id) }
-                    val error = acknowledged.exceptionOrNull()
-                    val noLongerPending = inbox.complete && inbox.criticalIncidentsVerified && inbox.alerts.none { it.id == id }
-                    if (acknowledged.isSuccess || (noLongerPending && error is CloudApiException && error.statusCode in setOf(404, 409))) {
-                        ClientTemperatureAlarms.acknowledged(this, enrollment, id)
-                    } else if (error != null) {
-                        // Avoid a sequence of network timeouts when many alarms were stopped offline.
-                        break
-                    }
-                }
-            }
+            val received = CloudAlertDelivery.poll(this, enrollment, minimumIntervalMs = 5_000L,
+                fetch = { gateway.pendingAlerts(viewer) }, acknowledge = { gateway.acknowledgeAlert(it) })
+            failures = if (received) 0 else failures + 1
             withTimeoutOrNull(CloudAlertPollingPolicy.delayMs(failures)) { wake.receive() }
         }
     }
 
     override fun onDestroy() {
         scope.cancel()
-        CriticalAlarm.stopIncident(this)
+        if (inForeground) {
+            monitoring = false
+            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network)
+            unregisterReceiver(idle)
+            // The player belongs to the enrolled client's incident. Service teardown can occur
+            // while the process is still alive and the customer has yet to stop that alarm.
+        }
         super.onDestroy()
     }
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        @Volatile private var monitoring = false
+        private const val RESTORE = "greenhouse.RESTORE_ALERT_MONITOR"
         private const val ACKNOWLEDGE = "greenhouse.RETRY_TEMPERATURE_ACK"
 
         internal fun requestAcknowledgements(context: Context) {
-            runCatching { context.startForegroundService(Intent(context, CloudAlertService::class.java).setAction(ACKNOWLEDGE)) }
+            start(context, Intent(context, CloudAlertService::class.java).setAction(ACKNOWLEDGE))
         }
 
         private const val SERVICE_CHANNEL = "greenhouse_cloud_alert_service"
@@ -168,11 +167,42 @@ class CloudAlertService : Service() {
             else -> HIGH_CHANNEL
         }
 
+        internal fun prepareAlertChannels(context: Context) {
+            TemperatureSound.Existing.channel(context)
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(HIGH_CHANNEL, "Greenhouse equipment alerts", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+
+        private fun logStartFailure(failure: RuntimeException) {
+            if (failure !is IllegalStateException && failure !is SecurityException) throw failure
+            android.util.Log.w("GreenhouseAlerts", "Android declined foreground alert monitoring.", failure)
+        }
+
+        private fun enqueueFallback(context: Context) {
+            if (SecureSettingsStore(context).cloudEnrollment()?.role == CloudDeviceRole.ViewerClient)
+                CloudAlertWorker.checkSoon(context)
+        }
+
+        private fun start(context: Context, intent: Intent) {
+            try {
+                context.startForegroundService(intent)
+            } catch (failure: RuntimeException) {
+                logStartFailure(failure)
+                if (intent.action != RESTORE) enqueueFallback(context)
+            }
+        }
+
+        internal fun restoreForAlarm(context: Context) {
+            if (!monitoring) start(context, Intent(context, CloudAlertService::class.java).setAction(RESTORE))
+        }
+
         fun sync(context: Context, enabled: Boolean) {
             val intent = Intent(context, CloudAlertService::class.java)
-            runCatching {
-                if (enabled) context.startForegroundService(intent) else context.stopService(intent)
-            }
+            if (enabled && SecureSettingsStore(context).cloudEnrollment()?.role == CloudDeviceRole.ViewerClient)
+                CloudAlertWorker.schedule(context)
+            else CloudAlertWorker.cancel(context)
+            if (enabled) start(context, intent) else context.stopService(intent)
         }
     }
 }

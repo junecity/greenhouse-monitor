@@ -204,7 +204,7 @@ class BootstrapApiTests(unittest.TestCase):
 
     def test_temperature_incident_stays_stable_until_a_measured_recovery(self):
         server = {"greenhouseId": "house", "accountId": "a", "tenantId": "t",
-                  "role": "GREENHOUSE_SERVER", "enabled": True}
+                  "role": "GREENHOUSE_SERVER", "enabled": True, "deviceSecretHash": "test-only"}
         fake = FakeTable({("DEVICE#server", "METADATA"): server})
         app.table = fake
         who = app.Principal("a", "t", "server")
@@ -217,8 +217,9 @@ class BootstrapApiTests(unittest.TestCase):
             self.assertEqual(204, result["statusCode"])
             return fake.client.transactions[-1]
 
-        initial, put = send(True, temperatureBreach=breach)
+        initial, put, delivery = send(True, temperatureBreach=breach)
         incident = put["Put"]["Item"]
+        self.assertEqual(incident["id"], delivery["Put"]["Item"]["id"])
         self.assertEqual("North bench measured 38.5°F, below the low limit of 40°F.", incident["message"])
         self.assertEqual(incident["id"], initial["Update"]["ExpressionAttributeValues"][":incidentId"])
         server.update(criticalTemperature=True, criticalAlertedAt=incident["createdAt"],
@@ -231,12 +232,13 @@ class BootstrapApiTests(unittest.TestCase):
                 self.assertNotIn("criticalIncidentId", repeated["Update"]["UpdateExpression"])
                 expected_evaluated = body.get("temperatureBreach", {}).get("measuredAt", 0) > 0
                 self.assertEqual(expected_evaluated, repeated["Update"]["ExpressionAttributeValues"][":evaluated"])
-        recovered, = send(False)
+        recovered, ended = send(False)
+        self.assertIn("resolvedAt", ended["Update"]["UpdateExpression"])
         self.assertIn("criticalIncidentId=:previousIncident", recovered["Update"]["ConditionExpression"])
         self.assertIn("criticalIncidentId", recovered["Update"]["UpdateExpression"].split(" REMOVE ")[1])
         server.pop("criticalIncidentId")
         server.pop("criticalAlertedAt")
-        _, next_put = send(True, temperatureBreach=breach)
+        _, next_put, _ = send(True, temperatureBreach=breach)
         self.assertNotEqual(incident["id"], next_put["Put"]["Item"]["id"])
 
     def test_pending_temperature_requires_current_owned_incident_even_for_legacy_clients(self):

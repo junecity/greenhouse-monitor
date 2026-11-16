@@ -110,6 +110,33 @@ class ClientTemperatureAlarmsTest {
         assertTrue(ClientTemperatureAlarms.pendingAcknowledgements(context, newOwner).isEmpty())
     }
 
+    @Test fun firstPollAfterRecoveryRingsAndRetainsTheRecoveryTime() {
+        assertNull(ClientTemperatureAlarms.lastCheck(context, owner))
+        val start = System.currentTimeMillis() - 600_000
+        val ended = alert("caught-up", owner.greenhouseId).copy(
+            sensorId = "bench", occurredAtEpochMs = start, resolvedAtEpochMs = start + 120_000,
+            message = "Bench measured 44°F. A later reading was within the configured limits.")
+        ClientTemperatureAlarms.deliver(context, owner, inbox(ended))
+        val checked = requireNotNull(ClientTemperatureAlarms.lastCheck(context, owner))
+        assertTrue(checked >= start + 120_000)
+        assertNull(ClientTemperatureAlarms.lastCheck(context, owner.copy(tenantId = "other")))
+        ClientTemperatureAlarms.deliver(context, owner)
+        assertEquals(checked, ClientTemperatureAlarms.lastCheck(context, owner))
+        assertEquals(ended, active().single())
+        assertTrue(CriticalAlarm.isIncidentPlaying())
+        waitUntil("recovered incident shown with the later reading") {
+            notifications.activeNotifications.any {
+                it.id == ended.id.hashCode() && it.notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT) == ended.message
+            }
+        }
+        ClientTemperatureAlarms.deliver(context, owner, inbox())
+        assertEquals(ended.resolvedAtEpochMs, active().single().resolvedAtEpochMs)
+        ClientTemperatureAlarms.stop(context, owner, setOf(ended.id))
+        ClientTemperatureAlarms.deliver(context, owner, inbox(ended))
+        assertFalse(CriticalAlarm.isIncidentPlaying())
+        assertTrue(active().isEmpty())
+    }
+
     @Test fun acknowledgedBenchAndNewRoofBreachWithTheSameLimitRingIndependently() {
         val bench = alert("bench-first", owner.greenhouseId).copy(sensorId = "bench", serverId = "same-server")
         val roof = bench.copy(id = "roof-first", sensorId = "roof", message = "Roof measured 88°F above 82°F.")

@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-16 · Greenhouse Studio 2.41.1 (86) · Closed-client critical temperature alarms
+
+- CloudBootReceiver and MainActivity restore monitoring for enrolled viewers after restart or upgrade even when dashboard auto-start is off and no incidents were previously delivered. CloudAlertService and CloudAlertWorker share one enrollment-checked inbox poll. A foreground service checks on network return or exit from idle. A persistent network-constrained job provides a fallback when Android restricts the service. Keep locally delivered incidents ringing through service teardown until an in-app stop.
+- AuthenticatedCloudGateway opts viewers into recent critical recoveries. In backend/src/app.py and sensor_temperature.py, eligible unacknowledged incidents remain available for 24 hours after observed recovery, scoped to the tenant, greenhouse and current server enrollment. Older clients retain their active-only inbox. No table migration. ClientTemperatureAlarms, ClientAlarmPrompt and CriticalSoundSettings retain recovery details and show the last successful check and Android background restrictions.
+- 182 JVM and 119 backend tests passed. Android 10 and 15 emulator tests verified closed-app delivery and OS alarm playback with a local HTTPS fixture. Lint had zero errors. Test conditions and release artifact are recorded in CHANGELOG.md. Deploy the application stack and publish version 86 to the greenhouse update catalog after greenhouse-dev reauthentication. Verify a physical sensor-to-client alert, closed-screen delivery timing and speaker loudness afterward.
+
 ## 2026-11-16 · Greenhouse Studio 2.41.0 (85) · Independent temperature alarms
 
 - Keep one high/low setting per greenhouse. TemperatureAssessment, CloudHeartbeatService and AuthenticatedCloudGateway report fresh observations by stable sensor ID and preserve the older aggregate heartbeat. AlertNotifier tracks local sensor crossings and uses separate notification identities even when sensor IDs have matching Java hashes.

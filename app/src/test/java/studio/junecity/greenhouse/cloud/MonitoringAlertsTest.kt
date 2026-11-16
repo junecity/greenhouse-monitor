@@ -58,6 +58,27 @@ class MonitoringAlertsTest {
         assertEquals(MonitoringAlertPriority.High, alert.priority)
         assertEquals(1_700_000_000_000L, alert.occurredAtEpochMs)
         assertTrue(alert.requiresAcknowledgement)
+        assertEquals(null, alert.resolvedAtEpochMs)
+    }
+
+    @Test fun viewingPhoneRequestsUnacknowledgedRecoveredAlarms() = runBlocking {
+        val paths = mutableListOf<String?>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val query = chain.request().url.queryParameter("includeRecovered")
+            paths.add(query)
+            val alert = JSONObject().put("id", "night-1").put("type", "CRITICAL_TEMPERATURE")
+                .put("priority", "CRITICAL").put("message", "Low reading followed by recovery.")
+                .put("createdAtEpochMs", 1000L).put("resolvedAtEpochMs", 2000L)
+            val response = JSONObject().put("criticalIncidentsVerified", true).put("offlineIncidentsVerified", true)
+                .put("alerts", if (query == "true") org.json.JSONArray().put(alert) else org.json.JSONArray())
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                .body(response.toString().toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        val api = AuthenticatedCloudGateway(CloudApiConfig("https://fixture.invalid", "client-01"),
+            CloudTokenProvider { "fixture" }, client = client)
+        assertEquals(2000L, api.pendingAlerts(true).alerts.single().resolvedAtEpochMs)
+        assertTrue(api.pendingAlerts(false).alerts.isEmpty())
+        assertEquals(listOf("true", null), paths)
     }
 
     @Test fun alertPollingBacksOffButReturnsToOneMinute() {

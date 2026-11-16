@@ -85,7 +85,12 @@ internal fun ClientAlarmPrompt(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(occurred, color = DashboardTokens.Muted, style = MaterialTheme.typography.labelMedium)
+                                val timeLabel = if (showReadings && alert.resolvedAtEpochMs != null) {
+                                    val ended = DateUtils.formatDateTime(context, alert.resolvedAtEpochMs,
+                                        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)
+                                    "Started $occurred · Ended $ended"
+                                } else occurred
+                                Text(timeLabel, color = DashboardTokens.Muted, style = MaterialTheme.typography.labelMedium)
                                 if (showReadings) Text(alert.message, style = MaterialTheme.typography.bodyLarge)
                                 else if (alert.id == openedIncidentId) Text("Opened notification")
                             }

@@ -1,8 +1,11 @@
 package studio.junecity.greenhouse.ui
 
+import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
+import android.text.format.DateUtils
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,19 +20,32 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import studio.junecity.greenhouse.cloud.CriticalAlarm
+import studio.junecity.greenhouse.cloud.ClientTemperatureAlarms
 import studio.junecity.greenhouse.cloud.TemperatureSound
+import studio.junecity.greenhouse.settings.CloudEnrollment
 
 @Composable
-internal fun CriticalSoundSettings() {
+internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
     val context = LocalContext.current
     var sound by remember { mutableStateOf(TemperatureSound.selected(context)) }
     var loud by remember { mutableStateOf(CriticalAlarm.enabled(context)) }
     var menu by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var soundIssue by remember { mutableStateOf<String?>(null) }
+    var backgroundRestricted by remember { mutableStateOf(false) }
+    var lastCheck by remember(context, enrollment) { mutableStateOf(ClientTemperatureAlarms.lastCheck(context, enrollment)) }
+    DisposableEffect(context, enrollment) {
+        fun updateCheck() { lastCheck = ClientTemperatureAlarms.lastCheck(context, enrollment) }
+        val unsubscribe = ClientTemperatureAlarms.watch(context, ::updateCheck, includeChecks = true)
+        updateCheck()
+        onDispose { unsubscribe() }
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, context, sound, loud) {
-        fun checkSound() { soundIssue = CriticalAlarm.soundIssue(context, sound.channel(context), loud) }
+        fun checkSound() {
+            soundIssue = CriticalAlarm.soundIssue(context, sound.channel(context), loud)
+            backgroundRestricted = context.getSystemService(ActivityManager::class.java).isBackgroundRestricted
+        }
         checkSound()
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -91,7 +107,23 @@ internal fun CriticalSoundSettings() {
                 TextButton(onClick = { message = sound.test(context) }) { Text("Test sound", color = DashboardTokens.Amber) }
                 TextButton(onClick = { openSettings() }) { Text("Sound settings", color = DashboardTokens.Amber) }
             }
+            Text(lastCheck?.let { checked ->
+                val date = DateUtils.formatDateTime(context, checked, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME)
+                "Last alert check · $date"
+            } ?: "Waiting for the first alert check", color = DashboardTokens.Muted, style = MaterialTheme.typography.bodySmall)
             if (message.isNotEmpty() && message != soundIssue) Text(message, color = DashboardTokens.Muted)
+            if (backgroundRestricted) {
+                Text("Android is restricting background checks. Open Battery in app settings to allow background use.",
+                    color = DashboardTokens.Amber)
+                TextButton(onClick = {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", context.packageName, null)))
+                    } catch (_: ActivityNotFoundException) {
+                        message = "Open Settings → Apps → Greenhouse Studio → Battery on your phone."
+                    }
+                }) { Text("Open app settings", color = DashboardTokens.Amber) }
+            }
         }
     }
 }

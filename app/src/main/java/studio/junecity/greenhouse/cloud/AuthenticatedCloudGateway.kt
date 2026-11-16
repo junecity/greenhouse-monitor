@@ -206,7 +206,7 @@ class AuthenticatedCloudGateway(
     }
 
     suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
-        val json = request("GET", "/v1/alerts")
+        val json = request("GET", if (viewer) "/v1/alerts?includeRecovered=true" else "/v1/alerts")
         val values = json.getJSONArray("alerts")
         val alerts = (0 until values.length()).map { CloudJsonCodec.alert(values.getJSONObject(it)) }
         val inventory = if (viewer && !json.optBoolean("offlineIncidentsVerified") &&
@@ -338,6 +338,7 @@ object CloudJsonCodec {
         requiresAcknowledgement = json.optBoolean("requiresAcknowledgement"),
         serverId = json.optNullableString("deviceId"),
         sensorId = json.optNullableString("sensorId"),
+        resolvedAtEpochMs = json.optLong("resolvedAtEpochMs").takeIf { it > 0 },
     )
 
     fun pairing(json: JSONObject) = PairingChallenge(

@@ -17,6 +17,7 @@ internal object ClientTemperatureAlarms {
     private const val LIVE = "incident/"
     private const val STOPPED = "stopped"
     private const val ACK_QUEUE = "ack_queue"
+    private const val LAST_CHECK = "last_successful_check"
 
     private fun preferences(context: Context) = context.getSharedPreferences("client_temperature_incidents", Context.MODE_PRIVATE)
 
@@ -27,13 +28,19 @@ internal object ClientTemperatureAlarms {
     private fun isCurrent(context: Context, enrollment: CloudEnrollment?) =
         owner(enrollment) != null && owner(enrollment) == owner(SecureSettingsStore(context).cloudEnrollment())
 
-    fun watch(context: Context, changed: () -> Unit): () -> Unit {
+    fun watch(context: Context, changed: () -> Unit, includeChecks: Boolean = false): () -> Unit {
         val prefs = preferences(context)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == null || key == OWNER || key.startsWith(LIVE)) changed()
+            if (key == null || key == OWNER || key.startsWith(LIVE) || (includeChecks && key == LAST_CHECK)) changed()
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    fun lastCheck(context: Context, enrollment: CloudEnrollment): Long? {
+        val prefs = preferences(context)
+        if (prefs.getString(OWNER, null) != owner(enrollment)) return null
+        return prefs.getLong(LAST_CHECK, 0L).takeIf { it > 0 }
     }
 
     private fun incidents(prefs: SharedPreferences): List<MonitoringAlert> = prefs.all.mapNotNull { (key, value) ->
@@ -41,7 +48,8 @@ internal object ClientTemperatureAlarms {
         val entry = JSONObject(value)
         MonitoringAlert(key.removePrefix(LIVE), entry.getString("house"), MonitoringAlertType.CriticalTemperature,
             MonitoringAlertPriority.Critical, entry.getString("message"), entry.getLong("time"), true,
-            entry.optString("server").ifBlank { null }, entry.optString("sensor").ifBlank { null })
+            entry.optString("server").ifBlank { null }, entry.optString("sensor").ifBlank { null },
+            entry.optLong("resolvedAt").takeIf { it > 0 })
     }.sortedWith(compareBy({ it.occurredAtEpochMs }, { it.id }))
 
     @Synchronized fun active(context: Context, enrollment: CloudEnrollment?): List<MonitoringAlert> {
@@ -84,11 +92,12 @@ internal object ClientTemperatureAlarms {
         val stopped = prefs.getStringSet(STOPPED, emptySet()).orEmpty()
         if (inbox != null) {
             val critical = inbox.alerts.filter { it.type == MonitoringAlertType.CriticalTemperature }
-            val edit = prefs.edit().putString(OWNER, owner)
+            val edit = prefs.edit().putString(OWNER, owner).putLong(LAST_CHECK, System.currentTimeMillis())
             for (alert in critical) {
                 if (alert.id in stopped) continue
                 val entry = JSONObject().put("house", alert.greenhouseId).put("time", alert.occurredAtEpochMs)
-                    .put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId).toString()
+                    .put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId)
+                    .put("resolvedAt", alert.resolvedAtEpochMs).toString()
                 if (entry != prefs.getString(LIVE + alert.id, null)) edit.putString(LIVE + alert.id, entry)
             }
             if (inbox.complete && inbox.criticalIncidentsVerified) {

@@ -71,7 +71,7 @@ internal fun AlertSettings(state: GreenhouseUiState, onPrefs: ((AppPreferences) 
             } else {
                 RemoteAlertRules(cloud, current)
             }
-            if (viewer) CriticalSoundSettings()
+            if (viewer && enrollment != null) CriticalSoundSettings(enrollment)
             else LocalAlertDelivery(state.preferences.notifications, onPrefs)
         }
     }

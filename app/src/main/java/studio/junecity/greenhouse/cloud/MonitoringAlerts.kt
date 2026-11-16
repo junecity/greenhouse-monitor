@@ -18,7 +18,8 @@ data class MonitoringAlert(
     val occurredAtEpochMs: Long,
     val requiresAcknowledgement: Boolean,
     val serverId: String? = null,
-    val sensorId: String? = null
+    val sensorId: String? = null,
+    val resolvedAtEpochMs: Long? = null
 )
 
 data class AlertInbox(

@@ -22,8 +22,9 @@ class PerSensorTemperatureTests(GreenhouseFixture):
                         dict(sensorConnectionHealthy=True, recordedAtEpochMs=sent or self.t,
                              temperatureObservations=readings, **fields), True)
 
-    def inbox(self):
-        status, result = self.api("/v1/alerts")
+    def inbox(self, include_recovered=False):
+        query = {"includeRecovered": "true"} if include_recovered else None
+        status, result = self.api("/v1/alerts", query=query)
         self.assertEqual(200, status)
         return result["alerts"]
 
@@ -35,6 +36,115 @@ class PerSensorTemperatureTests(GreenhouseFixture):
 
     def stored(self, event_id):
         return self.db.get_item(Key={"pk": self.account, "sk": f"ALERT#{event_id}"})["Item"]
+
+    def test_client_closed_until_after_recovery(self):
+        self.report([self.reading("A", 89.42), self.reading("B", 91)])
+        self.report([self.reading("A", 71, self.t + 1)], self.t + 1)
+        self.assertEqual(["B"], [a["sensorId"] for a in self.inbox()])
+        received = {a["sensorId"]: a for a in self.inbox(True)}
+        self.assertIn("Sensor A measured 89.42°F", received["A"]["message"])
+        self.assertIn("within the configured limits", received["A"]["message"])
+        self.assertGreaterEqual(received["A"]["resolvedAtEpochMs"], received["A"]["createdAtEpochMs"])
+        self.assertNotIn("resolvedAtEpochMs", received["B"])
+        self.assertEqual(list(received.values()), self.inbox(True))
+        self.ack(received["A"]["id"])
+        self.ack(received["B"]["id"])
+        self.report([self.reading("B", 70, self.t + 2)], self.t + 2)
+        self.assertEqual([], self.inbox(True))  # Recovery cannot resurrect an acknowledged episode.
+
+    def test_opposite_breach_is_not_described_as_safe(self):
+        self.report([self.reading("A", 30)])
+        self.report([self.reading("A", 90, self.t + 1)], self.t + 1)
+        alerts = self.inbox(True)
+        self.assertEqual(2, len(alerts))
+        ended, = [a for a in alerts if "resolvedAtEpochMs" in a]
+        self.assertIn("crossed the high limit", ended["message"])
+        self.assertNotIn("within", ended["message"])
+        active, = [a for a in alerts if "resolvedAtEpochMs" not in a]
+        self.assertNotEqual(active["id"], ended["id"])
+
+    def test_recovered_before_viewer_registration_or_timeout_is_not_delivered(self):
+        self.report([self.reading("A", 40)])
+        self.report([self.reading("A", 80, self.t + 1)], self.t + 1)
+        ended, = self.inbox(True)
+        now = ended["resolvedAtEpochMs"] // 1000
+        viewer = {"pk": f"DEVICE#{self.client}", "sk": "METADATA"}
+        for field in ("createdAt", "reauthorizedAt"):
+            self.db.update_item(Key=viewer, UpdateExpression=f"SET {field}=:newer",
+                                ExpressionAttributeValues={":newer": now + 1})
+            self.assertEqual([], self.inbox(True))
+            self.db.update_item(Key=viewer, UpdateExpression=f"REMOVE {field}")
+        marker = {"pk": self.account, "sk": f'TEMPERATURE_DELIVERY#{ended["id"]}'}
+        self.db.update_item(Key=marker, UpdateExpression="SET resolvedAt=:old",
+                            ExpressionAttributeValues={":old": now - 86401})
+        self.assertEqual([], self.inbox(True))
+
+    def test_recovered_records_require_current_owned_house_and_source_enrollment(self):
+        self.report([self.reading("A", 90)])
+        self.report([self.reading("A", 70, self.t + 1)], self.t + 1)
+        self.assertEqual(1, len(self.inbox(True)))
+        for pk, fields in [
+            (f"DEVICE#{self.server}", {"enabled": False}),
+            (f"DEVICE#{self.server}", {"reauthorizedAt": self.t // 1000}),
+            (f"DEVICE#{self.server}", {"communicationSuspended": True}),
+            (f"GREENHOUSE#{self.house}", {"serverDeviceId": "replacement"}),
+            (f"GREENHOUSE#{self.house}", {"tenantId": "other-tenant"}),
+            (f"GREENHOUSE#{self.house}", {"accountId": "other-customer"}),
+        ]:
+            with self.subTest(pk=pk, fields=fields):
+                key = {"pk": pk, "sk": "METADATA"}
+                original = self.db.get_item(Key=key)["Item"]
+                self.db.put_item(Item={**original, **fields})
+                self.assertEqual([], self.inbox(True))
+                self.db.put_item(Item=original)
+
+    def test_old_aggregate_server_can_catch_up_only_on_confirmed_recovery(self):
+        path = f"/v1/device/devices/{self.server}/heartbeat"
+        active = dict(sensorConnectionHealthy=True, temperatureEvaluated=True, criticalTemperature=True,
+                      temperatureBreach=dict(sensorName="Bench", direction="LOW", temperatureF=39,
+                                             limitF=45, measuredAt=self.t // 1000))
+        self.assertEqual(204, self.api(path, active, True)[0])
+        self.assertEqual(204, self.api(path, dict(sensorConnectionHealthy=True, temperatureEvaluated=False,
+                                                  criticalTemperature=False), True)[0])
+        self.assertNotIn("resolvedAtEpochMs", self.inbox(True)[0])
+        self.assertEqual(204, self.api(path, dict(sensorConnectionHealthy=True, temperatureEvaluated=True,
+                                                  criticalTemperature=False), True)[0])
+        self.assertEqual([], self.inbox())
+        ended, = self.inbox(True)
+        self.assertIn("Bench measured 39°F", ended["message"])
+        self.assertIn("resolvedAtEpochMs", ended)
+        self.ack(ended["id"])
+        self.assertEqual([], self.inbox(True))
+
+    def test_old_events_without_projected_identity_cannot_be_replayed_after_upgrade(self):
+        self.report([self.reading("A", 90)])
+        breach, = self.inbox()
+        # Equivalent pre-upgrade records contain an open item and history, but no delivery projection.
+        self.db.delete_item(Key={"pk": self.account, "sk": f'TEMPERATURE_DELIVERY#{breach["id"]}'})
+        self.report([self.reading("A", 74, self.t + 1)], self.t + 1)
+        self.assertEqual([], self.inbox(True))
+
+    def test_older_lambda_acknowledgement_prevents_catch_up_during_rollout(self):
+        self.report([self.reading("A", 38)])
+        self.report([self.reading("A", 74, self.t + 1)], self.t + 1)
+        ended, = self.inbox(True)
+        self.db.update_item(Key={"pk": self.account, "sk": f'ALERT#{ended["id"]}'},
+                            UpdateExpression="SET acknowledgedAt=:t", ExpressionAttributeValues={":t": self.t // 1000})
+        self.assertEqual([], self.inbox(True))
+
+    def test_missing_legacy_recovery_evidence_does_not_claim_limits_were_met(self):
+        path = f"/v1/device/devices/{self.server}/heartbeat"
+        breach = dict(sensorName="Bench", direction="HIGH", temperatureF=91, limitF=82, measuredAt=self.t // 1000)
+        self.api(path, dict(sensorConnectionHealthy=True, criticalTemperature=True, temperatureEvaluated=True,
+                            temperatureBreach=breach), True)
+        self.api(path, dict(sensorConnectionHealthy=True, criticalTemperature=False), True)
+        self.assertEqual([], self.inbox(True))
+
+    def test_compact_recovery_inbox_pages_after_100_sensors(self):
+        sensors = [f"S{n}" for n in range(105)]
+        self.report([self.reading(sensor, 36) for sensor in sensors])
+        self.report([self.reading(sensor, 72, self.t + 1) for sensor in sensors], self.t + 1)
+        self.assertEqual(set(sensors), {a["sensorId"] for a in self.inbox(True)})
 
     def test_ack_a_then_b_reaches_identical_temperature(self):
         a, b = self.reading("A", 87), self.reading("B", 87)

@@ -118,12 +118,17 @@ class MainActivity : ComponentActivity() {
                     device.networkChanges().collect { status = device.current() }
                 }
             }
+            LaunchedEffect(cloudEnrollmentRevision) {
+                lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    val enrolled = SecureSettingsStore(applicationContext).cloudEnrollment() != null
+                    CloudAlertService.sync(applicationContext, enrolled && cloudConfiguration.getOrNull() != null)
+                }
+            }
             LaunchedEffect(state.preferences.cameraMode, cloudEnrollmentRevision) {
                 val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
                 if (state.preferences.cameraMode == CameraMode.CameraServer && enrollment == null && cloudConfiguration.getOrNull() == null && cloudConfiguration.isSuccess) {
                     CameraStreamServer.start(applicationContext, allowPublicMapping = true)
                 } else CameraStreamServer.stop()
-                CloudAlertService.sync(applicationContext, enrollment != null && cloudConfiguration.getOrNull() != null)
                 CloudHeartbeatService.sync(
                     applicationContext,
                     enrollment?.role == CloudDeviceRole.GreenhouseServer

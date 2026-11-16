@@ -15,8 +15,9 @@ class CloudBootReceiver : BroadcastReceiver() {
         val configured = runCatching { CloudRuntime.configurationOrNull() != null }.getOrDefault(false)
         val enrollment = SecureSettingsStore(context).cloudEnrollment()
         if (!configured || enrollment == null) return
-        if (!shouldRestart && (enrollment.role != CloudDeviceRole.ViewerClient ||
-                ClientTemperatureAlarms.active(context, enrollment).isEmpty())) return
+        // The dashboard's boot preference applies to the greenhouse phone. A paired viewer
+        // must also be listening before its first temperature incident arrives.
+        if (!shouldRestart && enrollment.role != CloudDeviceRole.ViewerClient) return
         CloudAlertService.sync(context, enabled = true)
         if (enrollment.role == CloudDeviceRole.GreenhouseServer) {
             CloudHeartbeatService.sync(context, enabled = true)

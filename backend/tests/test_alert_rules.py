@@ -47,8 +47,9 @@ class GreenhouseFixture(unittest.TestCase):
     def put(self, pk, sk, **fields):
         self.db.put_item(Item={"pk": pk, "sk": sk, **fields})
 
-    def api(self, path, body=None, server=False):
+    def api(self, path, body=None, server=False, query=None):
         req = event(path, "GET" if body is None else "POST", body=body, device_id=self.server if server else self.client)
+        req["queryStringParameters"] = query
         if server:
             req["headers"]["x-greenhouse-device-secret"] = self.secret
         result = app.handler(req, None)

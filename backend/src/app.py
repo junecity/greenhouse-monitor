@@ -19,7 +19,10 @@ from botocore.config import Config
 from alert_rules import greenhouse_rules, heartbeat_rules
 from camera_archive import archive
 from alerts import LEGACY_TEMPERATURE_MESSAGE, new_alert, temperature_breach_message
-from sensor_temperature import apply_observations, enrollment_key, parse_observations
+from sensor_temperature import (
+    apply_observations, enrollment_key, parse_observations, recent_recoveries,
+    record_recovery, recovery_inbox_key, track_for_recovery,
+)
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
 from google_play_verifier import GooglePlayVerificationError, verify_google_play_purchase
@@ -1172,7 +1175,7 @@ def verify_google_play_subscription(event, principal: Principal):
     })
 
 
-def pending_alerts(principal: Principal):
+def pending_alerts(principal: Principal, include_recovered=False):
     device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
     if not device.get("enabled") or device.get("accountId") != principal.account_id:
         raise AccessDenied("device_disabled")
@@ -1208,14 +1211,14 @@ def pending_alerts(principal: Principal):
         legacy_temperature_sources.add(source)
         return True
 
-    def deliver(item, message):
-        alerts.append({
+    def alert_payload(item, message):
+        return {
             "id": item["id"], "greenhouseId": item.get("greenhouseId"), "deviceId": item.get("deviceId"),
             "type": item["type"], "priority": item["priority"], "message": message,
             "createdAtEpochMs": int(item["createdAt"]) * 1000,
             "requiresAcknowledgement": bool(item.get("requiresAcknowledgement")),
             **({"sensorId": item["sensorId"]} if item.get("sensorId") else {}),
-        })
+        }
 
     # Query unresolved thermometers directly. An ongoing incident remains discoverable
     # even after hundreds of other sensors have crossed and recovered.
@@ -1230,10 +1233,20 @@ def pending_alerts(principal: Principal):
                 continue
             server = incident_server(item)
             if server and enrollment_key(server, item["deviceId"]) == item.get("sourceGeneration"):
-                deliver(item, item["message"])
+                alerts.append(alert_payload(item, item["message"]))
         if not page.get("LastEvaluatedKey"):
             break
         open_query["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+    if include_recovered and device.get("role") == "VIEWER_CLIENT":
+        active = {a["id"]: index for index, a in enumerate(alerts)}
+        now = int(datetime.now(timezone.utc).timestamp())
+        for item in recent_recoveries(table, principal, device, now, incident_server):
+            payload = alert_payload(item, item["message"])
+            payload["resolvedAtEpochMs"] = int(item["resolvedAt"]) * 1000
+            if item["id"] in active:
+                alerts[active[item["id"]]] = payload  # It cleared between the two inbox queries.
+            else:
+                alerts.append(payload)
     sensor_alert_count = len(alerts)
     exclusive_start_key = None
     for _ in range(MAX_ALERT_QUERY_PAGES):
@@ -1265,7 +1278,7 @@ def pending_alerts(principal: Principal):
                     message += " Waiting for a fresh reading."
             if "acknowledgedAt" in item:
                 continue
-            deliver(item, message)
+            alerts.append(alert_payload(item, message))
             if len(alerts) - sensor_alert_count >= 50:
                 return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "complete": False})
         exclusive_start_key = result.get("LastEvaluatedKey")
@@ -1291,6 +1304,7 @@ def acknowledge_alert(principal: Principal, alert_id: str):
                                               ":tenant": principal.tenant_id, ":account": principal.account_id},
             }},
             {"Delete": {"TableName": table.name, "Key": {"pk": account_key, "sk": f"OPEN_TEMPERATURE#{alert_id}"}}},
+            {"Delete": {"TableName": table.name, "Key": recovery_inbox_key(principal.account_id, alert_id)}},
         ])
     except ClientError as error:
         reasons = error.response.get("CancellationReasons") or []
@@ -1442,6 +1456,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
         expression_values.update({":alertHouse": device["greenhouseId"], ":alertRevision": alert_policy["appliedRevision"]})
     alert_records = []
     marker_conditions = []
+    temperature_delivery = []
     if not sensor_healthy and "sensorAlertedAt" not in device:
         marker_conditions.append("attribute_not_exists(sensorAlertedAt)")
         alert_records.append(new_alert(
@@ -1461,6 +1476,15 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
             remove_parts.extend(["criticalTemperature", "criticalAlertedAt", "criticalIncidentId", "criticalAlertMessage"])
             marker_conditions.append("criticalAlertedAt=:legacyMarker")
             expression_values[":legacyMarker"] = device["criticalAlertedAt"]
+            old_id = device.get("criticalIncidentId")
+            if old_id:
+                # An identity-less aggregate superseded by individual breaches did
+                # not demonstrably recover. Those individual incidents are deliverable.
+                if has_breach:
+                    temperature_delivery.append({"Delete": {"TableName": table.name,
+                        "Key": recovery_inbox_key(principal.account_id, old_id)}})
+                else:
+                    temperature_delivery.append(record_recovery(table, principal.account_id, old_id, now, "NORMAL"))
     elif evaluated and not device.get("sensorTemperatureMode"):
         marker_conditions.append("attribute_not_exists(sensorTemperatureMode)")
         set_parts.append("criticalTemperature=:critical")
@@ -1482,6 +1506,9 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
                                   alert_type="CRITICAL_TEMPERATURE", created_at=now)
                 if critical_message:
                     alert["message"] = critical_message
+                if critical_message and body.get("temperatureEvaluated") is True and device.get("deviceSecretHash"):
+                    alert["sourceGeneration"] = enrollment_key(device, device_id)
+                    temperature_delivery.append(track_for_recovery(table, alert))
                 alert_records.append(alert)
                 set_parts.extend(["criticalAlertedAt=:now", "criticalIncidentId=:incidentId"])
                 expression_values[":incidentId"] = alert["id"]
@@ -1489,6 +1516,13 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
                 set_parts.append("criticalAlertMessage=:alertMessage")
                 expression_values[":alertMessage"] = critical_message
         else:
+            if device.get("criticalIncidentId"):
+                old_id = device["criticalIncidentId"]
+                if body.get("temperatureEvaluated") is True:
+                    temperature_delivery.append(record_recovery(table, principal.account_id, old_id, now, "NORMAL"))
+                else:
+                    temperature_delivery.append({"Delete": {"TableName": table.name,
+                        "Key": recovery_inbox_key(principal.account_id, old_id)}})
             remove_parts.extend(["criticalAlertedAt", "criticalIncidentId", "criticalAlertMessage"])
     condition = ("tenantId=:tenant AND accountId=:account AND enabled=:enabled "
                  "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:unsuspended)")
@@ -1497,7 +1531,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     expression_values[":previousManaged"] = previously_managed
     condition += (" AND managedUpdates=:previousManaged" if previously_managed else
                   " AND (attribute_not_exists(managedUpdates) OR managedUpdates=:previousManaged)")
-    if alert_policy is not None or observations is not None:
+    if alert_policy is not None or observations is not None or temperature_delivery:
         expression_values[":alertHouse"] = device["greenhouseId"]
         condition += " AND greenhouseId=:alertHouse"
         if device.get("deviceSecretHash"):
@@ -1516,6 +1550,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
         "TableName": table.name, "Item": alert,
         "ConditionExpression": "attribute_not_exists(pk)",
     }} for alert in alert_records)
+    transaction.extend(temperature_delivery)
     table.meta.client.transact_write_items(TransactItems=transaction)
     command = {"alertRules": alert_policy} if alert_policy is not None else {}
     if not target:
@@ -1600,7 +1635,8 @@ def handler(event, _context):
         if method == "POST" and parts == ["v1", "subscriptions", "google-play", "verify"]:
             return verify_google_play_subscription(event, principal)
         if method == "GET" and parts == ["v1", "alerts"]:
-            return pending_alerts(principal)
+            params = event.get("queryStringParameters") or {}
+            return pending_alerts(principal, include_recovered=params.get("includeRecovered") == "true")
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge":
             return acknowledge_alert(principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":
