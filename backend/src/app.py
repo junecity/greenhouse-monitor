@@ -6,13 +6,14 @@ import hmac
 import os
 import re
 import secrets
+import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
 
 from camera_archive import archive
@@ -372,23 +373,84 @@ def list_devices(principal: Principal):
             "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
             "online": bool(primary.get("enabled")) and not primary.get("communicationSuspended") and last_heartbeat > 0 and now - last_heartbeat <= 180,
         })
+    servers = [device for device in devices if device["role"] == "GREENHOUSE_SERVER"]
+    if servers:
+        release = inventory_server_release()
+        for server in servers:
+            server["latestReleaseCode"] = release["versionCode"] if release else None
+            server["latestReleaseName"] = release["versionName"] if release else None
     return response(200, {"devices": sorted(devices, key=lambda value: value["createdAtEpochMs"])})
 
 
 # Builds before 73 do not understand the heartbeat update notice.
 FIRST_UPDATE_RECEIVER = 73
+_release_cache = None
+
+
+def inventory_server_release():
+    # The device screen polls every five seconds. Share a brief catalog cache within
+    # each Lambda instance. Installation requests always recheck the release.
+    global _release_cache
+    catalog = (os.environ.get("SERVER_RELEASE_BUCKET"), os.environ.get("ENVIRONMENT_NAME"))
+    now = time.monotonic()
+    if _release_cache and _release_cache[0] == catalog and now < _release_cache[1]:
+        return _release_cache[2]
+    try:
+        release = latest_server_release()
+    except (BotoCoreError, ClientError):
+        print(json.dumps({"event": "server_release_catalog_unavailable"}))
+        release = None
+    _release_cache = catalog, now + 30, release
+    return release
 
 
 def pending_update(device, now, installed):
     target = int(device.get("requestedUpdateCode", 0))
     if (installed and FIRST_UPDATE_RECEIVER <= installed < target
             and device.get("enabled") and not device.get("communicationSuspended")
+            and ("updateRequiresManaged" not in device or
+                 device["updateRequiresManaged"] is (device.get("managedUpdates") is True))
             and device.get("updateUntil", 0) > now):
         return target
     return None
 
 
-def server_release(target):
+def latest_server_release():
+    bucket = os.environ.get("SERVER_RELEASE_BUCKET")
+    if not bucket:
+        return None
+    key = f"releases/{os.environ['ENVIRONMENT_NAME']}/android/latest.json"
+    storage = boto3.client("s3", config=Config(signature_version="s3v4"))
+    try:
+        obj = storage.get_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response["Error"]["Code"] in {"403", "404", "AccessDenied", "NoSuchKey", "NotFound"}:
+            return None
+        raise
+    stream = obj["Body"]
+    try:
+        data = stream.read(4097)
+        if len(data) > 4096:
+            return None
+        manifest = json.loads(data)
+    except (ValueError, UnicodeError):
+        return None
+    finally:
+        stream.close()
+    if not isinstance(manifest, dict):
+        return None
+    code, name = manifest.get("versionCode"), manifest.get("versionName")
+    if type(code) is not int or not FIRST_UPDATE_RECEIVER < code <= 2_100_000_000:
+        return None
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,39}", name):
+        return None
+    # A stale pointer must not advertise a withdrawn or incompletely published package.
+    if not server_release(code, include_url=False):
+        return None
+    return {"versionCode": code, "versionName": name}
+
+
+def server_release(target, *, include_url=True):
     # Only the release publisher can write into this bucket. Clients select a version, never a URL.
     bucket = os.environ.get("SERVER_RELEASE_BUCKET")
     if not bucket:
@@ -398,15 +460,17 @@ def server_release(target):
     try:
         obj = storage.head_object(**key)
     except ClientError as error:
-        if error.response["Error"]["Code"] in {"403", "404", "NoSuchKey", "NotFound"}:
+        if error.response["Error"]["Code"] in {"403", "404", "AccessDenied", "NoSuchKey", "NotFound"}:
             return None
         raise
     digest = obj.get("Metadata", {}).get("sha256", "")
     size = obj["ContentLength"]
     if not re.fullmatch("[0-9a-f]{64}", digest) or not 0 < size <= 180 * 1024 * 1024:
         return None
-    return {"versionCode": target, "sha256": digest, "bytes": size,
-            "url": storage.generate_presigned_url("get_object", Params=key, ExpiresIn=300)}
+    release = {"versionCode": target, "sha256": digest, "bytes": size}
+    if include_url:
+        release["url"] = storage.generate_presigned_url("get_object", Params=key, ExpiresIn=300)
+    return release
 
 
 def update_package(principal, device_id):
@@ -434,22 +498,37 @@ def request_server_update(event, principal: Principal, device_id: str):
     target = body.get("versionCode") if isinstance(body, dict) else None
     if type(target) is not int or not FIRST_UPDATE_RECEIVER < target <= 2_100_000_000:
         return response(400, {"error": "invalid_update_version"})
+    reported_managed = server.get("managedUpdates") is True
+    # Older clients don't send a mode. Bind those requests to the server's
+    # current capability as well, retaining their explicit build selection.
+    require_managed = body.get("requireManaged", reported_managed)
+    if type(require_managed) is not bool:
+        return response(400, {"error": "invalid_managed_requirement"})
+    if require_managed != reported_managed:
+        return response(409, {"error": "server_enrollment_required" if require_managed else "server_enrollment_changed"})
     installed = int(server.get("appVersionCode", 0))
     if not FIRST_UPDATE_RECEIVER <= installed < target:
         return response(409, {"error": "server_not_eligible"})
-    if server.get("managedUpdates") is True and not server_release(target):
+    if require_managed and "requireManaged" in body:
+        latest = latest_server_release()
+        if not latest or target != latest["versionCode"]:
+            return response(409, {"error": "release_unavailable"})
+    elif require_managed and not server_release(target, include_url=False):
         return response(409, {"error": "release_unavailable"})
     now = int(datetime.now(timezone.utc).timestamp())
     table.update_item(
         Key={"pk": f"DEVICE#{device_id}", "sk": "METADATA"},
-        UpdateExpression="SET requestedUpdateCode=:target, updateUntil=:expires REMOVE updateStatus",
+        UpdateExpression="SET requestedUpdateCode=:target, updateUntil=:expires, updateRequiresManaged=:managed REMOVE updateStatus",
         ConditionExpression=("tenantId=:tenant AND accountId=:account AND #role=:server AND enabled=:yes "
                              "AND (attribute_not_exists(communicationSuspended) OR communicationSuspended=:no) "
-                             "AND appVersionCode=:installed"),
+                             "AND appVersionCode=:installed AND " +
+                             ("managedUpdates=:yes" if require_managed else
+                              "(attribute_not_exists(managedUpdates) OR managedUpdates=:no)")),
         ExpressionAttributeNames={"#role": "role"},
         ExpressionAttributeValues={":target": target, ":expires": now + 7 * 86400,
                                    ":tenant": principal.tenant_id, ":account": principal.account_id,
-                                   ":server": "GREENHOUSE_SERVER", ":yes": True, ":no": False, ":installed": installed},
+                                   ":server": "GREENHOUSE_SERVER", ":yes": True, ":no": False,
+                                   ":installed": installed, ":managed": require_managed},
     )
     return response(202, {"requestedUpdateCode": target})
 
@@ -1124,9 +1203,17 @@ def heartbeat(event, principal: Principal, device_id: str):
         ":adminSort": f"{int(device.get('createdAt', now)):020d}#{device_id}",
     }
     set_parts.append("managedUpdates=:managed")
-    expression_values[":managed"] = body.get("managedUpdates") is True
+    managed = body.get("managedUpdates") is True
+    previously_managed = device.get("managedUpdates") is True
+    mode_changed = managed != previously_managed
+    expression_values[":managed"] = managed
+    # Clear the complete old order on enrollment transitions, including legacy
+    # orders without a recorded intent. This also covers an order arriving
+    # between the strongly consistent read above and this heartbeat write.
+    if mode_changed:
+        remove_parts.extend(["requestedUpdateCode", "updateUntil", "updateRequiresManaged"])
     status = body.get("updateStatus")
-    if status in ("DOWNLOADING", "INSTALLING", "RETRY", "APPROVAL_REQUIRED"):
+    if not mode_changed and status in ("DOWNLOADING", "INSTALLING", "RETRY", "APPROVAL_REQUIRED"):
         set_parts.append("updateStatus=:updateStatus")
         expression_values[":updateStatus"] = status
     else:
@@ -1198,6 +1285,9 @@ def heartbeat(event, principal: Principal, device_id: str):
             alert_type="CRITICAL_TEMPERATURE", created_at=now,
         ))
     condition = "tenantId=:tenant"
+    expression_values[":previousManaged"] = previously_managed
+    condition += (" AND managedUpdates=:previousManaged" if previously_managed else
+                  " AND (attribute_not_exists(managedUpdates) OR managedUpdates=:previousManaged)")
     if marker_conditions:
         condition += " AND " + " AND ".join(marker_conditions)
     transaction = [{"Update": {
@@ -1212,7 +1302,7 @@ def heartbeat(event, principal: Principal, device_id: str):
         "ConditionExpression": "attribute_not_exists(pk)",
     }} for alert in alert_records)
     table.meta.client.transact_write_items(TransactItems=transaction)
-    target = pending_update(device, now, installed)
+    target = None if mode_changed else pending_update(device, now, installed)
     return response(200, {"requestedUpdateCode": target}) if target else response(204, {})
 
 

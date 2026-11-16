@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -6,6 +7,8 @@ import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
+
+from botocore.exceptions import ClientError
 
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "test")
 os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
@@ -466,6 +469,130 @@ class BootstrapApiTests(unittest.TestCase):
             s3.head_object.return_value["Metadata"].clear()
             self.assertIsNone(app.server_release(78))
             s3.generate_presigned_url.assert_called_once()
+
+    def test_release_catalog_validates_the_immutable_package_without_exposing_a_download(self):
+        manifest = {"versionCode": 80, "versionName": "2.37.0"}
+        with patch.dict(os.environ, {"SERVER_RELEASE_BUCKET": "private-artifacts", "ENVIRONMENT_NAME": "dev"}), \
+                patch.object(app.boto3, "client") as make_client:
+            s3 = make_client.return_value
+            s3.get_object.return_value = {"Body": io.BytesIO(json.dumps(manifest).encode())}
+            s3.head_object.return_value = {"ContentLength": 1024, "Metadata": {"sha256": "c" * 64}}
+            self.assertEqual(manifest, app.latest_server_release())
+            s3.get_object.assert_called_once_with(Bucket="private-artifacts", Key="releases/dev/android/latest.json")
+            s3.head_object.assert_called_once_with(Bucket="private-artifacts", Key="releases/dev/android/80.apk")
+            s3.generate_presigned_url.assert_not_called()
+            for bad in [b"{}", b"broken", b" " * 4097, b'{"versionCode":true,"versionName":"v1"}',
+                        b'{"versionCode":80,"versionName":"untrusted/path"}']:
+                with self.subTest(bad=bad[:32]):
+                    s3.get_object.return_value = {"Body": io.BytesIO(bad)}
+                    self.assertIsNone(app.latest_server_release())
+            s3.head_object.assert_called_once()
+            s3.get_object.return_value = {"Body": io.BytesIO(json.dumps(manifest).encode())}
+            s3.head_object.side_effect = ClientError({"Error": {"Code": "404"}}, "HeadObject")
+            self.assertIsNone(app.latest_server_release())
+            s3.get_object.side_effect = ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+            self.assertIsNone(app.latest_server_release())
+
+    def test_release_is_listed_for_each_authorized_server_and_an_s3_outage_keeps_devices_visible(self):
+        owner = {"tenantId": "tenant-existing", "accountId": "account-existing"}
+        client = {**owner, "role": "VIEWER_CLIENT", "deviceId": "client-12345678", "enabled": True}
+        servers = [{**owner, "role": "GREENHOUSE_SERVER", "deviceId": device, "enabled": True, "appVersionCode": 78}
+                   for device in ("server-12345678", "server-23456789")]
+        app.table = FakeTable({("USER#cognito-subject", "ACCOUNT"): owner,
+                               ("DEVICE#client-12345678", "METADATA"): client})
+        app.table.query_items = [client, *servers, {**servers[0], "deviceId": "other-server", "tenantId": "other"}]
+        def inventory():
+            result = app.handler(event("/v1/devices", method="GET", device_id=client["deviceId"]), None)
+            self.assertEqual(200, result["statusCode"])
+            return json.loads(result["body"])["devices"]
+        with patch.object(app, "_release_cache", None), patch.object(app, "latest_server_release") as latest:
+            latest.return_value = {"versionCode": 80, "versionName": "2.37.0"}
+            rows = inventory()
+            self.assertEqual(3, len(rows))
+            self.assertNotIn("latestReleaseCode", rows[0])
+            self.assertEqual([(80, "2.37.0")] * 2, [(r["latestReleaseCode"], r["latestReleaseName"]) for r in rows[1:]])
+            self.assertEqual(rows, inventory())
+            latest.assert_called_once()
+        with patch.object(app, "_release_cache", None), patch.object(app, "latest_server_release",
+                side_effect=ClientError({"Error": {"Code": "SlowDown"}}, "GetObject")):
+            rows = inventory()
+            self.assertEqual([None, None], [r["latestReleaseCode"] for r in rows[1:]])
+
+    def test_unattended_request_rechecks_published_release_and_current_enrollment(self):
+        owner = {"tenantId": "tenant-existing", "accountId": "account-existing"}
+        server_id = "server-12345678"
+        client_id = "client-12345678"
+        server = {**owner, "role": "GREENHOUSE_SERVER", "enabled": True, "deviceId": server_id,
+                  "appVersionCode": 78, "managedUpdates": True}
+        app.table = FakeTable({("USER#cognito-subject", "ACCOUNT"): owner,
+                               (f"DEVICE#{server_id}", "METADATA"): server,
+                               (f"DEVICE#{client_id}", "METADATA"): {**owner, "role": "VIEWER_CLIENT", "enabled": True}})
+        def request(version):
+            return app.handler(event(f"/v1/devices/{server_id}/update-request", device_id=client_id,
+                                     body={"versionCode": version, "requireManaged": True}), None)
+        with patch.object(app, "latest_server_release", return_value={"versionCode": 80, "versionName": "2.37.0"}):
+            self.assertEqual(409, request(79)["statusCode"])
+            with patch.dict(server, {"managedUpdates": False}):
+                result = request(80)
+                self.assertEqual(409, result["statusCode"])
+                self.assertEqual("server_enrollment_required", json.loads(result["body"])["error"])
+            self.assertFalse(app.table.updates)
+            self.assertEqual(202, request(80)["statusCode"])
+        write = app.table.updates[0]
+        self.assertTrue(write["ExpressionAttributeValues"][":managed"])
+        self.assertIn("managedUpdates=:yes", write["ConditionExpression"])
+        server.update(requestedUpdateCode=80, updateRequiresManaged=True, updateUntil=4102444800)
+        def heartbeat(managed, installed):
+            return app.handler(event(f"/v1/devices/{server_id}/heartbeat", device_id=server_id,
+                                     body={"appVersionCode": installed, "managedUpdates": managed}), None)
+        self.assertEqual({"requestedUpdateCode": 80}, json.loads(heartbeat(True, 78)["body"]))
+        self.assertEqual(204, heartbeat(False, 78)["statusCode"])
+        self.assertEqual(204, heartbeat(True, 80)["statusCode"])
+
+    def test_reminder_requires_unmanaged_server_and_can_never_authorize_a_download(self):
+        owner = {"tenantId": "tenant-existing", "accountId": "account-existing"}
+        server_id, client_id = "server-12345678", "client-12345678"
+        server = {**owner, "role": "GREENHOUSE_SERVER", "enabled": True, "deviceId": server_id,
+                  "appVersionCode": 79, "managedUpdates": False}
+        app.table = FakeTable({("USER#cognito-subject", "ACCOUNT"): owner,
+                               (f"DEVICE#{server_id}", "METADATA"): server,
+                               (f"DEVICE#{client_id}", "METADATA"): {**owner, "role": "VIEWER_CLIENT", "enabled": True}})
+        def request(**fields):
+            return app.handler(event(f"/v1/devices/{server_id}/update-request", device_id=client_id,
+                                     body={"versionCode": 80, **fields}), None)
+        self.assertEqual(202, request(requireManaged=False)["statusCode"])
+        update = app.table.updates[0]
+        self.assertIs(False, update["ExpressionAttributeValues"][":managed"])
+        self.assertIn("attribute_not_exists(managedUpdates) OR managedUpdates=:no", update["ConditionExpression"])
+        server.update(managedUpdates=True, requestedUpdateCode=80, updateRequiresManaged=False, updateUntil=4102444800)
+        mismatch = request(requireManaged=False)
+        self.assertEqual(409, mismatch["statusCode"])
+        self.assertEqual("server_enrollment_changed", json.loads(mismatch["body"])["error"])
+        with patch.object(app, "server_release", return_value={"versionCode": 80}) as release:
+            get_package = event(f"/v1/devices/{server_id}/update-package", method="GET", device_id=server_id)
+            self.assertEqual(403, app.handler(get_package, None)["statusCode"])
+            release.assert_not_called()
+            self.assertEqual(202, request()["statusCode"])
+            self.assertIs(True, app.table.updates[-1]["ExpressionAttributeValues"][":managed"])
+
+    def test_enrollment_change_cancels_pending_command_including_legacy_and_racing_orders(self):
+        owner = {"tenantId": "tenant-existing", "accountId": "account-existing"}
+        server_id = "server-12345678"
+        server = {**owner, "enabled": True, "role": "GREENHOUSE_SERVER", "deviceId": server_id, "appVersionCode": 79}
+        app.table = FakeTable({("USER#cognito-subject", "ACCOUNT"): owner, (f"DEVICE#{server_id}", "METADATA"): server})
+        for before, after in [(False, True), (True, False)]:
+            for order in [{}, {"requestedUpdateCode": 80, "updateUntil": 4102444800},
+                          {"requestedUpdateCode": 80, "updateUntil": 4102444800, "updateRequiresManaged": before}]:
+                with self.subTest(before=before, order=order), patch.dict(server, {"managedUpdates": before, **order}):
+                    result = app.handler(event(f"/v1/devices/{server_id}/heartbeat", device_id=server_id,
+                                         body={"appVersionCode": 79, "managedUpdates": after,
+                                               "sensorConnectionHealthy": True, "updateStatus": "INSTALLING"}), None)
+                    self.assertEqual(204, result["statusCode"])
+                    update = app.table.client.transactions[-1][0]["Update"]
+                    removed = update["UpdateExpression"].split(" REMOVE ")[1].split(", ")
+                    self.assertTrue({"requestedUpdateCode", "updateUntil", "updateRequiresManaged", "updateStatus"} <= set(removed))
+                    self.assertIn("managedUpdates=:previousManaged", update["ConditionExpression"])
+                    self.assertEqual(before, update["ExpressionAttributeValues"][":previousManaged"])
 
     def test_disconnect_preserves_credentials_while_revoke_invalidates_them(self):
         fake = FakeTable({

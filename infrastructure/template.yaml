@@ -272,7 +272,9 @@ Resources:
           - Statement:
               - Effect: Allow
                 Action: s3:GetObject
-                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ServerReleaseBucketName}/releases/${EnvironmentName}/android/*.apk'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ServerReleaseBucketName}/releases/${EnvironmentName}/android/*.apk'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ServerReleaseBucketName}/releases/${EnvironmentName}/android/latest.json'
           - !Ref AWS::NoValue
         # SAM's DynamoDBCrudPolicy does not include transactional writes.
         # Account bootstrap, device registration, pairing, revocation, and

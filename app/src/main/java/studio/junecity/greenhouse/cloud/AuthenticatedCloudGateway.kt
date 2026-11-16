@@ -49,9 +49,9 @@ class AuthenticatedCloudGateway(
         request("POST", "/v1/devices", JSONObject().put("deviceId", config.deviceId).put("role", "VIEWER_CLIENT"))
     )
 
-    suspend fun requestServerUpdate(deviceId: String) {
+    suspend fun requestServerUpdate(deviceId: String, versionCode: Int, requireManaged: Boolean) {
         request("POST", "/v1/devices/${segment(deviceId)}/update-request",
-            JSONObject().put("versionCode", studio.junecity.greenhouse.BuildConfig.VERSION_CODE))
+            JSONObject().put("versionCode", versionCode).put("requireManaged", requireManaged))
     }
 
     internal suspend fun serverUpdatePackage(): JSONObject =
@@ -327,7 +327,9 @@ object CloudJsonCodec {
         json.optBoolean("online", false), json.optLongOrNull("lastSeenAtEpochMs"),
         json.optBoolean("communicationSuspended", false), json.optNullableString("clientRole"),
         json.optNullableString("appVersion"), json.optInt("appVersionCode").takeIf { it > 0 },
-        json.optInt("requestedUpdateCode").takeIf { it > 0 }, json.optBoolean("managedUpdates"), json.optNullableString("updateStatus")
+        json.optInt("requestedUpdateCode").takeIf { it > 0 }, json.optBoolean("managedUpdates"), json.optNullableString("updateStatus"),
+        json.optInt("latestReleaseCode").takeIf { it > 0 }, json.optNullableString("latestReleaseName"),
+        json.has("latestReleaseCode")
     )
 
     fun entitlement(json: JSONObject): EntitlementSnapshot {

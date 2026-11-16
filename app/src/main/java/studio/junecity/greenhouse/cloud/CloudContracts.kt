@@ -22,7 +22,10 @@ data class RegisteredDevice(
     val lastSeenAtEpochMs: Long? = null,
     val communicationSuspended: Boolean = false,
     val clientRole: String? = null,
-    val appVersion: String? = null, val appVersionCode: Int? = null, val requestedUpdateCode: Int? = null, val managedUpdates: Boolean = false, val updateStatus: String? = null
+    val appVersion: String? = null, val appVersionCode: Int? = null, val requestedUpdateCode: Int? = null,
+    val managedUpdates: Boolean = false, val updateStatus: String? = null,
+    val latestReleaseCode: Int? = null, val latestReleaseName: String? = null,
+    val hasReleaseCatalog: Boolean = latestReleaseCode != null
 )
 
 /** An account-level client can select among several greenhouse servers. */

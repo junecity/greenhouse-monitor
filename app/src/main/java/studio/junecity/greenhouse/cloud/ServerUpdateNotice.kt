@@ -31,6 +31,43 @@ internal fun compareServerVersion(name: String?, code: Int?, clientName: String 
 
 internal data class ReportedVersion(val label: String, val comparison: ServerVersion, val fromHouseReport: Boolean)
 
+internal data class ServerUpdateControl(val detail: String, val target: Int? = null)
+
+internal fun serverUpdateControl(device: RegisteredDevice, clientCode: Int = BuildConfig.VERSION_CODE): ServerUpdateControl? {
+    val installed = device.appVersionCode ?: return null
+    if (!device.enabled || device.role != CloudDeviceRole.GreenhouseServer) return null
+    if (device.communicationSuspended) return ServerUpdateControl("Reconnect the server to check for updates.")
+
+    val pending = device.requestedUpdateCode
+    if (pending != null && pending > installed) {
+        val progress = when {
+            device.updateStatus == "APPROVAL_REQUIRED" -> "Android requires installation on the server phone."
+            !device.managedUpdates -> "Install reminder sent to the server phone."
+            device.updateStatus == "DOWNLOADING" -> "Downloading the update."
+            device.updateStatus == "INSTALLING" -> "Installing the update. Monitoring will restart."
+            device.updateStatus == "RETRY" -> "Update interrupted. The server will retry."
+            else -> "Update queued for the server’s next check-in."
+        }
+        return ServerUpdateControl("Build $pending · $progress")
+    }
+    // Old backends only support a notification for an ordinary installation. A one-tap
+    // install requires a published release and explicit managed-only request support.
+    val available = device.latestReleaseCode ?: if (!device.hasReleaseCatalog && !device.managedUpdates) clientCode else null
+    if (available == null) return ServerUpdateControl(
+        if (device.hasReleaseCatalog) "No server update is published." else "Remote release information is unavailable."
+    )
+    if (available <= installed) return if (device.hasReleaseCatalog) ServerUpdateControl(
+        if (available == installed) "Server is up to date." else "Server has a newer build than the published release."
+    ) else null
+    val release = device.latestReleaseName?.takeIf { it.isNotBlank() } ?: "build $available"
+    val instructions = when {
+        installed < 73 -> "Install this update on the server phone to enable future update requests."
+        device.managedUpdates -> "One tap installs the update and restarts monitoring when the server checks in."
+        else -> "For unattended updates, enroll the server phone once as an Android device owner. This phone can send an install reminder."
+    }
+    return ServerUpdateControl("Update available · $release\n$instructions", available.takeIf { installed >= 73 })
+}
+
 internal fun resolveServerVersion(item: AccountDevice, report: studio.junecity.greenhouse.model.DeviceStatus?): ReportedVersion {
     fun version(name: String?, code: Int?, fromHouseReport: Boolean): ReportedVersion? {
         val comparison = compareServerVersion(name, code)

@@ -1,6 +1,8 @@
 package studio.junecity.greenhouse.cloud
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Test
 import studio.junecity.greenhouse.model.DeviceStatus
 
@@ -39,5 +41,48 @@ class ServerVersionTest {
         assertEquals("2.33.0", result.label)
         assertEquals(ServerVersion.Unknown, resolveServerVersion(item, legacy.copy(reportedAt = 500)).comparison)
         assertEquals(ServerVersion.Unknown, resolveServerVersion(item, null).comparison)
+    }
+
+    @Test fun updatesFollowThePublishedBuildIndependentlyOfClientVersion() {
+        val server = item.device.copy(appVersionCode = 79, latestReleaseCode = 83, latestReleaseName = "2.40.0",
+            managedUpdates = true, hasReleaseCatalog = true)
+        for (client in listOf(75, 79, 83, 84)) {
+            val control = requireNotNull(serverUpdateControl(server, client))
+            assertEquals(83, control.target)
+            assertTrue(control.detail.contains("2.40.0"))
+        }
+        assertEquals(null, serverUpdateControl(server.copy(appVersionCode = 83), 84)?.target)
+        assertEquals(null, serverUpdateControl(server.copy(appVersionCode = 84), 84)?.target)
+        assertEquals(null, serverUpdateControl(server.copy(latestReleaseCode = null), 84)?.target)
+        assertEquals(null, serverUpdateControl(server.copy(requestedUpdateCode = 83), 84)?.target)
+        assertEquals(null, serverUpdateControl(server.copy(communicationSuspended = true), 84)?.target)
+        assertEquals(null, serverUpdateControl(server.copy(enabled = false), 84)?.target)
+        assertEquals(null, serverUpdateControl(server.copy(role = CloudDeviceRole.ViewerClient), 84)?.target)
+        assertEquals(null, serverUpdateControl(server.copy(appVersionCode = 72), 84)?.target)
+    }
+
+    @Test fun updateRequestUsesSelectedServerAndExactApprovedBuild() = kotlinx.coroutines.runBlocking {
+        val responses = listOf(
+            """{"devices":[{"id":"server-001","role":"GREENHOUSE_SERVER","createdAtEpochMs":1,"appVersionCode":79,"managedUpdates":true,"latestReleaseCode":83,"latestReleaseName":"2.40.0"}]}""",
+            """{"requestedUpdateCode":83}"""
+        ).iterator()
+        val transport = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "POST") {
+                assertEquals("/v1/devices/server-001/update-request", request.url.encodedPath)
+                val payload = okio.Buffer().also { requireNotNull(request.body).writeTo(it) }
+                val json = org.json.JSONObject(payload.readUtf8())
+                assertEquals(83, json.getInt("versionCode"))
+                assertEquals(true, json.getBoolean("requireManaged"))
+            }
+            okhttp3.Response.Builder().request(request).protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(200).message("OK").body(responses.next().toResponseBody()).build()
+        }.build()
+        val api = AuthenticatedCloudGateway(CloudApiConfig("https://fixture.invalid", "client-001"),
+            CloudTokenProvider { "fixture" }, client = transport)
+        val server = api.devices().single().device
+        val target = requireNotNull(serverUpdateControl(server, clientCode = 78)?.target)
+        api.requestServerUpdate(server.id, target, requireManaged = server.managedUpdates)
+        assertEquals(false, responses.hasNext())
     }
 }

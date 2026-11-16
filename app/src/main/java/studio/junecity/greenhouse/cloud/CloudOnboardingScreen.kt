@@ -516,7 +516,10 @@ internal fun accountErrorMessage(error: Throwable): String {
         }
         .joinToString(" ")
     return when {
-        raw.contains("release_unavailable") -> "This version has not been published for remote installation yet."
+        raw.contains("release_unavailable") -> "This release is unavailable. Refresh the server details to check for the latest version."
+        raw.contains("server_enrollment_required") -> "Enroll the greenhouse phone as a dedicated device before requesting an unattended update."
+        raw.contains("server_enrollment_changed") -> "The server’s update settings changed. Refresh its details and choose the update again."
+        raw.contains("server_not_eligible") -> "The server’s version changed or it cannot receive this update. Refresh its details."
         raw.contains("already signed in", ignoreCase = true) ||
             raw.contains("signed in user", ignoreCase = true) ->
             "An older app session was cleared. Tap Sign in again."

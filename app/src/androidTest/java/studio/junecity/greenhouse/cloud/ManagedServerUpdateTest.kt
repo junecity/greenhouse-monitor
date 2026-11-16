@@ -20,6 +20,34 @@ import okio.source
 import org.json.JSONObject
 
 class ManagedServerUpdateTest {
+    // Stage a temporary, backend-authorized server identity in app-private cache.
+    // The host starts the stock installed app after instrumentation exits, then requests
+    // the published release from the paired client and checks the server's next heartbeat.
+    @Test fun enrollDisposableLiveServer() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("disposableLiveServer") == "true")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = SecureSettingsStore(context)
+        check(ManagedServerUpdate.enabled(context) && store.cloudEnrollment() == null)
+        val fixture = File(context.cacheDir, "live-ota-enrollment.json")
+        val enrollment = try {
+            val fields = JSONObject(fixture.readText())
+            CloudEnrollment(fields.getString("deviceId"), fields.getString("greenhouseId"),
+                CloudDeviceRole.GreenhouseServer, fields.getString("deviceSecret"), tenantId = fields.getString("tenantId"))
+        } finally {
+            fixture.delete()
+        }
+        val registered = runBlocking {
+            gatewayForEnrollment(context, checkNotNull(CloudRuntime.configurationOrNull()), enrollment).currentDevice()
+        }
+        check(registered.enabled && !registered.communicationSuspended && registered.role == enrollment.role &&
+            registered.id == enrollment.deviceId && registered.tenantId == enrollment.tenantId &&
+            registered.greenhouseId == enrollment.greenhouseId)
+        store.saveCloudEnrollment(enrollment)
+        // The runner exits immediately, before a normal activity stop would flush apply().
+        check(context.getSharedPreferences("secure_greenhouse_settings", 0).edit().commit())
+        check(store.cloudEnrollment() == enrollment)
+    }
+
     @Test fun refusesReinstallingCurrentBuild() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assertTrue(runCatching {

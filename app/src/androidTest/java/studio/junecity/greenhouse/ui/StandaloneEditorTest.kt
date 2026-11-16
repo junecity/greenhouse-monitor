@@ -1408,6 +1408,41 @@ class StandaloneEditorTest {
         }
     }
 
+    @Test fun connectivityOffersPublishedUpdateThenReportsServerProgress() {
+        val client = studio.junecity.greenhouse.BuildConfig.VERSION_NAME
+        val installed = studio.junecity.greenhouse.BuildConfig.VERSION_CODE
+        val target = installed + 3
+        val server = studio.junecity.greenhouse.cloud.CloudJsonCodec.accountDevice(org.json.JSONObject()
+            .put("id", "test-server").put("role", "GREENHOUSE_SERVER").put("greenhouseId", "house")
+            .put("createdAtEpochMs", 1000).put("appVersion", client).put("appVersionCode", installed)
+            .put("managedUpdates", true).put("latestReleaseCode", target).put("latestReleaseName", "3.0.0"))
+        val observed = androidx.compose.runtime.mutableStateOf(server)
+        val requests = mutableListOf<Int>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    Column {
+                        studio.junecity.greenhouse.cloud.ServerVersionRow(observed.value, null, { it.dp }, { it.sp }) { code ->
+                            requests.add(code)
+                            observed.value = server.copy(device = server.device.copy(requestedUpdateCode = code))
+                        }
+                    }
+                }
+            }
+            click("Update server")
+            find("Client $client  ·  Server $client\nBuild $target · Update queued for the server’s next check-in.")
+            scenario.onActivity {
+                assertEquals(listOf(target), requests)
+                observed.value = server.copy(device = server.device.copy(requestedUpdateCode = target, updateStatus = "INSTALLING"))
+            }
+            find("Client $client  ·  Server $client\nBuild $target · Installing the update. Monitoring will restart.")
+            scenario.onActivity { observed.value = server.copy(device = server.device.copy(appVersion = "3.0.0", appVersionCode = target)) }
+            find("Client $client  ·  Server 3.0.0\nServer is up to date.")
+            scenario.onActivity { observed.value = server.copy(device = server.device.copy(managedUpdates = false)) }
+            find("Send install reminder")
+        }
+    }
+
     @Test fun serverReportAndSensorAssignmentsSurviveSync() {
         val context = instrumentation.targetContext
         val store = CurrentSensorStore(context, "_server_health_fixture")

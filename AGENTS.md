@@ -1,5 +1,10 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-15 · Greenhouse Studio 2.37.0 (80) · One-tap server updates
+- Settings → Connectivity and Manage phones use the published release from authorized device inventory. Update server queues a managed install for the selected greenhouse phone. Ordinary phones show a manual reminder and enrollment guidance. The server checks the request again before installation.
+- Android cloud contracts, gateway, update notice and device management UI share this flow. backend/src/app.py, infrastructure/template.yaml and scripts/publish-server-release.py bind it to the verified APK in the environment’s private release catalog. Keep immutable signed APKs and update latest.json after verifying the object. See docs/AWS_DEPLOYMENT.md for publishing and device-owner enrollment.
+- Two API 35 emulators exercised the deployed development service on emulated cellular. A client tap installed build 80 over 79 on a managed server at Android Home. The dashboard reopened, monitoring resumed, and the client showed the new version. Passed 163 JVM tests, 88 backend tests and two focused Android UI tests. Android lint reported zero errors. The physical greenhouse phone still needs local enrollment and a hardware update test.
+
 ## 2026-11-15 · Greenhouse Studio 2.36.1 (79) · Widget rendering on launchers
 - The home widget pairs each auto-sized reading with a high-resolution 4:1 sparkline in its own row. Use fitCenter for charts. A host may allocate more height than its size bundle reports. The original fitXY stretched short bitmaps into thick traces. Preserve the six-hour data window, missing-data gaps and scope rules from build 78.
 - Changed ClimateWidget, WidgetSparkline, greenhouse_widget.xml, widget_surface.xml and EnvironmentalRadioTest. Verified three API 35 widget instrumentation tests, 161 JVM tests and lint (zero errors). Host captures in build-out/2.36.1-qa include a 276 × 198 dp slot reporting 100 dp height. Physical launcher appearance still requires confirmation.

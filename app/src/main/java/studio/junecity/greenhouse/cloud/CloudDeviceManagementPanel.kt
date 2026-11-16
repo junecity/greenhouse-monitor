@@ -143,8 +143,9 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit, report:
                             DeviceAction("Pair Again", true, d, t) { perform { invitation = gateway.createServerInvitation(requireNotNull(item.device.greenhouseId), "Greenhouse ${index + 1}", item.device.id) } }
                         }
                     }
-                    if (item.device.enabled) ServerVersionRow(item, report, d, t) {
-                        perform { gateway.requestServerUpdate(item.device.id) }
+                    if (item.device.enabled) ServerVersionRow(item, report, d, t) { target ->
+                        gateway.requestServerUpdate(item.device.id, target, requireManaged = item.device.managedUpdates)
+                        devices = gateway.devices()
                     }
                 }
                 DeviceAction("Add Server", true, d, t, Modifier.fillMaxWidth()) {
@@ -363,13 +364,9 @@ fun CloudServerPairingPanel(
             }
             invitation == null && activeServer != null -> {
                 ServerConnectionStatus(activeServer.device, inventoryVerified, t)
-                ServerVersionRow(activeServer, report, d, t) {
-                    scope.launch {
-                        runCatching {
-                            gateway.requestServerUpdate(activeServer.device.id)
-                            refreshDevices(gateway)
-                        }.onFailure { message = accountErrorMessage(it) }
-                    }
+                ServerVersionRow(activeServer, report, d, t) { target ->
+                    gateway.requestServerUpdate(activeServer.device.id, target, requireManaged = activeServer.device.managedUpdates)
+                    refreshDevices(gateway)
                 }
                 Text("Disconnect temporarily, revoke its credentials, or replace it without losing greenhouse settings.", color = DashboardTokens.Muted, fontSize = t(15f), lineHeight = t(20f))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(d(10f))) {
@@ -545,37 +542,52 @@ private fun DeviceAction(
 }
 
 @Composable
-internal fun ServerVersionRow(item: AccountDevice, report: DeviceStatus?, d: (Float) -> Dp, t: (Float) -> TextUnit, request: () -> Unit) {
-    val client = studio.junecity.greenhouse.BuildConfig.VERSION_NAME
-    val clientCode = studio.junecity.greenhouse.BuildConfig.VERSION_CODE
+internal fun ServerVersionRow(
+    item: AccountDevice, report: DeviceStatus?, d: (Float) -> Dp, t: (Float) -> TextUnit, request: suspend (Int) -> Unit
+) {
     val device = item.device
     val version = resolveServerVersion(item, report)
-    val comparison = version.comparison
-    val detail = when (comparison) {
+    val comparison = when (version.comparison) {
         ServerVersion.Unknown -> if (device.lastSeenAtEpochMs == null) "Waiting for first heartbeat"
             else "Check the version in Settings → General on the greenhouse phone."
         ServerVersion.Same -> "Versions match"
         ServerVersion.Newer -> "Update this client"
-        ServerVersion.Older -> when {
-            device.requestedUpdateCode != null && device.requestedUpdateCode >= clientCode ->
-                if (!device.managedUpdates) "Update requested · install on server phone" else when (device.updateStatus) {
-                    "DOWNLOADING" -> "Downloading update"
-                    "INSTALLING" -> "Installing update"
-                    "RETRY" -> "Update interrupted · server will retry"
-                    "APPROVAL_REQUIRED" -> "Android requires local installation on this phone"
-                    else -> "Remote install queued"
+        ServerVersion.Older -> "Client has a newer version"
+    }
+    val control = serverUpdateControl(device)
+    val source = if (version.fromHouseReport) "Last greenhouse report" else "Server"
+    val clientVersion = studio.junecity.greenhouse.BuildConfig.VERSION_NAME
+    val detail = control?.detail ?: comparison
+    Text("Client $clientVersion  ·  $source ${version.label}\n$detail",
+        color = if (control?.target != null || version.comparison in listOf(ServerVersion.Older, ServerVersion.Newer))
+            DashboardTokens.Amber else DashboardTokens.Muted,
+        fontSize = t(15f))
+    // Keep each request bound to the server that was displayed at the moment of the tap.
+    val scope = rememberCoroutineScope()
+    var sending by remember(device.id) { mutableStateOf(false) }
+    var error by remember(device.id, control?.target) { mutableStateOf<String?>(null) }
+    val target = control?.target
+    if (sending) {
+        Text("Sending update request…", color = DashboardTokens.Muted, fontSize = t(15f))
+    } else if (target != null) {
+        DeviceAction(if (device.managedUpdates) "Update server" else "Send install reminder",
+            device.managedUpdates, d, t, Modifier.fillMaxWidth()) {
+            if (!sending) {
+                sending = true
+                error = null
+                scope.launch {
+                    try {
+                        request(target)
+                    } catch (failure: kotlinx.coroutines.CancellationException) {
+                        throw failure
+                    } catch (failure: Exception) {
+                        error = accountErrorMessage(failure)
+                    } finally {
+                        sending = false
+                    }
                 }
-            device.appVersionCode == null || device.appVersionCode < 73 -> "Install the update on this server phone"
-            device.communicationSuspended -> "Reconnect to request an update"
-            device.managedUpdates -> "Ready for remote installation"
-            else -> "Updates need approval on this server phone"
+            }
         }
     }
-    val source = if (version.fromHouseReport) "Last greenhouse report" else "Server"
-    Text("Client $client  ·  $source ${version.label}\n$detail",
-        color = if (comparison == ServerVersion.Older || comparison == ServerVersion.Newer) DashboardTokens.Amber else DashboardTokens.Muted,
-        fontSize = t(15f))
-    if (comparison == ServerVersion.Older && (device.appVersionCode ?: 0) >= 73 &&
-        (device.requestedUpdateCode ?: 0) < clientCode && !device.communicationSuspended)
-        DeviceAction(if (device.managedUpdates) "Update server remotely" else "Request server update", false, d, t, Modifier.fillMaxWidth(), onClick = request)
+    error?.let { Text(it, color = DashboardTokens.Danger, fontSize = t(15f)) }
 }

@@ -130,26 +130,24 @@ Short clips and timelapses use Android app-private storage and require no archiv
 
 ### Remote updates for a dedicated greenhouse phone
 
-The client's Settings → Connectivity offers **Update server remotely** when its selected server reports that Greenhouse Studio is Android's device owner and the client has a newer build. The command travels over the normal authenticated heartbeat. An offline phone can collect its request for up to seven days. Each server has its own request. The updated server starts monitoring again and reports its installed build. Keep the current client on the approved release you want the servers to run.
+On the client, open **Settings → Connectivity**, select the paired greenhouse and tap **Update server** when a newer release is offered. Manage phones also lists each eligible server separately. The client compares the server's reported build with the current private release. The client can request a release newer than its own build. Each request targets one server and remains available for seven days. An online server picks it up on its next successful monitoring heartbeat, normally within a minute. After the signed upgrade, the app reopens and reports its installed version. Internet access on both phones is sufficient.
 
-**One-time setup.** Install the compatible, same-signer APK on the dedicated server and enroll Greenhouse Studio as the Android device owner through supported dedicated-device provisioning. Existing personal installations can still use **Request server update** and tap the local notification. On an eligible account-free development handset, Android's ADB provisioning command is shown below. This is a one-time, local, privileged setup. Back up greenhouse settings and history before considering any change to device management. A phone already managed by a different organization must use its existing administrator. Some phones require provisioning during initial setup. Pairing with a greenhouse account does not grant Android management rights.
+A server with ordinary Android app permissions can receive **Send install reminder**. To use one-tap remote installation, enroll the dedicated greenhouse phone once as described below and allow its next heartbeat to report the change.
+
+**One-time setup.** Install the compatible, same-signer APK on the dedicated server and enroll Greenhouse Studio as the Android device owner through supported dedicated-device provisioning. Existing personal installations can use **Send install reminder** and open the notification on the server. On an eligible account-free development handset, Android's ADB provisioning command is shown below. This is a one-time, local, privileged setup. Back up greenhouse settings and history before considering any change to device management. A phone already managed by a different organization must use its existing administrator. Some phones require provisioning during initial setup. Pairing with a greenhouse account does not grant Android management rights.
 
 ```sh
 adb -s "$SERVER_SERIAL" shell dpm set-device-owner studio.junecity.greenhouse/.cloud.GreenhouseDeviceAdmin
 ```
 
-**Publication in the dedicated AWS environment.** Use the application's existing deployment procedure and preserve existing stack parameters. Supply the existing private deployment artifact bucket name as the additional SAM parameter `ServerReleaseBucketName`. An empty value leaves remote package delivery unavailable. The API receives read-only access to the APK prefix for its own environment. Publisher credentials stay outside the app. After verifying that the APK's package, version code and signing fingerprint match the intended release, publish each version once. For the current development distribution:
+**Publishing a version for client discovery.** Deploy the application stack with the private artifact bucket in `ServerReleaseBucketName`. Use the previously enrolled signing certificate's SHA-256 fingerprint and put Android build-tools (`aapt`, `apksigner`), Java and AWS CLI on the publisher's PATH. Supply the profile and region for the same isolated stack:
 
 ```sh
-apk='build-out/Greenhouse Studio 2.35.0.apk'
-build_code=77
-bucket=$(aws cloudformation describe-stacks --profile greenhouse-dev --region us-east-1 \
-  --stack-name greenhouse-monitor-deployment-bootstrap \
-  --query 'Stacks[0].Outputs[?OutputKey==`ArtifactBucketName`].OutputValue | [0]' --output text)
-aws s3api put-object --profile greenhouse-dev --region us-east-1 \
-  --bucket "$bucket" --key "releases/dev/android/$build_code.apk" --body "$apk" \
-  --content-type application/vnd.android.package-archive --if-none-match '*' \
-  --metadata "sha256=$(shasum -a 256 "$apk" | cut -d' ' -f1)"
+AWS_PROFILE=greenhouse-dev AWS_REGION=us-east-1 python3 scripts/publish-server-release.py \
+  'build-out/Greenhouse Studio 2.37.0.apk' --stack greenhouse-monitor-dev \
+  --signer-sha256 "$TRUSTED_SIGNER_SHA256"
 ```
+
+The publisher checks the APK signature, package and build number, creates an immutable `releases/<environment>/android/<code>.apk`, checks the stored length, checksum and metadata, then conditionally updates `latest.json`. Re-running the command with the same file is safe. Existing installed clients that predate catalog support keep their original version-based behavior. New clients refresh device status from the API. Each running Lambda can cache discovery for up to 30 seconds. A managed installation request revalidates the available release before queueing.
 
 Publish a higher signed build for corrections. The device checks file length, SHA-256, package identity, signing certificate and version, and rechecks authorization after download. No arbitrary URL, shell command or downgrade is accepted. To withdraw a pending release, remove that version from the private distribution prefix. An install already committed to Android can still finish. Existing development APKs use the enrolled development signing identity. Use a maintained production signing and distribution policy before customer rollout. Test a full update on an enrolled physical server before updating multiple phones.
