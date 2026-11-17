@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.42.2 (90) · Current greenhouse average
+
+- Dashboard, Climate details and whole-greenhouse widgets use SpatialInterpolator.currentContributors for the same ten-minute window and floor-plan weighting. Normalize stored greenhouse assignments before selection. Sensor polling cadence and connection failures determine the badge independently of which current measurements contribute. A sensor-specific pin keeps its own reading.
+- ClimateWidget requests a redraw for existing pins on package replacement and schedules freshness checks at reading expiry. A server measures the upload interval from the previous successful upload’s start using elapsed time. It advertises a new snapshot only after the upload succeeds.
+- The published 2.42.1 launcher regression showed 62°F against a 72°F Dashboard average. Android 15 with 2.42.2 matched 72°F and the next 66°F observation. All five widget and Dashboard instrumentation cases passed there, plus four Android 10 collection and paired-sync cases. The 200 JVM tests passed and lint reported zero errors. Physical sensor delivery and OEM launcher timing remain unverified.
+
 ## 2026-11-17 · Greenhouse Studio 2.42.1 (89) · Full-width live home widget
 
 - The native widget requests five columns by two rows, with adjacent reading tiles and graph plus one footer at ordinary phone widths. Preserve separate compact, tall and enlarged-font layouts and the bounded responsive size map. The picker uses an actual Android render with sample readings; never display that image as live data. See docs/CLIMATE_MONITORING_CARD.md.

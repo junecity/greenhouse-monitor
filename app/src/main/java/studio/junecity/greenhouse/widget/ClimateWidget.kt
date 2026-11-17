@@ -54,6 +54,12 @@ class ClimateWidget : AppWidgetProvider() {
         }
     }
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            val manager = AppWidgetManager.getInstance(context)
+            val pins = manager.getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
+            if (pins.isNotEmpty()) onUpdate(context, manager, pins)
+            return
+        }
         if (intent.action == READINGS_CHANGED) {
             val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
             deliver(context, ids, coalesce = true)

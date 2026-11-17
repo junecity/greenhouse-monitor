@@ -66,11 +66,11 @@ private val ProEdge=DashboardTokens.PanelEdge
             onSaveFans.takeIf { state.standalone || state.preferences.cameraMode != CameraMode.ViewerClient },
             onDismiss = { fanOpen = false })
         val assigned = state.sensors.filter { it.greenhouseId == greenhouse.id }
-        val fresh = assigned.filter { it.isFresh() }
-        val temperature=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.Temperature)
-        val humidity=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.Humidity)
-        val vpd=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.Vpd)
-        val dewPoint=SpatialInterpolator.greenhouseAverage(fresh,greenhouse,Metric.DewPoint)
+        val contributors = SpatialInterpolator.currentContributors(assigned, greenhouse, System.currentTimeMillis())
+        val temperature=SpatialInterpolator.averageOfReadings(contributors, greenhouse, Metric.Temperature)
+        val humidity=SpatialInterpolator.averageOfReadings(contributors, greenhouse, Metric.Humidity)
+        val vpd=SpatialInterpolator.averageOfReadings(contributors, greenhouse, Metric.Vpd)
+        val dewPoint=SpatialInterpolator.averageOfReadings(contributors, greenhouse, Metric.DewPoint)
         Row(Modifier.fillMaxSize().alpha(contentAlpha).graphicsLayer{translationY=(1f-contentAlpha)*d(8f).toPx()},horizontalArrangement=Arrangement.spacedBy(d(14f))){
             Row(Modifier.weight(.59f).fillMaxHeight(),horizontalArrangement=Arrangement.spacedBy(d(14f))){
                 Column(Modifier.weight(.46f),verticalArrangement=Arrangement.spacedBy(d(12f))){

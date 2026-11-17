@@ -21,8 +21,14 @@ object SpatialInterpolator{
             value(sensor, metric)?.let { SpatialSample(position.xFeet, position.yFeet, it) }
         }
 
+    /** A placed sensor contributes to the area-weighted average. Without placements, every current sensor contributes. */
+    internal fun currentContributors(sensors: List<GoveeSensor>, house: GreenhouseConfig, at: Long): List<GoveeSensor> {
+        val current = sensors.filter { it.greenhouseId == house.id && it.isFresh(at) }
+        return current.filter { it.id in house.sensorPositions }.ifEmpty { current }
+    }
+
     fun greenhouseAverage(sensors: List<GoveeSensor>, g: GreenhouseConfig, metric: Metric, at: Long=System.currentTimeMillis()): Double? {
-        return averageOfReadings(sensors.filter { it.greenhouseId == g.id && it.isFresh(at) }, g, metric)
+        return averageOfReadings(currentContributors(sensors, g, at), g, metric)
     }
 
     /** Callers supply their authorized, freshness-filtered observations; the geometry is shared. */

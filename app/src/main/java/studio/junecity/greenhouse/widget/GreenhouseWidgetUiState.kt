@@ -3,6 +3,7 @@ package studio.junecity.greenhouse.widget
 import studio.junecity.greenhouse.data.ClimateBucket
 import studio.junecity.greenhouse.data.SpatialInterpolator
 import studio.junecity.greenhouse.data.WIDGET_WINDOW_MS
+import studio.junecity.greenhouse.model.CURRENT_READING_MAX_AGE_MS
 import studio.junecity.greenhouse.model.GoveeSensor
 import studio.junecity.greenhouse.model.GreenhouseConfig
 import studio.junecity.greenhouse.model.Metric
@@ -86,41 +87,53 @@ internal fun widgetDate(at: Long, now: Long, zone: ZoneId = ZoneId.systemDefault
 
 internal data class WidgetOutdoor(val fahrenheit: Double?, val measuredAt: Long?, val failed: Boolean = false)
 
+internal data class CardSourceStatus(
+    val blocked: Map<String, WidgetFeedStatus> = emptyMap(),
+    val issue: WidgetFeedStatus? = null
+)
+
 internal fun cardSources(rows: List<GoveeSensor>, paired: Boolean, internet: Boolean, bluetoothAllowed: Boolean,
-                         fetchFailed: Boolean): Pair<List<GoveeSensor>, WidgetFeedStatus?> {
-    if (rows.isEmpty()) return rows to WidgetFeedStatus.Error.takeIf { fetchFailed }
-    fun problem(row: GoveeSensor) = if (!paired && row.isLocalRadio()) {
-        WidgetFeedStatus.Permission.takeUnless { bluetoothAllowed }
-    } else when {
-        !internet -> WidgetFeedStatus.Offline
-        fetchFailed -> WidgetFeedStatus.Error
-        else -> null
+                         fetchFailed: Boolean): CardSourceStatus {
+    val blocked = buildMap {
+        for (row in rows) {
+            val problem = if (!paired && row.isLocalRadio()) {
+                WidgetFeedStatus.Permission.takeUnless { bluetoothAllowed }
+            } else when {
+                !internet -> WidgetFeedStatus.Offline
+                fetchFailed -> WidgetFeedStatus.Error
+                else -> null
+            }
+            if (problem != null) put(row.id, problem)
+        }
     }
-    val problems = rows.map { problem(it) }
-    val allBlocked = problems.isNotEmpty() && problems.none { it == null }
-    return rows.mapIndexed { index, sensor -> if (problems[index] == null) sensor else sensor.copy(online = false) } to
-        if (allBlocked) problems.first() else null
+    return CardSourceStatus(blocked, WidgetFeedStatus.Error.takeIf { rows.isEmpty() && fetchFailed })
 }
 
 /** All ages are relative to actual persisted sample times. A refresh attempt is never a sample. */
 internal fun climateCardState(
     title: String, rows: List<GoveeSensor>, history: List<ClimateBucket>, now: Long,
     cadenceMinutes: Int, celsius: Boolean, target: Double?, outdoor: WidgetOutdoor?,
-    limits: NotificationPreferences, issue: WidgetFeedStatus? = null, sensorId: String? = null,
+    limits: NotificationPreferences, sources: CardSourceStatus = CardSourceStatus(), sensorId: String? = null,
     house: GreenhouseConfig = GreenhouseConfig()
 ): GreenhouseWidgetUiState {
     // BLU beacons can advertise observations several minutes apart. A slow radio in a
     // mixed collection must not make unrelated temperature polls look newer.
     fun freshFor(sensor: GoveeSensor) = 60_000L * (maxOf(if (sensor.isShelly()) 4 else 1, cadenceMinutes.coerceIn(1, 15)) + 1)
     fun offlineAfter(sensor: GoveeSensor) = maxOf(10 * 60_000L, 3 * freshFor(sensor))
-    val observations = rows.filter { it.updatedAtEpochMs in 1..now &&
+    val observations = rows.filter { it.greenhouseId == house.id && it.updatedAtEpochMs in 1..now &&
         (it.temperatureF?.isFinite() == true || it.humidityPercent?.let { r -> r in 0.0..100.0 } == true) }
-    val fresh = observations.filter { it.online && now - it.updatedAtEpochMs <= freshFor(it) }
+    val current = SpatialInterpolator.currentContributors(observations, house, now)
     val delayed = observations.filter { it.online && now - it.updatedAtEpochMs <= offlineAfter(it) }
-    val source = fresh.ifEmpty { delayed.ifEmpty { observations } }
-    val status = issue ?: when {
+    val source = current.ifEmpty { delayed.ifEmpty { observations } }
+    // A missed poll changes the feed badge. The same recorded observations still form
+    // the Dashboard average until each expires or its collector explicitly marks it offline.
+    val timely = current.filter { now - it.updatedAtEpochMs <= freshFor(it) }
+    val relevant = source.ifEmpty { rows }
+    val blockedCount = relevant.count { it.id in sources.blocked }
+    val status = sources.issue ?: when {
         rows.isEmpty() -> WidgetFeedStatus.Empty
-        fresh.isNotEmpty() -> WidgetFeedStatus.Live
+        blockedCount == relevant.size -> sources.blocked.getValue(relevant.first().id)
+        timely.isNotEmpty() && blockedCount == 0 -> WidgetFeedStatus.Live
         delayed.isNotEmpty() -> WidgetFeedStatus.Delayed
         observations.isEmpty() && rows.any { it.online } -> WidgetFeedStatus.Loading
         else -> WidgetFeedStatus.Offline
@@ -167,13 +180,14 @@ internal fun climateCardState(
     }
     val nextStatusAt = buildList {
         observations.filter { it.online }.forEach {
+            add(it.updatedAtEpochMs + CURRENT_READING_MAX_AGE_MS + 1)
             add(it.updatedAtEpochMs + freshFor(it) + 1)
             add(it.updatedAtEpochMs + offlineAfter(it) + 1)
         }
         weatherTime?.let { add(it + 30 * 60_000L + 1); add(it + HOUR_MS + 1) }
     }.filter { it > now }.minOrNull()
     return GreenhouseWidgetUiState(title, status, temperature, humidity, source.minOfOrNull { it.updatedAtEpochMs },
-        points, if (status == WidgetFeedStatus.Live) recentRate(points, now, fresh.maxOf { freshFor(it) }) else null,
+        points, if (status == WidgetFeedStatus.Live) recentRate(points, now, timely.maxOf { freshFor(it) }) else null,
         outdoor?.fahrenheit?.takeIf { outdoorFreshness != OutdoorStatus.Unavailable }, weatherTime,
         validTarget, dew, celsius, now, message, targetStatus, limit != null, outdoorFreshness, sensorId, nextStatusAt)
 }

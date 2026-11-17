@@ -20,8 +20,8 @@ class ClimateCardTest {
     private fun card(rows: List<GoveeSensor> = listOf(sensor), at: Long = now,
                      trend: List<ClimateBucket> = emptyList(), celsius: Boolean = false,
                      cadence: Int = 1, target: Double? = null, outdoor: WidgetOutdoor? = null,
-                     limits: NotificationPreferences = NotificationPreferences(), issue: WidgetFeedStatus? = null) =
-        climateCardState("South", rows, trend, at, cadence, celsius, target, outdoor, limits, issue)
+                     limits: NotificationPreferences = NotificationPreferences(), sources: CardSourceStatus = CardSourceStatus()) =
+        climateCardState("South", rows, trend, at, cadence, celsius, target, outdoor, limits, sources)
 
     @Test fun actualObservationsAgeAndRecoverIndependentlyOfRefresh() {
         val live = card()
@@ -70,12 +70,12 @@ class ClimateCardTest {
         assertNull(card(listOf(sensor.copy(humidityPercent = null))).dewPointF)
     }
 
-    @Test fun averageUsesFreshSensorsAndPermissionAndErrorRetainOnlyCachedValues() {
+    @Test fun averageKeepsCurrentObservationsAndUnavailableSourcesRetainCachedValues() {
         val stale = sensor.copy(id = "alt", temperatureF = 92.0, updatedAtEpochMs = now - 6 * minute)
-        assertEquals(68.0, card(listOf(stale, sensor)).temperatureF!!, 0.0)
+        assertEquals(80.0, card(listOf(stale, sensor)).temperatureF!!, 0.0)
         assertEquals(92.0, card(listOf(stale)).temperatureF!!, 0.0)
         for (issue in listOf(WidgetFeedStatus.Error, WidgetFeedStatus.Permission)) {
-            val state = card(listOf(sensor), issue = issue)
+            val state = card(listOf(sensor), sources = CardSourceStatus(issue = issue))
             assertEquals(issue, state.status)
             assertEquals(68.0, state.temperatureF!!, 0.0)
             assertNull(state.dewPointF)
@@ -114,19 +114,56 @@ class ClimateCardTest {
         val old = now - 3 * minute
         val govee = sensor.copy(temperatureF = 95.0, updatedAtEpochMs = old)
         val radio = sensor.copy(id = "shelly:room", temperatureF = 52.0, updatedAtEpochMs = old)
-        val (mixed, issue) = cardSources(listOf(govee, radio), false, internet = true, bluetoothAllowed = true, fetchFailed = true)
-        assertNull(issue)
-        val mixedState = card(mixed)
-        assertEquals(WidgetFeedStatus.Live, mixedState.status)
-        assertEquals(52.0, mixedState.temperatureF!!, 0.0)
+        val rows = listOf(govee, radio)
+        val mixed = cardSources(rows, false, internet = true, bluetoothAllowed = true, fetchFailed = true)
+        val mixedState = card(rows, sources = mixed)
+        assertEquals(WidgetFeedStatus.Delayed, mixedState.status)
+        assertEquals(73.5, mixedState.temperatureF!!, 0.0)
         assertEquals(old, mixedState.measuredAt)
+        val recovered = card(rows, sources = cardSources(rows, false, true, true, false))
+        assertEquals(mixedState.temperatureF, recovered.temperatureF)
+        assertEquals(WidgetFeedStatus.Live, recovered.status)
         for (paired in listOf(true, false)) {
-            val (failedRows, problem) = cardSources(listOf(govee), paired, internet = false, bluetoothAllowed = true, fetchFailed = false)
-            val cached = card(failedRows, issue = problem)
+            val failed = cardSources(listOf(govee), paired, internet = false, bluetoothAllowed = true, fetchFailed = false)
+            val cached = card(listOf(govee), sources = failed)
             assertEquals(WidgetFeedStatus.Offline, cached.status)
             assertEquals(old, cached.measuredAt)
             assertNull(cached.dewPointF)
         }
+    }
+
+    @Test fun dashboardAndWidgetUseTheSameAverageUntilEachObservationExpires() {
+        val warm = sensor.copy(id = "shelly:warm", temperatureF = 80.0, humidityPercent = 70.0,
+            updatedAtEpochMs = now - 6 * minute)
+        val cool = sensor.copy(temperatureF = 60.0, humidityPercent = 40.0)
+        val rows = listOf(cool, warm, sensor.copy(id = "elsewhere", greenhouseId = "other", temperatureF = 95.0),
+            sensor.copy(id = "future", updatedAtEpochMs = now + 60 * minute),
+            sensor.copy(id = "offline", online = false), sensor.copy(id = "invalid", humidityPercent = Double.NaN))
+        val expires = warm.updatedAtEpochMs + 10 * minute + 1
+        fun numbers(at: Long, cadence: Int): GreenhouseWidgetUiState {
+            val state = card(rows, at = at, cadence = cadence)
+            val house = GreenhouseConfig()
+            assertEquals(SpatialInterpolator.greenhouseAverage(rows, house, Metric.Temperature, at), state.temperatureF)
+            assertEquals(SpatialInterpolator.greenhouseAverage(rows, house, Metric.Humidity, at), state.humidity)
+            return state
+        }
+        assertEquals("70°F", numbers(now, 1).temperatureText)
+        assertEquals("55%", numbers(now, 15).humidityText)
+        assertEquals(expires, numbers(expires - 1, 15).nextStatusAt)
+        assertEquals("70°F", numbers(expires - 1, 1).temperatureText)
+        assertEquals("60°F", numbers(expires, 15).temperatureText)
+        assertEquals(now, numbers(expires, 15).measuredAt)
+    }
+
+    @Test fun aRecentUnplacedSensorCannotMakeTheMappedAverageLookFresh() {
+        val house = GreenhouseConfig(sensorPositions = mapOf("s" to SensorPosition(3.0, 2.0)))
+        val old = sensor.copy(updatedAtEpochMs = now - 7 * minute)
+        val rows = listOf(old, sensor.copy(id = "unplaced", temperatureF = 99.0))
+        val state = climateCardState(house.name, rows, emptyList(), now, 1, false, null, null,
+            NotificationPreferences(), house = house)
+        assertEquals("68°F", state.temperatureText)
+        assertEquals(old.updatedAtEpochMs, state.measuredAt)
+        assertEquals(WidgetFeedStatus.Delayed, state.status)
     }
 
     @Test fun timeLabelsRespectLocalDatesAndDst() {

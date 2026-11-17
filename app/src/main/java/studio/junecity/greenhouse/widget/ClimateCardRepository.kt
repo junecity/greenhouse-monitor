@@ -50,12 +50,12 @@ internal class ClimateCardRepository(context: Context) {
             val prefs = AppPreferencesStore(app, suffix).loadForMonitoring(owner)
             val house = if (houseId.isNullOrBlank()) prefs.activeGreenhouse else prefs.greenhouses.find { it.id == houseId }
             if (house == null) return unavailable(WidgetFeedStatus.Empty, "Choose a greenhouse")
-            val all = CurrentSensorStore(app, suffix).load().filter { prefs.sensorHouse(it) == house.id }
+            val all = CurrentSensorStore(app, suffix).load().inSavedHouses(prefs).filter { it.greenhouseId == house.id }
             val selected = all.filter { sensorId.isNullOrBlank() || it.id == sensorId }
             val internet = app.getSystemService(ConnectivityManager::class.java).let {
                 it.getNetworkCapabilities(it.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
             }
-            val (available, issue) = cardSources(selected, paired, internet,
+            val sources = cardSources(selected, paired, internet,
                 paired || selected.none { it.isLocalRadio() } || SensorBluetooth.allowed(app),
                 metadata.getBoolean(failureKey(owner), false))
             val archive = if (paired) viewerHistorySuffix(owner) else suffix
@@ -66,9 +66,9 @@ internal class ClimateCardRepository(context: Context) {
             val target = training.widgetTarget(prefs.zipCode, all.map { it.id }.toSet(), now)
             val cadence = if (paired) house.refreshMinutes else 1
             val value = climateCardState(
-                selected.singleOrNull()?.name?.takeUnless { sensorId.isNullOrBlank() } ?: house.name, available,
+                selected.singleOrNull()?.name?.takeUnless { sensorId.isNullOrBlank() } ?: house.name, selected,
                 trend, now, cadence, celsius ?: !prefs.temperatureFahrenheit, target, readWeather(prefs.zipCode),
-                prefs.forAlertsIn(house.id), issue, sensorId?.takeIf(String::isNotBlank), house
+                prefs.forAlertsIn(house.id), sources, sensorId?.takeIf(String::isNotBlank), house
             )
             if (secure.cloudEnrollment() != owner || (paired && !ClimateWidget.viewerReady(app, owner))) signedOut() else value
         } catch (_: Exception) {

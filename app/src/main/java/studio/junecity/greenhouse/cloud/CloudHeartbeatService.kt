@@ -12,12 +12,13 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,6 +39,12 @@ object HeartbeatRetryPolicy {
         2 -> 30_000L
         else -> 60_000L
     }
+}
+
+/** The minute cadence starts when sampling starts. Only a finished upload can be advertised to viewers. */
+internal data class PublishedSnapshot(val startedElapsedMs: Long, val uploadedAtEpochMs: Long) {
+    fun nextUploadDue(elapsedMs: Long, intervalMinutes: Int) =
+        elapsedMs - startedElapsedMs >= intervalMinutes * 60_000L
 }
 
 /** A successful backend heartbeat from this process is also evidence of recovery on older backends. */
@@ -99,7 +106,7 @@ class CloudHeartbeatService : Service() {
         }
         val appliedRules = AppliedAlertRules(this@CloudHeartbeatService, enrollment)
         var failures = 0
-        val lastUpload = AtomicLong(0L)
+        val lastUpload = AtomicReference<PublishedSnapshot?>()
         var update: Job? = null
         var backup: Job? = null
         var publishedSensors: Map<String,String>? = null
@@ -145,7 +152,7 @@ class CloudHeartbeatService : Service() {
                     managedUpdates=updateMode == "MANAGED", updateMode=updateMode,
                     updateStatus=ManagedServerUpdate.status(context, enrollment.deviceId),
                     updateStatusRequestId=ManagedServerUpdate.statusRequestId(context, enrollment.deviceId),
-                    lastDataUploadEpochMs=lastUpload.get().takeIf{it>0}, appVersion=BuildConfig.VERSION_NAME
+                    lastDataUploadEpochMs=lastUpload.get()?.uploadedAtEpochMs, appVersion=BuildConfig.VERSION_NAME
                 ))
                 if (secure.cloudEnrollment() != enrollment) return@coroutineScope
                 rulesChanged = reply.alertRules?.let(appliedRules::install) == true
@@ -177,11 +184,12 @@ class CloudHeartbeatService : Service() {
                     backup?.join()
                     val available = sensors.associate { it.id to it.name }
                     val snapshotRules = reply.alertRules?.rules ?: rules
+                    val start = SystemClock.elapsedRealtime()
                     // Older cloud deployments rely on these readings to alert individual client sensors.
                     // Publish crossings and recoveries even when the dashboard refresh interval is 15 minutes.
                     if (health.breachDirections != publishedBreaches || prefs.activeGreenhouse != publishedPlan ||
                         available != publishedSensors || snapshotRules != publishedRules ||
-                        System.currentTimeMillis() - lastUpload.get() >= prefs.activeRefreshMinutes * 60_000L) {
+                        lastUpload.get()?.nextUploadDue(start, prefs.activeRefreshMinutes) != false) {
                         backup = launch {
                             runCatching { gateway.uploadGreenhouseBackup(enrollment.greenhouseId, GreenhouseBackupStore(context).snapshot(enrollment).put("serverHealth", device.toHealthJson())) }
                                 .onSuccess {
@@ -189,7 +197,7 @@ class CloudHeartbeatService : Service() {
                                     publishedRules = snapshotRules
                                     publishedSensors = available
                                     publishedBreaches = health.breachDirections
-                                    lastUpload.set(System.currentTimeMillis())
+                                    lastUpload.set(PublishedSnapshot(start, System.currentTimeMillis()))
                                 }
                         }
                     }
