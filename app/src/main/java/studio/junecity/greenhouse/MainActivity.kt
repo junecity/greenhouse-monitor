@@ -30,7 +30,7 @@ import studio.junecity.greenhouse.ui.DashboardScreen
 import studio.junecity.greenhouse.ui.StageScreen
 import studio.junecity.greenhouse.ui.AppMotion
 import studio.junecity.greenhouse.ui.accessibleMotionDuration
-import studio.junecity.greenhouse.ui.activeTemperatureAlarms
+import studio.junecity.greenhouse.ui.activeClimateAlarms
 import studio.junecity.greenhouse.ui.ClientAlarmPrompt
 import studio.junecity.greenhouse.cloud.ClientTemperatureAlarms
 import studio.junecity.greenhouse.camera.CameraStreamServer
@@ -157,7 +157,7 @@ class MainActivity : ComponentActivity() {
                 }
                 onDispose { stop?.invoke() }
             }
-            val alarms = activeTemperatureAlarms(alarmOwner)
+            val alarms = activeClimateAlarms(alarmOwner)
             CloudOnboardingGate(
                 configuration = cloudConfiguration.getOrNull(),
                 configurationError = cloudConfiguration.exceptionOrNull()?.message,
@@ -213,7 +213,7 @@ class MainActivity : ComponentActivity() {
                         val house = studio.junecity.greenhouse.settings.AppPreferencesStore(applicationContext, "_standalone").loadForMonitoring(local)
                             .greenhouses.firstOrNull { it.id == target.greenhouse }
                         val message = studio.junecity.greenhouse.data.AlertNotifier(applicationContext, "_standalone")
-                            .recordedLocalMessage(target.sensor, target.greenhouse, target.time, local)
+                            .recordedLocalMessage(target.sensor, target.greenhouse, target.time, local, target.notificationTag)
                         androidx.compose.material3.AlertDialog(onDismissRequest = dismiss,
                             title = { androidx.compose.material3.Text(house?.name ?: "Local greenhouse alert") },
                             text = { androidx.compose.material3.Text(message ?: "This local alert has been updated.") },

@@ -24,13 +24,30 @@ internal class ReadingAlarmLedger(encoded: String?) {
         val acks = mutableSetOf<String>()
         val liveIds = live.mapTo(mutableSetOf()) { it.id }
         val knownCloud = (remote + live.filterNot { isLocal(it.id) }).distinctBy { it.id }
+        for (batch in batches.filter { it.humidityEnabled == false }) {
+            // A deliberate switch-off rearms this house's RH conditions without dismissing any delivered alarm.
+            for (key in markers.keys()) {
+                val identity = JSONArray(key)
+                if (identity.optString(4) != MonitoringAlertType.CriticalHumidity.name ||
+                    identity.optString(0) != batch.house || identity.optString(1) != batch.server ||
+                    identity.optLong(2) != batch.generation) continue
+                val marker = markers.getJSONObject(key)
+                if (marker.optLong("evaluated") >= batch.evaluatedAt) continue
+                episodes.optJSONObject(marker.optString("episode"))?.put("end", batch.evaluatedAt)
+                marker.remove("episode")
+                marker.put("last", maxOf(marker.optLong("last"), batch.evaluatedAt)).put("evaluated", batch.evaluatedAt)
+            }
+        }
         for (batch in batches) for (obs in batch.observations) {
-            val key = JSONArray(listOf(batch.house, batch.server, batch.generation, obs.sensorId)).toString()
+            // Keep the original four-part key for temperature episodes persisted by earlier builds.
+            val key = JSONArray(listOf(batch.house, batch.server, batch.generation, obs.sensorId)).also {
+                if (obs.type == MonitoringAlertType.CriticalHumidity) it.put(obs.type.name)
+            }.toString()
             val marker = markers.optJSONObject(key) ?: JSONObject()
             val last = marker.optLong("last")
             if (obs.measuredAtEpochMs < last ||
                 (obs.measuredAtEpochMs == last && batch.evaluatedAt <= marker.optLong("evaluated"))) continue
-            val direction = TemperatureBreach.Direction.forReading(obs.temperatureF, obs.lowF, obs.highF)
+            val direction = obs.direction
             val old = marker.optString("episode")
             val previous = episodes.optJSONObject(old)
             marker.put("last", obs.measuredAtEpochMs).put("evaluated", batch.evaluatedAt)
@@ -40,7 +57,7 @@ internal class ReadingAlarmLedger(encoded: String?) {
             marker.remove("episode")
             if (direction == null) continue
             val episode = JSONObject().put("house", batch.house).put("server", batch.server).put("sensor", obs.sensorId)
-                .put("name", obs.sensorName).put("direction", direction.name)
+                .put("name", obs.sensorName).put("direction", direction.name).put("metric", obs.type.name)
                 .put("after", if (last == 0L) batch.generation else last).put("since", obs.measuredAtEpochMs)
                 .put("aliases", JSONArray())
             // If a network-only alert was already displayed, retain its notification and Stop target.
@@ -54,15 +71,16 @@ internal class ReadingAlarmLedger(encoded: String?) {
                 episode.getJSONArray("aliases").put(id)
                 if (cloud.sensorId != null) episode.put("sensorAlias", id)
             }
-            val limit = if (direction == TemperatureBreach.Direction.LOW) obs.lowF else obs.highF
+            val limit = if (direction == TemperatureBreach.Direction.LOW) obs.low else obs.high
             val comparison = when {
-                obs.temperatureF == limit -> "at"
+                obs.value == limit -> "at"
                 direction == TemperatureBreach.Direction.LOW -> "below"
                 else -> "above"
             }
-            val message = "${obs.sensorName} measured ${format(obs.temperatureF)}°F, $comparison the ${direction.name.lowercase()} limit of ${format(limit)}°F."
+            val unit = if (obs.type == MonitoringAlertType.CriticalHumidity) "% RH" else "°F"
+            val message = "${obs.sensorName} measured ${format(obs.value)}$unit, $comparison the ${direction.name.lowercase()} limit of ${format(limit)}$unit."
             if (id !in stopped && id !in liveIds) {
-                raised += MonitoringAlert(id, batch.house, MonitoringAlertType.CriticalTemperature, MonitoringAlertPriority.Critical,
+                raised += MonitoringAlert(id, batch.house, obs.type, MonitoringAlertPriority.Critical,
                     message, obs.measuredAtEpochMs, true, batch.server, obs.sensorId)
                 liveIds += id
             }
@@ -121,6 +139,7 @@ internal class ReadingAlarmLedger(encoded: String?) {
     }
 
     private fun matches(episode: JSONObject, cloud: MonitoringAlert): Boolean {
+        if (episode.optString("metric", MonitoringAlertType.CriticalTemperature.name) != cloud.type.name) return false
         if (cloud.greenhouseId != episode.getString("house") || cloud.serverId != episode.getString("server")) return false
         if (cloud.sensorId != null) {
             if (cloud.sensorId != episode.getString("sensor") ||

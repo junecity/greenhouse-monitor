@@ -180,7 +180,7 @@ class CloudAlertService : Service() {
         private const val SERVICE_NOTIFICATION_ID = 4174
 
         internal fun alertChannel(context: Context, alert: MonitoringAlert, role: CloudDeviceRole): String = when {
-            role == CloudDeviceRole.ViewerClient && alert.type == MonitoringAlertType.CriticalTemperature ->
+            role == CloudDeviceRole.ViewerClient && alert.type.isClimateAlarm ->
                 TemperatureSound.selected(context).channel(context).id
             alert.priority == MonitoringAlertPriority.Critical || alert.type == MonitoringAlertType.ServerOffline -> CRITICAL_CHANNEL
             else -> HIGH_CHANNEL
@@ -263,6 +263,7 @@ internal fun postCloudAlert(context: Context, alert: MonitoringAlert, role: Clou
     val channel = CloudAlertService.alertChannel(context, alert, role)
     val title = when (alert.type) {
         MonitoringAlertType.CriticalTemperature -> CRITICAL_TITLE
+        MonitoringAlertType.CriticalHumidity -> "Critical greenhouse humidity"
         MonitoringAlertType.ServerOffline -> OFFLINE_TITLE
         MonitoringAlertType.SensorCommunicationFailure -> "Greenhouse sensor connection"
         MonitoringAlertType.Information -> "Greenhouse status"

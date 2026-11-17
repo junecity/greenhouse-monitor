@@ -190,7 +190,7 @@ private fun RuleForm(initial: AlertRules, paired: Boolean, busy: Boolean, action
 
     AlertCard {
         Text("Temperature", style = MaterialTheme.typography.titleMedium, color = DashboardTokens.White, fontWeight = FontWeight.Bold)
-        if (paired) Text("A sensor crossing either limit triggers a critical alert on paired phones.", color = DashboardTokens.Muted, fontSize = 14.sp)
+        if (paired) Text("A sensor reaching either limit triggers a critical alarm on paired phones.", color = DashboardTokens.Muted, fontSize = 14.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             LimitField("Low °F", lowTemp, Modifier.weight(1f), !busy) { lowTemp = it }
             LimitField("High °F", highTemp, Modifier.weight(1f), !busy) { highTemp = it }
@@ -199,6 +199,10 @@ private fun RuleForm(initial: AlertRules, paired: Boolean, busy: Boolean, action
     }
     AlertCard {
         Text("Humidity", style = MaterialTheme.typography.titleMedium, color = DashboardTokens.White, fontWeight = FontWeight.Bold)
+        if (paired) {
+            AlertSwitch("Humidity alarms", humidity, !busy) { humidity = it }
+            Text("Alert paired phones when a sensor reaches either humidity limit.", color = DashboardTokens.Muted, fontSize = 14.sp)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             LimitField("Low % RH", lowRh, Modifier.weight(1f), !busy, KeyboardType.Decimal) { lowRh = it }
             LimitField("High % RH", highRh, Modifier.weight(1f), !busy, KeyboardType.Decimal) { highRh = it }
@@ -208,9 +212,9 @@ private fun RuleForm(initial: AlertRules, paired: Boolean, busy: Boolean, action
     AlertCard {
         Text(if (paired) "Routine alerts on the greenhouse phone" else "Routine alerts",
             style = MaterialTheme.typography.titleMedium, color = DashboardTokens.White, fontWeight = FontWeight.Bold)
-        if (paired) Text("Critical temperature alerts stay active independently.", color = DashboardTokens.Muted, fontSize = 14.sp)
+        if (paired) Text("Paired phones always receive critical temperature alerts.", color = DashboardTokens.Muted, fontSize = 14.sp)
         AlertSwitch("Temperature", temperature, !busy) { temperature = it }
-        AlertSwitch("Humidity", humidity, !busy) { humidity = it }
+        if (!paired) AlertSwitch("Humidity", humidity, !busy) { humidity = it }
         AlertSwitch("Sensor offline", offline, !busy) { offline = it }
     }
     Button(enabled = !busy && temperatureValid && humidityValid,

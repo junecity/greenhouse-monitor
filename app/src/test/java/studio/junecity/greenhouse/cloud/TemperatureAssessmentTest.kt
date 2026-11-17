@@ -37,6 +37,21 @@ class TemperatureAssessmentTest {
         assertTrue(assess(govee, shelly.copy(online = false)).evaluated)
     }
 
+    @Test fun humidityUsesFreshRelativeHumidityIndependentlyOfTemperatureAndIncludesTheLimits() {
+        val low = govee.copy(temperatureF = null, humidityPercent = 30.0)
+        val high = shelly.copy(humidityPercent = 85.0)
+        val invalid = listOf(govee.copy(id = "old", updatedAtEpochMs = now - 600_001),
+            govee.copy(id = "future", updatedAtEpochMs = now + 1), govee.copy(id = "missing", humidityPercent = null),
+            govee.copy(id = "invalid", humidityPercent = 102.0), govee.copy(id = "offline", online = false))
+        val all = listOf(low, high, high.copy(humidityPercent = 50.0, updatedAtEpochMs = now - 2_000)) + invalid
+        val observations = assessHumidity(all, 30.0, 85.0, true, now)
+        assertEquals(listOf(govee.id, shelly.id), observations.map { it.sensorId })
+        assertEquals(listOf(TemperatureBreach.Direction.LOW, TemperatureBreach.Direction.HIGH), observations.map { it.direction })
+        assertTrue(observations.all { it.type == MonitoringAlertType.CriticalHumidity && it.measuredAtEpochMs == now - 1_000 })
+        assertTrue(assessHumidity(all, 30.0, 85.0, false, now).isEmpty())
+        assertTrue(assessHumidity(all, 85.0, 30.0, true, now).isEmpty())
+    }
+
     @Test fun limitsTriggerOnFirstObservationAndOnlyStrictlyInsideRetiresTheSensor() {
         val atLow = govee.copy(temperatureF = 45.0)
         val atHigh = shelly.copy(temperatureF = 100.0)
@@ -82,18 +97,18 @@ class TemperatureAssessmentTest {
         val a = govee.copy(temperatureF = 105.0, name = "Rack")
         val b = shelly.copy(temperatureF = 105.0, name = "Rack")
         val first = assess(a, b.copy(temperatureF = 80.0))
-        assertEquals(listOf(105.0, 80.0), first.observations.map { it.temperatureF })
+        assertEquals(listOf(105.0, 80.0), first.observations.map { it.value })
         val second = assess(a, b)
         assertEquals(setOf(a.id, b.id), second.observations.map { it.sensorId }.toSet())
-        assertTrue(second.observations.all { it.temperatureF > it.highF && it.sensorName == "Rack" })
+        assertTrue(second.observations.all { it.value > it.high && it.sensorName == "Rack" })
         // Omitting A or observing it offline must not send any healthy observation for A.
         for (samples in listOf(listOf(b), listOf(a.copy(online = false), b))) {
             val observed = assessTemperature(samples, 45.0, 100.0, now, setOf(a.id, b.id)).observations
             assertEquals(listOf(b.id), observed.map { it.sensorId })
         }
         val recovered = assess(a.copy(temperatureF = 100.0, updatedAtEpochMs = now), a, b)
-        assertEquals(100.0, recovered.observations.single { it.sensorId == a.id }.temperatureF, 0.0)
-        assertEquals(105.0, recovered.observations.single { it.sensorId == b.id }.temperatureF, 0.0)
+        assertEquals(100.0, recovered.observations.single { it.sensorId == a.id }.value, 0.0)
+        assertEquals(105.0, recovered.observations.single { it.sensorId == b.id }.value, 0.0)
     }
 
     @Test fun everyFreshSensorReportsEvenIfNoOtherSensorRecoversOrHasAFreshReading() {
@@ -129,8 +144,17 @@ class TemperatureAssessmentTest {
         for (assessment in listOf(assess(govee), assess(govee.copy(temperatureF = 55.0)), assess())) {
             reporter.report(MonitoringHealth("server-01", "house-1", assessment.sensorConnectionHealthy,
                 assessment.breach != null, temperatureEvaluated = assessment.evaluated, temperatureBreach = assessment.breach,
-                temperatureObservations = assessment.observations))
+                temperatureObservations = assessment.observations, humidityAlertsEnabled = assessment.evaluated,
+                humidityObservations = assessHumidity(listOf(shelly), 30.0, 70.0, assessment.evaluated, now)))
         }
+        val humidity = sent.first().getJSONArray("humidityObservations").getJSONObject(0)
+        assertEquals(shelly.id, humidity.getString("sensorId"))
+        assertEquals(75.0, humidity.getDouble("humidityPercent"), 0.0)
+        assertEquals(30.0, humidity.getDouble("lowHumidity"), 0.0)
+        assertEquals(70.0, humidity.getDouble("highHumidity"), 0.0)
+        assertEquals(shelly.updatedAtEpochMs, humidity.getLong("measuredAtEpochMs"))
+        assertFalse(sent.last().getBoolean("humidityAlertsEnabled"))
+        assertEquals(0, sent.last().getJSONArray("humidityObservations").length())
         val evidence = sent.first().getJSONObject("temperatureBreach")
         assertEquals("West bench", evidence.getString("sensorName"))
         assertEquals("LOW", evidence.getString("direction"))

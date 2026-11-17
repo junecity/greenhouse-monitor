@@ -4,19 +4,23 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import org.json.JSONArray
 import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.cloud.TemperatureBreach
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.AppPreferencesStore
-import studio.junecity.greenhouse.settings.isStandaloneClient
 import studio.junecity.greenhouse.settings.CloudEnrollment
+import studio.junecity.greenhouse.settings.isStandaloneClient
 import studio.junecity.greenhouse.widget.ClimateWidget
 import kotlin.math.roundToInt
 
 class AlertNotifier(private val context: Context, private val suffix: String = "") {
+    private enum class Metric(val prefix: String, val tag: String) {
+        Temperature("", "sensor"), Humidity("rh_", "humidity"), Connection("offline_", "offline")
+    }
+
     companion object {
-        // A standalone collector keeps its own store while the viewer switches between servers.
         private fun collectorScope(owner: CloudEnrollment) = JSONArray(listOf(
             owner.tenantId, owner.deviceId, owner.role.name, if (owner.isStandaloneClient()) "" else owner.greenhouseId
         )).toString()
@@ -31,11 +35,11 @@ class AlertNotifier(private val context: Context, private val suffix: String = "
                 sensors.any { sensor ->
                     val id = sensor.id
                     store.getString("owner_$id", null) == scope && store.getString("house_$id", null) == house &&
-                        when (store.getString("condition_$id", null)?.substringBefore(':')) {
+                        (when (store.getString("condition_$id", null)?.substringBefore(':')) {
                             "Temperature low", "Temperature high" -> rules.temperatureAlerts
-                            "Humidity low", "Humidity high" -> rules.humidityAlerts
+                            "Humidity low", "Humidity high" -> rules.humidityAlerts // Existing single-condition records.
                             else -> false
-                        }
+                        } || (rules.humidityAlerts && store.contains("rh_condition_$id")))
                 }
             }
         }
@@ -49,26 +53,36 @@ class AlertNotifier(private val context: Context, private val suffix: String = "
         manager.createNotificationChannel(NotificationChannel("greenhouse_alerts", "Greenhouse alerts", NotificationManager.IMPORTANCE_HIGH))
     }
 
-    fun forgetSensor(id: String) = synchronized(state) {
-        manager.cancel("sensor/$id", id.hashCode())
+    private fun clearRecords(id: String) {
+        state.edit {
+            for (metric in Metric.entries) {
+                manager.cancel("${metric.tag}/$id", id.hashCode())
+                for (field in listOf("condition", "sent", "lastMessage")) remove("${metric.prefix}${field}_$id")
+            }
+            remove("measured_$id").remove("owner_$id").remove("tenant_$id").remove("house_$id")
+        }
         cancelOlderNotification(id)
-        state.edit().remove("condition_$id").remove("sent_$id").remove("measured_$id")
-            .remove("owner_$id").remove("tenant_$id").remove("house_$id").remove("lastMessage_$id").apply()
+    }
+
+    fun forgetSensor(id: String) = synchronized(state) {
+        clearRecords(id)
         ClimateWidget.changed(context)
     }
 
     private fun cancelOlderNotification(id: String) {
-        // Earlier versions used only the hash as the system notification ID.
         if (manager.activeNotifications.any { it.tag == null && it.id == id.hashCode() &&
                 it.notification.channelId in setOf("greenhouse_alerts", "greenhouse_quiet") }) {
             manager.cancel(id.hashCode())
         }
     }
 
-    internal fun recordedLocalMessage(id: String?, house: String, at: Long, owner: CloudEnrollment): String? {
-        if (id == null || suffix != "_standalone" || state.getLong("sent_$id", -1) != at ||
-            state.getString("tenant_$id", null) != owner.tenantId || state.getString("house_$id", null) != house) return null
-        return state.getString("lastMessage_$id", null)
+    internal fun recordedLocalMessage(id: String?, house: String, at: Long, owner: CloudEnrollment, tag: String? = null): String? {
+        if (id == null || suffix != "_standalone" || state.getString("tenant_$id", null) != owner.tenantId ||
+            state.getString("house_$id", null) != house) return null
+        val metric = if (tag == null) Metric.Temperature else Metric.entries.find { tag == "${it.tag}/$id" } ?: return null
+        return state.getString("${metric.prefix}lastMessage_$id", null).takeIf {
+            state.getLong("${metric.prefix}sent_$id", -1) == at
+        }
     }
 
     fun evaluate(sensor: GoveeSensor, owner: CloudEnrollment? = null) {
@@ -81,90 +95,107 @@ class AlertNotifier(private val context: Context, private val suffix: String = "
 
         synchronized(state) {
             val id = sensor.id
-            val key = "condition_$id"
-            val lastSample = "measured_$id"
-            val storedCondition = state.getString(key, null)
+            if (sensor.online && now - sensor.updatedAtEpochMs !in 0L..600_000L) return
             val scope = owner?.let(::collectorScope)
             val recordedScope = state.getString("owner_$id", null)
-            val sameSource = owner == null ||
-                (recordedScope == scope && state.getString("house_$id", null) == house)
-            // Earlier standalone installs already recorded the receiving tenant and floor plan.
-            val legacyStandalone = recordedScope == null && suffix == "_standalone" && owner != null &&
-                state.getString("tenant_$id", null) == owner.tenantId && state.getString("house_$id", null) == house
-            val priorKind = storedCondition?.substringBefore(':')
-            val previous = priorKind.takeIf { sameSource || legacyStandalone }
-            if (sensor.online) {
-                if (now - sensor.updatedAtEpochMs !in 0L..600_000L ||
-                    ((sameSource || legacyStandalone) && sensor.updatedAtEpochMs < state.getLong(lastSample, 0L))) return
-                state.edit().putLong(lastSample, sensor.updatedAtEpochMs).apply()
-            } else if (!prefs.offlineAlerts) return
-            val message = condition(sensor, prefs)
-            if (message == null) {
-                // An absent measurement cannot establish recovery of the previous excursion.
-                if (previous?.startsWith("Temperature ") == true && sensor.temperatureF?.isFinite() != true) return
-                if (previous?.startsWith("Humidity ") == true && sensor.humidityPercent?.isFinite() != true) return
-                if (storedCondition != null) {
-                    state.edit().remove(key).apply()
-                    ClimateWidget.changed(context)
-                }
-                return
-            }
-            val kind = message.substringBefore(':')
-            val lastSent = state.getLong("sent_$id", 0)
-            val repeatDue = prefs.repeatedAlerts && now - lastSent >= prefs.repeatMinutes * 60_000L
-            if (previous == kind && !repeatDue) {
-                if (legacyStandalone) {
-                    state.edit().putString("owner_$id", scope).apply()
-                    ClimateWidget.changed(context)
-                }
-                return
-            }
-
-            val tag = "sensor/$id"
-            val title = listOfNotNull(settings.greenhouses.find { it.id == house }?.name,
-                sensor.zone.takeUnless { it == "Unassigned" }, sensor.name).joinToString(" · ")
-            val channel = if (prefs.popupsEnabled) "greenhouse_alerts" else "greenhouse_quiet"
-            val notice = NotificationCompat.Builder(context, channel)
-                // Old server records lack an owner. Bind the fresh reading and replace an
-                // already visible matching notification silently during the upgrade.
-                .setOnlyAlertOnce(recordedScope == null && priorKind == kind && !repeatDue)
-                .setSmallIcon(R.drawable.ic_notification_greenhouse)
-                .setContentTitle(title)
-                .setContentText(message)
-                .setContentIntent(AlertDestination.pending(context, id.hashCode(), house, id, false, now, tag,
-                    owner?.tenantId?.takeIf { suffix == "_standalone" && owner.isStandaloneClient() }))
-                .setAutoCancel(true)
-                .setVibrate(if (prefs.vibrationEnabled) longArrayOf(0, 250, 150, 250) else longArrayOf(0))
-            if (prefs.soundEnabled) notice.setDefaults(NotificationCompat.DEFAULT_SOUND)
-            runCatching {
-                manager.notify(tag, id.hashCode(), notice.build())
-                cancelOlderNotification(id)
-                val saved = state.edit().putString(key, kind).putLong("sent_$id", now)
-                    .putString("owner_$id", scope).putString("house_$id", house)
-                if (suffix == "_standalone" && owner != null) {
-                    saved.putString("tenant_$id", owner.tenantId).putString("lastMessage_$id", message)
-                }
-                saved.apply()
+            val previousHouse = state.getString("house_$id", null)
+            val changedSource = owner != null && (recordedScope != null && recordedScope != scope ||
+                previousHouse != null && previousHouse != house ||
+                state.getString("tenant_$id", null)?.let { it != owner.tenantId } == true)
+            if (changedSource) {
+                clearRecords(id)
                 ClimateWidget.changed(context)
             }
+            if (sensor.online && sensor.updatedAtEpochMs < state.getLong("measured_$id", 0)) return
+            state.edit {
+                putString("house_$id", house)
+                if (owner != null) putString("owner_$id", scope).putString("tenant_$id", owner.tenantId)
+                if (sensor.online) putLong("measured_$id", sensor.updatedAtEpochMs)
+            }
+            val moved = migrateLegacyCondition(id)
+            val title = listOfNotNull(settings.greenhouses.find { it.id == house }?.name,
+                sensor.zone.takeUnless { it == "Unassigned" }, sensor.name).joinToString(" · ")
+
+            fun record(metric: Metric, message: String?) {
+                updateCondition(metric, sensor.id, house, owner, title, message, prefs, now, moved == metric)
+            }
+            record(Metric.Connection, if (!sensor.online && prefs.offlineAlerts) "Sensor offline" else null)
+            if (sensor.online) {
+                val temperature = sensor.temperatureF?.takeIf(Double::isFinite)
+                val humidity = sensor.humidityPercent?.takeIf { it in 0.0..100.0 }
+                if (!prefs.temperatureAlerts || temperature != null) record(Metric.Temperature,
+                    temperature?.takeIf { prefs.temperatureAlerts }?.let {
+                        limitMessage("Temperature", it, prefs.lowTemperatureF, prefs.highTemperatureF, "°F")
+                    })
+                if (!prefs.humidityAlerts || humidity != null) record(Metric.Humidity,
+                    humidity?.takeIf { prefs.humidityAlerts }?.let {
+                        limitMessage("Humidity", it, prefs.lowHumidity, prefs.highHumidity, "%")
+                    })
+            }
+            if ((recordedScope == null && owner != null) || moved != null) ClimateWidget.changed(context)
         }
     }
 
-    private fun condition(sensor: GoveeSensor, prefs: NotificationPreferences): String? {
-        if (!sensor.online) return if (prefs.offlineAlerts) "Sensor offline" else null
-        val temperature = sensor.temperatureF?.takeIf { it.isFinite() }
-        val humidity = sensor.humidityPercent?.takeIf { it.isFinite() }
-        if (prefs.temperatureAlerts && temperature != null) {
-            when (TemperatureBreach.Direction.forReading(temperature, prefs.lowTemperatureF, prefs.highTemperatureF)) {
-                TemperatureBreach.Direction.LOW -> return "Temperature low: ${temperature.roundToInt()}°F"
-                TemperatureBreach.Direction.HIGH -> return "Temperature high: ${temperature.roundToInt()}°F"
-                null -> Unit
-            }
+    // Older versions kept whichever condition won first under the temperature notification tag.
+    private fun migrateLegacyCondition(id: String): Metric? {
+        val old = state.getString("condition_$id", null) ?: return null
+        val metric = when {
+            old.startsWith("Humidity ") -> Metric.Humidity
+            old == "Sensor offline" -> Metric.Connection
+            else -> return null
         }
-        return when {
-            prefs.humidityAlerts && humidity != null && humidity < prefs.lowHumidity -> "Humidity low: ${humidity.roundToInt()}%"
-            prefs.humidityAlerts && humidity != null && humidity > prefs.highHumidity -> "Humidity high: ${humidity.roundToInt()}%"
-            else -> null
+        state.edit {
+            putString("${metric.prefix}condition_$id", old.substringBefore(':'))
+            putLong("${metric.prefix}sent_$id", state.getLong("sent_$id", 0))
+            putString("${metric.prefix}lastMessage_$id", state.getString("lastMessage_$id", null))
+            remove("condition_$id")
+        }
+        manager.cancel("sensor/$id", id.hashCode())
+        return metric
+    }
+
+    private fun updateCondition(metric: Metric, id: String, house: String, owner: CloudEnrollment?, title: String,
+                                message: String?, prefs: NotificationPreferences, now: Long, migrated: Boolean) {
+        val prefix = metric.prefix
+        val key = "${prefix}condition_$id"
+        val previous = state.getString(key, null)?.substringBefore(':')
+        val tag = "${metric.tag}/$id"
+        if (message == null) {
+            if (previous != null) {
+                state.edit { remove(key) }
+                manager.cancel(tag, id.hashCode())
+                ClimateWidget.changed(context)
+            }
+            return
+        }
+        val kind = message.substringBefore(':')
+        val repeatDue = prefs.repeatedAlerts && now - state.getLong("${prefix}sent_$id", 0) >= prefs.repeatMinutes * 60_000L
+        if (previous == kind && !repeatDue && !migrated) return
+        val channel = if (prefs.popupsEnabled) "greenhouse_alerts" else "greenhouse_quiet"
+        val notice = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_notification_greenhouse)
+            .setContentTitle(title).setContentText(message)
+            .setContentIntent(AlertDestination.pending(context, id.hashCode(), house, id, false, now, tag,
+                owner?.tenantId?.takeIf { suffix == "_standalone" && owner.isStandaloneClient() }))
+            .setAutoCancel(true)
+            .setVibrate(if (prefs.vibrationEnabled) longArrayOf(0, 250, 150, 250) else longArrayOf(0))
+        if (prefs.soundEnabled) notice.setDefaults(NotificationCompat.DEFAULT_SOUND)
+        if (migrated && previous == kind && !repeatDue) notice.setSilent(true)
+        runCatching {
+            manager.notify(tag, id.hashCode(), notice.build())
+            cancelOlderNotification(id)
+            state.edit {
+                putString(key, kind).putLong("${prefix}sent_$id", now)
+                putString("${prefix}lastMessage_$id", message)
+            }
+            ClimateWidget.changed(context)
         }
     }
+
+    private fun limitMessage(name: String, value: Double, low: Double, high: Double, unit: String): String? =
+        when (TemperatureBreach.Direction.forReading(value, low, high)) {
+            TemperatureBreach.Direction.LOW -> "$name low: ${value.roundToInt()}$unit"
+            TemperatureBreach.Direction.HIGH -> "$name high: ${value.roundToInt()}$unit"
+            null -> null
+        }
 }

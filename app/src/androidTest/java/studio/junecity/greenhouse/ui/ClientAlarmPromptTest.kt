@@ -43,10 +43,13 @@ class ClientAlarmPromptTest {
 
     @Test fun notificationOpensAppAndExplicitStopWorksWhileReconnectingAfterRecovery() {
         assumeTrue(CloudRuntime.configurationOrNull() != null)
+        val incident = this.incident.copy(type = MonitoringAlertType.CriticalHumidity,
+            message = "Bench sensor measured 90% RH, at its high limit.")
         ClientTemperatureAlarms.deliver(context, owner, AlertInbox(listOf(incident), true, true))
         ClientTemperatureAlarms.deliver(context, owner, AlertInbox(emptyList(), true, true))
         compose.activityRule.scenario.recreate()
         await("Stop alarm")
+        compose.onNodeWithText("Critical humidity alarm").assertIsDisplayed()
         // After a cold activity start the fixture has no cloud session. Only the local stop control is exposed.
         compose.onNodeWithText(incident.message).assertDoesNotExist()
         val notice = context.getSystemService(NotificationManager::class.java).activeNotifications.single {
@@ -79,7 +82,7 @@ class ClientAlarmPromptTest {
         compose.activityRule.scenario.onActivity { activity ->
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             activity.setContent {
-                ClientAlarmPrompt(activeTemperatureAlarms(owner), owner, showReadings = true)
+                ClientAlarmPrompt(activeClimateAlarms(owner), owner, showReadings = true)
             }
         }
         ClientTemperatureAlarms.deliver(context, owner, AlertInbox(listOf(incident), true, true))
@@ -89,16 +92,18 @@ class ClientAlarmPromptTest {
         try {
             File(context.cacheDir, "qa-critical-stop.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         } finally { image.recycle() }
-        val second = incident.copy(id = "alarm-ui-2", occurredAtEpochMs = incident.occurredAtEpochMs + 1000,
-            message = "Roof sensor measured 41°F, below the low limit of 45°F.")
+        val second = incident.copy(id = "alarm-ui-2", type = MonitoringAlertType.CriticalHumidity,
+            occurredAtEpochMs = incident.occurredAtEpochMs + 1000, message = "Bench sensor reached 90% RH.")
         ClientTemperatureAlarms.deliver(context, owner, AlertInbox(listOf(incident, second), true, true))
         await("Stop all alarms (2)")
+        compose.onNodeWithText("Critical greenhouse alarms").assertIsDisplayed()
         ClientTemperatureAlarms.deliver(context, owner, AlertInbox(emptyList(), true, true))
         // In short landscape windows the lazy list only composes one incident at a time.
         compose.onNode(hasScrollToIndexAction()).performScrollToIndex(1)
         compose.onNodeWithText(second.message).assertIsDisplayed()
         compose.onNodeWithContentDescription("Stop alarm. ${second.message}").performClick()
         await("Stop alarm")
+        compose.onNodeWithText("Critical temperature alarm").assertIsDisplayed()
         compose.onNodeWithText(second.message).assertDoesNotExist()
         compose.onNodeWithText(incident.message).assertExists()
         assertEquals(setOf(second.id), ClientTemperatureAlarms.pendingAcknowledgements(context, owner))

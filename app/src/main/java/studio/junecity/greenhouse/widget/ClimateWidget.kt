@@ -43,7 +43,13 @@ class ClimateWidget : AppWidgetProvider() {
                         Log.w("ClimateWidget", "Could not refresh lock screen climate", failure)
                     }
                 }
-                ids.forEach { render(context, it) }
+                ids.forEach { id ->
+                    try {
+                        render(context, id)
+                    } catch (failure: RuntimeException) {
+                        Log.w("ClimateWidget", "Could not update widget $id", failure)
+                    }
+                }
             }
             finally { pendingResult?.finish() }
         }
@@ -198,7 +204,8 @@ class ClimateWidget : AppWidgetProvider() {
                     owner = owner,
                     houseId = options.getString("house", null)?.takeIf { sameSource && it.isNotBlank() },
                     sensorId = options.getString("sensor", null)?.takeIf { sameSource && it.isNotBlank() },
-                    celsius = options.takeIf { it.contains("celsius") }?.getBoolean("celsius", false)
+                    celsius = options.takeIf { it.contains("celsius") }?.getBoolean("celsius", false),
+                    pin = options
                 )
             } else GreenhouseWidgetUiState(title = "Greenhouse Studio", status = WidgetFeedStatus.Empty,
                 statusMessage = if (owner?.ownsWidget(savedScope) == true) "Switch to the configured greenhouse" else "Open Greenhouse Studio to set up")

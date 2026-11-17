@@ -36,7 +36,8 @@ internal class ClimateCardRepository(context: Context) {
     private val metadata = app.getSharedPreferences(STORE, Context.MODE_PRIVATE)
 
     fun load(owner: CloudEnrollment, houseId: String? = null, sensorId: String? = null,
-             celsius: Boolean? = null, now: Long = System.currentTimeMillis(), readingsOnly: Boolean = false): GreenhouseWidgetUiState {
+             celsius: Boolean? = null, now: Long = System.currentTimeMillis(), readingsOnly: Boolean = false,
+             pin: SharedPreferences? = null): GreenhouseWidgetUiState {
         fun unavailable(status: WidgetFeedStatus, message: String) =
             GreenhouseWidgetUiState(status = status, statusMessage = message, now = now, celsius = celsius ?: false)
         fun signedOut() = unavailable(WidgetFeedStatus.Empty, "Open Greenhouse Studio to set up")
@@ -48,24 +49,37 @@ internal class ClimateCardRepository(context: Context) {
                 val failed = metadata.getBoolean(failureKey(owner), false)
                 val pending = if (failed) unavailable(WidgetFeedStatus.Error, "Server readings could not refresh")
                     else unavailable(WidgetFeedStatus.Loading, "Waiting for server readings")
-                // There is no trusted local floor-plan inventory yet. An incident itself identifies
-                // its cloud greenhouse and, on current servers, the individual sensor.
-                active = !readingsOnly && pairedAlarm(owner, sensorId, includeUnknown = houseId.isNullOrBlank() ||
-                    houseId == owner.greenhouseId || !sensorId.isNullOrBlank())
+                active = !readingsOnly && pendingPairedAlarm(owner, houseId, sensorId, pin, now)
                 return if (secure.cloudEnrollment() == owner) pending.copy(alarmActive = active) else signedOut()
             }
             val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
             val prefs = AppPreferencesStore(app, suffix).loadForMonitoring(owner)
             val house = if (houseId.isNullOrBlank()) prefs.activeGreenhouse else prefs.greenhouses.find { it.id == houseId }
-            if (house == null) return unavailable(WidgetFeedStatus.Empty, "Choose a greenhouse")
-            if (!house.isMonitoring(now)) return unavailable(WidgetFeedStatus.Empty, "Monitoring paused · ${house.name}")
+            if (house == null || !house.isMonitoring(now)) {
+                pin?.edit()?.remove("alarmFloor")?.apply()
+                return unavailable(WidgetFeedStatus.Empty, house?.let { "Monitoring paused · ${it.name}" } ?: "Choose a greenhouse")
+            }
             val inventory = CurrentSensorStore(app, suffix).load().inSavedHouses(prefs)
             val all = inventory.filter { it.greenhouseId == house.id }
             val selected = all.filter { sensorId.isNullOrBlank() || it.id == sensorId }
             val rules = prefs.forAlertsIn(house.id)
             active = if (readingsOnly) false else if (paired) {
                 val assignments = prefs.sensorGreenhouseIds + inventory.associate { it.id to it.greenhouseId }
-                pairedAlarm(owner, sensorId, house.id, assignments, house.id == prefs.activeGreenhouse.id)
+                val currentFloor = house.id == prefs.activeGreenhouse.id
+                // A pin can outlive the shared snapshot when its owner switches greenhouses.
+                // Retain only its verified routing information, never its last measurements.
+                if (pin != null && houseId == house.id && sensorId.isNullOrBlank()) {
+                    secure.withCurrentEnrollment(owner) {
+                        if (ClimateWidget.viewerReady(app, owner)) {
+                            pin.edit().putString("alarmFloor", "${owner.widgetScope()}|${house.id}")
+                                .putBoolean("alarmCurrentFloor", currentFloor)
+                                .putLong("alarmFloorUntil", house.monitoringUntilEpochMs ?: Long.MAX_VALUE)
+                                .putStringSet("alarmFloorSensors", assignments.filterValues { it == house.id }.keys)
+                                .putStringSet("alarmOtherSensors", assignments.filterValues { it != house.id }.keys).apply()
+                        }
+                    }
+                }
+                pairedAlarm(owner, sensorId, currentFloor) { id -> assignments[id]?.let { it == house.id } }
             } else AlertNotifier.hasClimateAlarm(app, owner, house.id, selected, rules, now)
             val internet = app.getSystemService(ConnectivityManager::class.java).let {
                 it.getNetworkCapabilities(it.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
@@ -96,11 +110,30 @@ internal class ClimateCardRepository(context: Context) {
         }
     }
 
-    private fun pairedAlarm(owner: CloudEnrollment, sensorId: String?, floorId: String? = null,
-                            assignments: Map<String, String> = emptyMap(), includeUnknown: Boolean): Boolean =
+    private fun pendingPairedAlarm(owner: CloudEnrollment, houseId: String?, sensorId: String?,
+                                   pin: SharedPreferences?, now: Long): Boolean {
+        if (!houseId.isNullOrBlank() && sensorId.isNullOrBlank() &&
+            pin?.getString("alarmFloor", null) == "${owner.widgetScope()}|$houseId") {
+            if (now >= pin.getLong("alarmFloorUntil", 0)) return false
+            val members = pin.getStringSet("alarmFloorSensors", null).orEmpty()
+            val others = pin.getStringSet("alarmOtherSensors", null).orEmpty()
+            return pairedAlarm(owner, sensorId, pin.getBoolean("alarmCurrentFloor", false)) { id ->
+                when (id) {
+                    in members -> true
+                    in others -> false
+                    else -> null
+                }
+            }
+        }
+        // A delivered incident always identifies its cloud greenhouse and, on newer servers, its sensor.
+        return pairedAlarm(owner, sensorId, houseId.isNullOrBlank() || houseId == owner.greenhouseId || !sensorId.isNullOrBlank())
+    }
+
+    private fun pairedAlarm(owner: CloudEnrollment, sensorId: String?, includeUnknown: Boolean,
+                            onFloor: (String) -> Boolean? = { null }): Boolean =
         ClientTemperatureAlarms.active(app, owner).any { incident ->
             if (incident.greenhouseId != owner.greenhouseId || (!sensorId.isNullOrBlank() && incident.sensorId != sensorId)) false
-            else incident.sensorId?.let(assignments::get)?.let { floor -> floor == floorId } ?: includeUnknown
+            else incident.sensorId?.let(onFloor) ?: includeUnknown
         }
 
     internal fun weatherDue(zip: String, now: Long = System.currentTimeMillis()): Boolean =

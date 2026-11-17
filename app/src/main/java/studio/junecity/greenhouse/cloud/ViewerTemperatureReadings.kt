@@ -3,7 +3,6 @@ package studio.junecity.greenhouse.cloud
 import android.content.Context
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
-import studio.junecity.greenhouse.model.forAlertsIn
 import studio.junecity.greenhouse.model.sensorHouse
 import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.CloudEnrollment
@@ -14,8 +13,9 @@ internal data class ServerTemperatures(
     val server: String,
     val generation: Long,
     val evaluatedAt: Long,
-    val observations: List<TemperatureObservation>,
-    val uploadTime: Long? = null
+    val observations: List<ClimateObservation>,
+    val uploadTime: Long? = null,
+    val humidityEnabled: Boolean? = null
 )
 
 internal data class ViewerReadingCheck(val readings: List<ServerTemperatures>, val complete: Boolean)
@@ -34,16 +34,22 @@ internal fun temperatureSnapshot(
     val plans = saved.optJSONArray("greenhouses") ?: return null
     val plan = (0 until plans.length()).mapNotNull(plans::optJSONObject).find { it.optString("id") == planId } ?: return null
     // The preferences decoder has UI defaults. Only use limits actually present in this snapshot.
-    if (!plan.has("alertRules") || plan.isNull("alertRules")) {
-        val legacy = saved.optJSONObject("notifications") ?: return null
-        if (!legacy.optDouble("lowT").isFinite() || !legacy.optDouble("highT").isFinite()) return null
-    } else if (plan.optJSONObject("alertRules") == null) return null
+    val scoped = !plan.isNull("alertRules")
+    val rules = (if (scoped) plan.optJSONObject("alertRules") else saved.optJSONObject("notifications")) ?: return null
+    val lowT = rules.optDouble(if (scoped) "lowTemperatureF" else "lowT")
+    val highT = rules.optDouble(if (scoped) "highTemperatureF" else "highT")
+    val lowH = rules.optDouble(if (scoped) "lowHumidity" else "lowH")
+    val highH = rules.optDouble(if (scoped) "highHumidity" else "highH")
+    val humidityEnabled = rules.opt(if (scoped) "humidityAlerts" else "humidity") as? Boolean
+    if ((!lowT.isFinite() || !highT.isFinite() || lowT >= highT) &&
+        (humidityEnabled == null || lowH !in 0.0..100.0 || highH !in 0.0..100.0 || lowH >= highH)) return null
     val preferences = AppPreferencesStore(context).decode(saved)
-    val limits = preferences.forAlertsIn(planId)
     val inventory = CurrentSensorCodec.decode(snapshot.optJSONArray("sensors") ?: return null)
         .filter { preferences.sensorHouse(it) == planId && it.updatedAtEpochMs >= source.enrollmentEpochMs }
-    val observations = assessTemperature(inventory, limits.lowTemperatureF, limits.highTemperatureF, now).observations
-    return ServerTemperatures(house, source.device.id, source.enrollmentEpochMs, health.reportedAt, observations, source.lastDataUploadEpochMs)
+    val observations = assessTemperature(inventory, lowT, highT, now).observations +
+        assessHumidity(inventory, lowH, highH, humidityEnabled == true, now)
+    return ServerTemperatures(house, source.device.id, source.enrollmentEpochMs, health.reportedAt, observations,
+        source.lastDataUploadEpochMs, humidityEnabled)
 }
 
 internal suspend fun AuthenticatedCloudGateway.viewerReadingCheck(
@@ -56,14 +62,19 @@ internal suspend fun AuthenticatedCloudGateway.viewerReadingCheck(
         android.util.Log.w("GreenhouseWidget", "Unable to schedule widget upload check", e)
     }
     val sources = ClientTemperatureAlarms.readingSources(context, enrollment, inventory, System.currentTimeMillis())
-        .filterNot { inbox?.sensorTemperatureInbox == true && inbox.complete && it.sensorTemperatureMode }
     var complete = true
     val readings = mutableListOf<ServerTemperatures>()
     for (source in sources) {
+        val temperatureHandled = inbox?.complete == true && inbox.sensorTemperatureInbox && source.sensorTemperatureMode
+        val humidityHandled = inbox?.complete == true && inbox.sensorHumidityInbox && source.sensorHumidityMode
+        if (temperatureHandled && humidityHandled) continue
         try {
             if (ClientTemperatureAlarms.checkedUpload(context, enrollment, source)) continue
             val snapshot = temperatureBackup(requireNotNull(source.device.greenhouseId)) ?: continue
-            temperatureSnapshot(context, source, snapshot, System.currentTimeMillis())?.let(readings::add)
+            val batch = temperatureSnapshot(context, source, snapshot, System.currentTimeMillis()) ?: continue
+            readings += batch.copy(observations = batch.observations.filter { observation ->
+                if (observation.type == MonitoringAlertType.CriticalHumidity) !humidityHandled else !temperatureHandled
+            }, humidityEnabled = batch.humidityEnabled.takeUnless { humidityHandled })
         } catch (c: CancellationException) {
             throw c
         } catch (failure: Exception) {

@@ -47,7 +47,8 @@ data class AccountDevice(
     val enrollmentEpochMs: Long = createdAtEpochMs,
     val lastDataUploadEpochMs: Long? = null,
     val sensorTemperatureMode: Boolean = false,
-    val reportsEnrollmentTime: Boolean = true
+    val reportsEnrollmentTime: Boolean = true,
+    val sensorHumidityMode: Boolean = false
 )
 
 data class CloudAccount(val accountId: String, val tenantId: String)
@@ -187,8 +188,10 @@ data class GreenhouseHeartbeat(
     val updateMode: String? = null, val updateStatusRequestId: String? = null,
     val temperatureEvaluated: Boolean? = null, val temperatureBreach: TemperatureBreach? = null,
     val alertRules: AlertRules? = null, val appliedAlertRulesRevision: Int? = null,
-    val temperatureObservations: List<TemperatureObservation>? = null,
-    val remoteRecordingReady: Boolean = false
+    val temperatureObservations: List<ClimateObservation>? = null,
+    val remoteRecordingReady: Boolean = false,
+    val humidityObservations: List<ClimateObservation>? = null,
+    val humidityAlertsEnabled: Boolean? = null
 )
 
 data class ServerUpdateCommand(val versionCode: Int, val requestedMode: String? = null, val id: String? = null) {

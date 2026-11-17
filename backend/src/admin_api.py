@@ -327,7 +327,7 @@ def customer_detail(account_id: str) -> dict:
                     greenhouse_ids.add(device["greenhouseId"])
             except AdminAccessDenied:
                 continue
-        elif item.get("sk", "").startswith("ALERT#"):
+        elif item.get("sk", "").startswith(("ALERT#", "HUMIDITY_ALERT#")):
             alerts.append({
                 "id": item.get("id"), "type": item.get("type"), "priority": item.get("priority"),
                 "message": item.get("message"), "createdAt": int(item.get("createdAt", 0)),

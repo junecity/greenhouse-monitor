@@ -73,7 +73,7 @@ internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
     }
     Surface(color = DashboardTokens.PanelRaised, shape = RoundedCornerShape(14.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Critical temperature sound", color = DashboardTokens.White, style = MaterialTheme.typography.titleMedium)
+            Text("Critical alarm sound", color = DashboardTokens.White, style = MaterialTheme.typography.titleMedium)
             Box {
                 TextButton(onClick = { menu = true }) { Text("${sound.label} ▾", color = DashboardTokens.Amber) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

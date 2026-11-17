@@ -112,6 +112,7 @@ class CloudHeartbeatService : Service() {
         var backup: Job? = null
         var publishedSensors: Map<String,String>? = null
         var publishedBreaches: Map<String, TemperatureBreach.Direction> = emptyMap()
+        var publishedHumidityBreaches: Map<String, TemperatureBreach.Direction> = emptyMap()
         var publishedPlan: studio.junecity.greenhouse.model.GreenhouseConfig? = null
         var publishedRules: AlertRules? = null
         while (isActive) {
@@ -126,8 +127,10 @@ class CloudHeartbeatService : Service() {
                 val limits = rules.applyTo(prefs.notifications)
                 val incident = TemperatureIncidentSensors(context, enrollment, house)
                 val previousOffenders = incident.load()
-                val health = assessTemperature(sensors, limits.lowTemperatureF, limits.highTemperatureF,
-                    System.currentTimeMillis(), previousOffenders)
+                val observedAt = System.currentTimeMillis()
+                val health = assessTemperature(sensors, limits.lowTemperatureF, limits.highTemperatureF, observedAt, previousOffenders)
+                val humidity = assessHumidity(sensors, limits.lowHumidity, limits.highHumidity, limits.humidityAlerts, observedAt)
+                val humidityBreaches = humidity.mapNotNull { obs -> obs.direction?.let { obs.sensorId to it } }.toMap()
                 // A lost response or process restart must not forget a reported breach before its recovery is delivered.
                 incident.save(previousOffenders + health.outstandingSensorIds)
                 val device = AndroidDeviceStatusProvider(context).current().copy(
@@ -139,6 +142,7 @@ class CloudHeartbeatService : Service() {
                     temperatureEvaluated = health.evaluated, temperatureBreach = health.breach,
                     remoteRecordingReady = CloudCameraServerService.isRecordingReady(enrollment),
                     temperatureObservations = health.observations,
+                    humidityObservations = humidity, humidityAlertsEnabled = limits.humidityAlerts,
                     alertRules = rules.takeIf { it.valid() },
                     appliedAlertRulesRevision = applied?.revision ?: 0,
                     batteryPercent=device.batteryPercent, charging=device.charging,
@@ -190,7 +194,8 @@ class CloudHeartbeatService : Service() {
                     val start = SystemClock.elapsedRealtime()
                     // Older cloud deployments rely on these readings to alert individual client sensors.
                     // Publish crossings and recoveries even when the dashboard refresh interval is 15 minutes.
-                    if (health.breachDirections != publishedBreaches || prefs.activeGreenhouse != publishedPlan ||
+                    if (health.breachDirections != publishedBreaches || humidityBreaches != publishedHumidityBreaches ||
+                        prefs.activeGreenhouse != publishedPlan ||
                         available != publishedSensors || snapshotRules != publishedRules ||
                         lastUpload.get()?.nextUploadDue(start, prefs.activeRefreshMinutes) != false) {
                         backup = launch {
@@ -200,6 +205,7 @@ class CloudHeartbeatService : Service() {
                                     publishedRules = snapshotRules
                                     publishedSensors = available
                                     publishedBreaches = health.breachDirections
+                                    publishedHumidityBreaches = humidityBreaches
                                     lastUpload.set(PublishedSnapshot(start, System.currentTimeMillis()))
                                 }
                         }

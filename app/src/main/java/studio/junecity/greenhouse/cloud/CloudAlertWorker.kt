@@ -60,7 +60,7 @@ internal object CloudAlertDelivery {
             if (viewer) ClientTemperatureAlarms.deliver(context, enrollment, inbox)
         }
         for (alert in inbox?.alerts.orEmpty()) {
-            if (!viewer || alert.type != MonitoringAlertType.CriticalTemperature) postCloudAlert(context, alert, enrollment.role)
+            if (!viewer || !alert.type.isClimateAlarm) postCloudAlert(context, alert, enrollment.role)
         }
         val readings = if (viewer) try {
             readTemperatures(inbox)

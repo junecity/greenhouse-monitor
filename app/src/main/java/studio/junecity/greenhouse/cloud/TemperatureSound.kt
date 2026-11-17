@@ -20,11 +20,19 @@ internal enum class TemperatureSound(val channelId: String, val label: String, v
 
     fun channel(context: Context): NotificationChannel {
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.getNotificationChannel(channelId)?.let { return it }
-        val name = if (this == Existing) "Critical greenhouse alerts" else "Critical temperature · $label"
+        val name = if (this == Existing) "Critical greenhouse alerts" else "Critical greenhouse alerts · $label"
+        val summary = if (this == Existing) "Critical temperature, humidity and server-offline alerts" else "Critical temperature and humidity alarms"
+        manager.getNotificationChannel(channelId)?.let { existing ->
+            if (existing.name != name || existing.description != summary) {
+                existing.name = name
+                existing.description = summary
+                manager.createNotificationChannel(existing)
+            }
+            return existing
+        }
         val channel = NotificationChannel(channelId, name, NotificationManager.IMPORTANCE_HIGH).apply {
             enableVibration(true)
-            if (this@TemperatureSound == Existing) description = "Critical temperature and server-offline safety alerts"
+            description = summary
             bundledUri(context)?.let { uri ->
                 setSound(uri, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
@@ -45,14 +53,14 @@ internal enum class TemperatureSound(val channelId: String, val label: String, v
         .putExtra(Settings.EXTRA_CHANNEL_ID, channel(context).id)
 
     fun test(context: Context): String {
-        if (CriticalAlarm.isIncidentPlaying()) return "A critical temperature alarm is already sounding."
+        if (CriticalAlarm.isIncidentPlaying()) return "A greenhouse alarm is already sounding."
         val manager = context.getSystemService(NotificationManager::class.java)
         val current = channel(context)
         CriticalAlarm.soundIssue(context, current)?.let { return it }
         val boosted = CriticalAlarm.startPreview(context, current)
         val notice = NotificationCompat.Builder(context, current.id)
             .setSmallIcon(R.drawable.ic_notification_greenhouse)
-            .setContentTitle("Critical temperature · Sound test")
+            .setContentTitle("Greenhouse alarm · Sound test")
             .setContentText("This is a test from Greenhouse Studio.")
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setSilent(boosted)

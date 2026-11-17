@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.45.1 (96) · Humidity alarms and red widgets
+
+- AlertNotifier independently tracks fresh temperature and RH observations per sensor. Both limits include equality. A missing reading leaves that measurement’s condition open. Existing local alert records migrate when the collector next evaluates the sensor.
+- An opted-in viewer receives per-sensor humidity incidents alongside temperature. MonitoringAlerts, ReadingAlarmLedger, ClientTemperatureAlarms and the backend preserve separate episodes, Stop actions, acknowledgements and recovery for each measurement. Older servers and services can use fresh authorized snapshots with the collector’s applied RH settings. Upgrade the server to upload on RH crossings. The additive backend supports catching recovered humidity incidents while the viewer was away.
+- ClimateCardRepository retains source-scoped membership for named floor pins during reconnect. ClimateWidget restores the usual surface after the last matching local recovery or paired Stop. Settings → Alerts → Humidity controls RH delivery. The separate lock-screen average remains silent.
+- Signed development APK in build-out/2.45.1-humidity-alerts/. Passed 212 JVM tests, 159 backend tests, and 28 instrumentation cases each on API 29 and 35. Lint had zero errors. Private phone download verified. AWS credentials expired, so the new backend was not deployed. Physical sensor delivery, audible output and OEM launcher scheduling remain unverified.
+
 ## 2026-11-17 · Greenhouse Studio 2.45.0 (95) · Lock-screen greenhouse averages
 
 - Settings → Display → Lock screen readings opts this phone into a silent public notification with the active greenhouse’s spatial average temperature and RH. LockScreenClimate requests the readings-only projection from ClimateCardRepository. Use the measurement time for cached data and exclude charts, Energy, weather and alarm queries from this path.

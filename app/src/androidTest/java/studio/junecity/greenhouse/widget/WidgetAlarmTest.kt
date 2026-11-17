@@ -1,6 +1,7 @@
 package studio.junecity.greenhouse.widget
 
 import android.Manifest
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
@@ -38,7 +39,7 @@ class WidgetAlarmTest {
     private val manager = AppWidgetManager.getInstance(app)
     private val host = AppWidgetHost(app, 4294)
 
-    private fun pin(owner: CloudEnrollment, sensorId: String? = null): Int {
+    private fun pin(owner: CloudEnrollment, sensorId: String? = null, floor: String? = null): Int {
         val id = host.allocateAppWidgetId()
         instrumentation.uiAutomation.adoptShellPermissionIdentity(Manifest.permission.BIND_APPWIDGET)
         try {
@@ -46,9 +47,66 @@ class WidgetAlarmTest {
         } finally {
             instrumentation.uiAutomation.dropShellPermissionIdentity()
         }
-        ClimateWidget.settings(app, id).edit().putString("scope", owner.widgetScope()).putString("sensor", sensorId).commit()
+        ClimateWidget.settings(app, id).edit().putString("scope", owner.widgetScope())
+            .putString("sensor", sensorId).putString("house", floor).commit()
         ClimateWidget.refresh(app, id)
         return id
+    }
+
+    @Test fun namedFloorWidgetMatchesHumidityAndTemperatureIndependentlyWhileReconnecting() {
+        assumeTrue(Build.MODEL.contains("sdk", true) && secure.cloudEnrollment() == null)
+        val owner = CloudEnrollment("humidity-viewer", "cloud-greenhouse-uuid", CloudDeviceRole.ViewerClient, tenantId = "humidity-widget-qa")
+        val prefs = AppPreferencesStore(app)
+        val inventory = CurrentSensorStore(app)
+        assumeTrue(inventory.load().isEmpty())
+        val saved = prefs.load()
+        val floor = GreenhouseConfig(id = "main", name = "Main Greenhouse")
+        val annex = GreenhouseConfig(id = "annex", name = "Annex")
+        val at = System.currentTimeMillis()
+        val bench = GoveeSensor("bench", "H5179", "Bench", 86.0, 90.0, true, at, floor.id)
+        val dry = MonitoringAlert("bench-humidity", owner.greenhouseId, MonitoringAlertType.CriticalHumidity,
+            MonitoringAlertPriority.Critical, "Bench reached 90% RH.", at, true, serverId = "server-045", sensorId = bench.id)
+        val hot = dry.copy(id = "bench-temperature", type = MonitoringAlertType.CriticalTemperature, message = "Bench reached 86°F.")
+        fun send(vararg alarms: MonitoringAlert) =
+            ClientTemperatureAlarms.deliver(app, owner, AlertInbox(alarms.toList(), complete = true, criticalIncidentsVerified = true))
+        fun tapStop(alert: MonitoringAlert) {
+            val notifications = app.getSystemService(NotificationManager::class.java)
+            val posted = notifications.activeNotifications.single { ClientTemperatureAlarms.matchesNotification(owner, alert, it.tag) }
+            posted.notification.actions.single { it.title == "Stop alarm" }.actionIntent.send()
+            val deadline = SystemClock.elapsedRealtime() + 5_000L
+            while (ClientTemperatureAlarms.active(app, owner).any { it.id == alert.id } && SystemClock.elapsedRealtime() < deadline)
+                SystemClock.sleep(40)
+            assertFalse(ClientTemperatureAlarms.active(app, owner).any { it.id == alert.id })
+        }
+        try {
+            secure.saveCloudEnrollment(owner)
+            prefs.save(AppPreferences(greenhouses = listOf(floor, annex), activeGreenhouseId = floor.id))
+            inventory.save(listOf(bench, bench.copy(id = "roof", greenhouseId = annex.id)))
+            ClimateWidget.viewerSynced(app, owner)
+            val named = pin(owner, floor = floor.id)
+            val other = pin(owner, floor = annex.id)
+            val single = pin(owner, bench.id, floor.id)
+            awaitPins(mapOf(named to false, other to false, single to false))
+            secure.saveCloudEnrollment(owner.copy(greenhouseId = "different-server"))
+            awaitPins(mapOf(named to false, other to false, single to false))
+            secure.saveCloudEnrollment(owner)
+            assertFalse(ClimateWidget.viewerReady(app, owner))
+            send(dry)
+            awaitPins(mapOf(named to true, other to false, single to true))
+            send(dry, hot)
+            tapStop(dry)
+            awaitPins(mapOf(named to true, other to false, single to true))
+            send(dry, hot)
+            assertEquals(listOf(hot.id), ClientTemperatureAlarms.active(app, owner).map { it.id })
+            tapStop(hot)
+            awaitPins(mapOf(named to false, other to false, single to false))
+        } finally {
+            host.deleteHost()
+            secure.clearCloudEnrollment()
+            CloudAlertService.sync(app, false)
+            inventory.clear()
+            prefs.save(saved)
+        }
     }
 
     private fun paintedRed(view: View): Boolean {

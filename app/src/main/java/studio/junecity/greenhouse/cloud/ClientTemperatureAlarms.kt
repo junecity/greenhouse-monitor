@@ -45,7 +45,7 @@ internal object ClientTemperatureAlarms {
         return prefs.getLong(LAST_CHECK, 0L).takeIf { it > 0 }
     }
 
-    private fun uploadKey(house: String, server: String, generation: Long) = "upload/$house/$server/$generation"
+    private fun uploadKey(house: String, server: String, generation: Long) = "climateUpload/$house/$server/$generation"
 
     /** Old inventories expose only initial registration. Require a new sample after first discovery or an observed disconnect. */
     @Synchronized fun readingSources(
@@ -89,7 +89,9 @@ internal object ClientTemperatureAlarms {
     private fun incidents(prefs: SharedPreferences): List<MonitoringAlert> = prefs.all.mapNotNull { (key, value) ->
         if (!key.startsWith(LIVE) || value !is String) return@mapNotNull null
         val entry = JSONObject(value)
-        MonitoringAlert(key.removePrefix(LIVE), entry.getString("house"), MonitoringAlertType.CriticalTemperature,
+        val type = if (entry.optString("type") == MonitoringAlertType.CriticalHumidity.name)
+            MonitoringAlertType.CriticalHumidity else MonitoringAlertType.CriticalTemperature
+        MonitoringAlert(key.removePrefix(LIVE), entry.getString("house"), type,
             MonitoringAlertPriority.Critical, entry.getString("message"), entry.getLong("time"), true,
             entry.optString("server").ifBlank { null }, entry.optString("sensor").ifBlank { null },
             entry.optLong("resolvedAt").takeIf { it > 0 })
@@ -138,7 +140,7 @@ internal object ClientTemperatureAlarms {
         val stopped = prefs.getStringSet(STOPPED, emptySet()).orEmpty()
         if (inbox != null || readings.isNotEmpty()) {
             val now = System.currentTimeMillis()
-            val critical = inbox?.alerts.orEmpty().filter { it.type == MonitoringAlertType.CriticalTemperature }
+            val critical = inbox?.alerts.orEmpty().filter { it.type.isClimateAlarm }
             val edit = prefs.edit().putString(OWNER, owner)
             if (inbox != null) edit.putLong(LAST_CHECK, now)
             for (batch in readings) batch.uploadTime?.let {
@@ -154,7 +156,7 @@ internal object ClientTemperatureAlarms {
             for (alert in update.deliver) {
                 if (alert.id in stopped) continue
                 val entry = JSONObject().put("house", alert.greenhouseId).put("time", alert.occurredAtEpochMs)
-                    .put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId)
+                    .put("type", alert.type.name).put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId)
                     .put("resolvedAt", alert.resolvedAtEpochMs).toString()
                 if (entry != prefs.getString(LIVE + alert.id, null)) {
                     edit.putString(LIVE + alert.id, entry)

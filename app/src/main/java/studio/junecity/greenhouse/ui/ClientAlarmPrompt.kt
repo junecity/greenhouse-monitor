@@ -31,10 +31,11 @@ import androidx.compose.ui.window.DialogProperties
 import studio.junecity.greenhouse.cloud.ClientTemperatureAlarms
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.cloud.MonitoringAlert
+import studio.junecity.greenhouse.cloud.MonitoringAlertType
 import studio.junecity.greenhouse.settings.CloudEnrollment
 
 @Composable
-internal fun activeTemperatureAlarms(enrollment: CloudEnrollment?): List<MonitoringAlert> {
+internal fun activeClimateAlarms(enrollment: CloudEnrollment?): List<MonitoringAlert> {
     if (enrollment?.role != CloudDeviceRole.ViewerClient) return emptyList()
     val context = LocalContext.current.applicationContext
     var alarms by remember(context, enrollment) { mutableStateOf(ClientTemperatureAlarms.active(context, enrollment)) }
@@ -70,7 +71,12 @@ internal fun ClientAlarmPrompt(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 DashboardIconView(DashboardIcon.Bell, DashboardTokens.Danger, Modifier.size(24.dp), contentDescription = null)
-                Text("Critical temperature alarm", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                val title = when {
+                    alarms.all { it.type == MonitoringAlertType.CriticalHumidity } -> "Critical humidity alarm"
+                    alarms.all { it.type == MonitoringAlertType.CriticalTemperature } -> "Critical temperature alarm"
+                    else -> "Critical greenhouse alarms"
+                }
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
         },
         text = {

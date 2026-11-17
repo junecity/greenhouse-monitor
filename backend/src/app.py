@@ -22,9 +22,10 @@ from alert_rules import greenhouse_rules, heartbeat_rules
 import greenhouse_plan
 import remote_recording
 from camera_archive import archive
-from alerts import LEGACY_TEMPERATURE_MESSAGE, new_alert, temperature_breach_message
+from alerts import LEGACY_TEMPERATURE_MESSAGE, alert_record_key, new_alert, temperature_breach_message
 from sensor_temperature import (
-    apply_observations, enrollment_key, parse_observations, recent_recoveries,
+    HUMIDITY, TEMPERATURE, apply_observations, current_sensor_house, enrollment_key, humidity_policy_key,
+    parse_observations, recent_recoveries,
     record_recovery, recovery_inbox_key, track_for_recovery,
 )
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
@@ -390,6 +391,7 @@ def list_devices(principal: Principal):
             "createdAtEpochMs": int(item.get("createdAt", 0)) * 1000,
             "enrollmentEpochMs": max(int(primary.get("reauthorizedAt", 0)), int(item.get("createdAt", 0))) * 1000,
             "lastDataUploadEpochMs": int(primary.get("lastDataUpload", 0)) * 1000 or None,
+            "sensorHumidityMode": primary.get("sensorHumidityMode") is True,
             "sensorTemperatureMode": primary.get("sensorTemperatureMode") is True,
             "lastSeenAtEpochMs": last_heartbeat * 1000 if last_heartbeat else None,
             "online": bool(primary.get("enabled")) and not primary.get("communicationSuspended") and last_heartbeat > 0 and now - last_heartbeat <= 180,
@@ -816,7 +818,7 @@ def approve_server_pairing(principal: Principal, request_id: str):
                 "deviceSecretHash=:secret, reauthorizedAt=:now, adminEntity=:entity, adminSort=:sort "
                 "REMOVE revokedAt, revokedBy, replacedAt, replacedBy, managedUpdates, updateMode, updateStatus, "
                 "archiveCommandId, archiveCommandUntil, archiveCommandState, remoteRecordingReady, "
-                "appliedAlertRulesHouse, appliedAlertRulesRevision, sensorTemperatureMode, "
+                "appliedAlertRulesHouse, appliedAlertRulesRevision, sensorTemperatureMode, sensorHumidityMode, "
                 "criticalTemperature, criticalAlertedAt, criticalIncidentId, criticalAlertMessage, "
                 + ", ".join(UPDATE_ORDER_FIELDS)
             ),
@@ -1217,13 +1219,14 @@ def verify_google_play_subscription(event, principal: Principal):
     })
 
 
-def pending_alerts(principal: Principal, include_recovered=False):
+def pending_alerts(principal: Principal, include_recovered=False, include_humidity=False):
     device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
     if not device.get("enabled") or device.get("accountId") != principal.account_id:
         raise AccessDenied("device_disabled")
     alerts = []
     server_states = {}
     legacy_temperature_sources = set()
+    humidity_policies = {}
 
     def incident_server(item):
         server_id = item.get("deviceId")
@@ -1236,6 +1239,14 @@ def pending_alerts(principal: Principal, include_recovered=False):
         if (server.get("tenantId") == principal.tenant_id and server.get("accountId") == principal.account_id
                 and server.get("greenhouseId") == item["greenhouseId"] and server.get("role") == "GREENHOUSE_SERVER"
                 and server.get("enabled") and not server.get("communicationSuspended")):
+            if item.get("type") == HUMIDITY.alert_type:
+                generation = enrollment_key(server, server_id)
+                if generation not in humidity_policies:
+                    humidity_policies[generation] = table.get_item(Key=humidity_policy_key(generation),
+                                                                   ConsistentRead=True).get("Item", {})
+                policy = humidity_policies[generation]
+                if not policy.get("enabled") or item.get("evaluatedAt", 0) <= policy.get("disabledAt", 0):
+                    return None
             return server
         return None
 
@@ -1265,30 +1276,38 @@ def pending_alerts(principal: Principal, include_recovered=False):
     # Query unresolved thermometers directly. An ongoing incident remains discoverable
     # even after hundreds of other sensors have crossed and recovered.
     account_key = f"ACCOUNT#{principal.account_id}"
-    open_query = {"KeyConditionExpression": Key("pk").eq(account_key) & Key("sk").begins_with("OPEN_TEMPERATURE#"),
-                  "ConsistentRead": True, "ScanIndexForward": False}
-    while True:
-        page = table.query(**open_query)
-        for item in page.get("Items", []):
-            if (item.get("tenantId") != principal.tenant_id or item.get("accountId") != principal.account_id
-                    or not item.get("sensorId") or not item.get("sourceGeneration")):
-                continue
-            server = incident_server(item)
-            if server and enrollment_key(server, item["deviceId"]) == item.get("sourceGeneration"):
-                alerts.append(alert_payload(item, item["message"]))
-        if not page.get("LastEvaluatedKey"):
-            break
-        open_query["ExclusiveStartKey"] = page["LastEvaluatedKey"]
-    if include_recovered and device.get("role") == "VIEWER_CLIENT":
-        active = {a["id"]: index for index, a in enumerate(alerts)}
-        now = int(datetime.now(timezone.utc).timestamp())
-        for item in recent_recoveries(table, principal, device, now, incident_server):
-            payload = alert_payload(item, item["message"])
-            payload["resolvedAtEpochMs"] = int(item["resolvedAt"]) * 1000
-            if item["id"] in active:
-                alerts[active[item["id"]]] = payload  # It cleared between the two inbox queries.
-            else:
-                alerts.append(payload)
+    houses = {}
+    metrics = (TEMPERATURE, HUMIDITY) if include_humidity else (TEMPERATURE,)
+    for metric in metrics:
+        open_query = {"KeyConditionExpression": Key("pk").eq(account_key) & Key("sk").begins_with(f"OPEN_{metric.key}#"),
+                      "ConsistentRead": True, "ScanIndexForward": False}
+        while True:
+            page = table.query(**open_query)
+            for item in page.get("Items", []):
+                if (item.get("tenantId") != principal.tenant_id or item.get("accountId") != principal.account_id
+                        or not item.get("sensorId") or not item.get("sourceGeneration")):
+                    continue
+                server = incident_server(item)
+                if (server and item.get("type") == metric.alert_type
+                        and enrollment_key(server, item["deviceId"]) == item["sourceGeneration"]
+                        and current_sensor_house(table, principal, item, houses)):
+                    alerts.append(alert_payload(item, item["message"]))
+            if not page.get("LastEvaluatedKey"):
+                break
+            open_query["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+        if include_recovered and device.get("role") == "VIEWER_CLIENT":
+            active = {a["id"]: index for index, a in enumerate(alerts)}
+            now = int(datetime.now(timezone.utc).timestamp())
+            for item in recent_recoveries(table, principal, device, now, incident_server, metric):
+                payload = alert_payload(item, item["message"])
+                payload["resolvedAtEpochMs"] = int(item["resolvedAt"]) * 1000
+                if item["id"] in active:
+                    alerts[active[item["id"]]] = payload  # It cleared between the two inbox queries.
+                else:
+                    alerts.append(payload)
+    capabilities = {"offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "sensorTemperatureInbox": True}
+    if include_humidity:
+        capabilities["sensorHumidityInbox"] = True
     sensor_alert_count = len(alerts)
     exclusive_start_key = None
     for _ in range(MAX_ALERT_QUERY_PAGES):
@@ -1302,8 +1321,8 @@ def pending_alerts(principal: Principal, include_recovered=False):
             query["ExclusiveStartKey"] = exclusive_start_key
         result = table.query(**query)
         for item in result.get("Items", []):
-            if item.get("tenantId") != principal.tenant_id:
-                continue
+            if item.get("tenantId") != principal.tenant_id or item["type"] == HUMIDITY.alert_type:
+                continue  # Humidity is delivered exclusively through the opted-in, verified sensor inbox.
             message = item["message"]
             if item["type"] == "SERVER_OFFLINE":
                 server = incident_server(item)
@@ -1322,11 +1341,11 @@ def pending_alerts(principal: Principal, include_recovered=False):
                 continue
             alerts.append(alert_payload(item, message))
             if len(alerts) - sensor_alert_count >= 50:
-                return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "sensorTemperatureInbox": True, "complete": False})
+                return response(200, {"alerts": alerts, **capabilities, "complete": False})
         exclusive_start_key = result.get("LastEvaluatedKey")
         if not exclusive_start_key:
             break
-    return response(200, {"alerts": alerts, "offlineIncidentsVerified": True, "criticalIncidentsVerified": True, "sensorTemperatureInbox": True, "complete": not exclusive_start_key})
+    return response(200, {"alerts": alerts, **capabilities, "complete": not exclusive_start_key})
 
 
 def acknowledge_alert(principal: Principal, alert_id: str):
@@ -1336,17 +1355,19 @@ def acknowledge_alert(principal: Principal, alert_id: str):
         raise AccessDenied("device_disabled")
     now = int(datetime.now(timezone.utc).timestamp())
     account_key = f"ACCOUNT#{principal.account_id}"
+    key = {"pk": account_key, "sk": alert_record_key(alert_id)}
+    metric = HUMIDITY if alert_id.startswith("rh-") else TEMPERATURE
     try:
         table.meta.client.transact_write_items(TransactItems=[
             {"Update": {
-                "TableName": table.name, "Key": {"pk": account_key, "sk": f"ALERT#{alert_id}"},
+                "TableName": table.name, "Key": key,
                 "UpdateExpression": "SET acknowledgedAt=if_not_exists(acknowledgedAt,:now), acknowledgedBy=if_not_exists(acknowledgedBy,:device)",
                 "ConditionExpression": "tenantId=:tenant AND accountId=:account AND attribute_exists(id)",
                 "ExpressionAttributeValues": {":now": now, ":device": principal.device_id,
                                               ":tenant": principal.tenant_id, ":account": principal.account_id},
             }},
-            {"Delete": {"TableName": table.name, "Key": {"pk": account_key, "sk": f"OPEN_TEMPERATURE#{alert_id}"}}},
-            {"Delete": {"TableName": table.name, "Key": recovery_inbox_key(principal.account_id, alert_id)}},
+            {"Delete": {"TableName": table.name, "Key": {"pk": account_key, "sk": f"OPEN_{metric.key}#{alert_id}"}}},
+            {"Delete": {"TableName": table.name, "Key": recovery_inbox_key(principal.account_id, alert_id, metric)}},
         ])
     except ClientError as error:
         reasons = error.response.get("CancellationReasons") or []
@@ -1375,15 +1396,21 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     if "temperatureEvaluated" in body and critical_temperature and not critical_message:
         evaluated = False
     observations = None
-    if monitoring and "temperatureObservations" in body:
+    humidity_observations = None
+    if monitoring and (TEMPERATURE.readings in body or HUMIDITY.readings in body):
         if body.get("greenhouseId", device.get("greenhouseId")) != device.get("greenhouseId"):
             raise AccessDenied("greenhouse_mismatch")
         if device.get("deviceSecretHash") and not device_authenticated:
             raise AccessDenied("device_credential_required")
         try:
-            observations = parse_observations(body, now)
-        except ValueError:
-            return response(400, {"error": "invalid_temperature_observations"})
+            if TEMPERATURE.readings in body:
+                observations = parse_observations(body, now)
+            if HUMIDITY.readings in body:
+                humidity_observations = parse_observations(body, now, HUMIDITY)
+                if type(body.get("humidityAlertsEnabled")) is not bool or (not body["humidityAlertsEnabled"] and body[HUMIDITY.readings]):
+                    raise ValueError("invalid_humidity_observations")
+        except ValueError as error:
+            return response(400, {"error": str(error)})
     app_version = str(body.get("appVersion", ""))[:32]
     sensor_count = body.get("sensorCount")
     sensor_provider = str(body.get("sensorProvider", ""))[:64]
@@ -1511,6 +1538,11 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
             greenhouse_id=device.get("greenhouseId"), device_id=device_id,
             alert_type="SENSOR_COMMUNICATION_FAILURE", created_at=now,
         ))
+    if humidity_observations is not None:
+        apply_observations(table, principal, device, humidity_observations, now, HUMIDITY,
+                           (body["humidityAlertsEnabled"], body["recordedAtEpochMs"]))
+        set_parts.append("sensorHumidityMode=:sensorMode")
+        expression_values[":sensorMode"] = True
     if observations is not None:
         apply_observations(table, principal, device, observations, now)
         set_parts.append("sensorTemperatureMode=:sensorMode")
@@ -1578,7 +1610,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     expression_values[":previousManaged"] = previously_managed
     condition += (" AND managedUpdates=:previousManaged" if previously_managed else
                   " AND (attribute_not_exists(managedUpdates) OR managedUpdates=:previousManaged)")
-    if alert_policy is not None or observations is not None or temperature_delivery:
+    if alert_policy is not None or observations is not None or humidity_observations is not None or temperature_delivery:
         expression_values[":alertHouse"] = device["greenhouseId"]
         condition += " AND greenhouseId=:alertHouse"
         if device.get("deviceSecretHash"):
@@ -1695,7 +1727,8 @@ def handler(event, _context):
             return verify_google_play_subscription(event, principal)
         if method == "GET" and parts == ["v1", "alerts"]:
             params = event.get("queryStringParameters") or {}
-            return pending_alerts(principal, include_recovered=params.get("includeRecovered") == "true")
+            return pending_alerts(principal, include_recovered=params.get("includeRecovered") == "true",
+                                  include_humidity=params.get("includeHumidity") == "true")
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge":
             return acknowledge_alert(principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":

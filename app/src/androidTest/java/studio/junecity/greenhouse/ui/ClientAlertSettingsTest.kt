@@ -79,10 +79,13 @@ class ClientAlertSettingsTest {
             compose.onNodeWithText("Save alerts").assertIsNotEnabled()
             low.performTextReplacement("53.5")
             compose.onNodeWithText("High % RH").performScrollTo().performTextReplacement("79")
+            val originalHumidityAlerts = stored.humidityAlerts
+            click("Humidity alarms")
             click("Save alerts")
             await("Saved · Waiting for greenhouse server")
             assertEquals(53.5, stored.lowTemperatureF, 0.0)
             assertEquals(79.0, stored.highHumidity, 0.0)
+            assertEquals(!originalHumidityAlerts, stored.humidityAlerts)
             compose.onNodeWithText("Test sound").performScrollTo().assertExists()
 
             // A second device saves before this editor finishes. The stale draft cannot overwrite it.

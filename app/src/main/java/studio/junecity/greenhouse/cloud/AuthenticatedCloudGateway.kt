@@ -186,8 +186,16 @@ class AuthenticatedCloudGateway(
                 .put("temperatureObservations", heartbeat.temperatureObservations?.let { observations ->
                     JSONArray(observations.map { observation ->
                         JSONObject().put("sensorId", observation.sensorId).put("sensorName", observation.sensorName)
-                            .put("temperatureF", observation.temperatureF).put("lowF", observation.lowF)
-                            .put("highF", observation.highF).put("measuredAtEpochMs", observation.measuredAtEpochMs)
+                            .put("temperatureF", observation.value).put("lowF", observation.low)
+                            .put("highF", observation.high).put("measuredAtEpochMs", observation.measuredAtEpochMs)
+                    })
+                })
+                .put("humidityAlertsEnabled", heartbeat.humidityAlertsEnabled)
+                .put("humidityObservations", heartbeat.humidityObservations?.let { observations ->
+                    JSONArray(observations.map { observation ->
+                        JSONObject().put("sensorId", observation.sensorId).put("sensorName", observation.sensorName)
+                            .put("humidityPercent", observation.value).put("lowHumidity", observation.low)
+                            .put("highHumidity", observation.high).put("measuredAtEpochMs", observation.measuredAtEpochMs)
                     })
                 })
                 .put("alertRules", heartbeat.alertRules?.toJson() ?: JSONObject.NULL.takeIf { heartbeat.appliedAlertRulesRevision != null })
@@ -224,7 +232,7 @@ class AuthenticatedCloudGateway(
     }
 
     suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
-        val json = request("GET", if (viewer) "/v1/alerts?includeRecovered=true" else "/v1/alerts")
+        val json = request("GET", if (viewer) "/v1/alerts?includeRecovered=true&includeHumidity=true" else "/v1/alerts")
         val values = json.getJSONArray("alerts")
         val alerts = (0 until values.length()).map { CloudJsonCodec.alert(values.getJSONObject(it)) }
         val inventory = if (viewer && !json.optBoolean("offlineIncidentsVerified") &&
@@ -237,7 +245,7 @@ class AuthenticatedCloudGateway(
             active.filterNot { it.type == MonitoringAlertType.ServerOffline && it.serverId == config.deviceId }
         } else active
         return AlertInbox(visible, json.optBoolean("complete", alerts.size < 50),
-            json.optBoolean("complete") && verified, json.optBoolean("sensorTemperatureInbox"))
+            json.optBoolean("complete") && verified, json.optBoolean("sensorTemperatureInbox"), json.optBoolean("sensorHumidityInbox"))
     }
 
     suspend fun acknowledgeAlert(alertId: String) {
@@ -263,7 +271,7 @@ class AuthenticatedCloudGateway(
         requestOrNull("GET", "/v1/greenhouses/${segment(greenhouseId)}/backup")?.optJSONObject("backup")
 
     internal suspend fun temperatureBackup(greenhouseId: String): JSONObject? =
-        requestOrNull("GET", "/v1/greenhouses/${segment(greenhouseId)}/backup?temperatureOnly=true")?.optJSONObject("backup")
+        requestOrNull("GET", "/v1/greenhouses/${segment(greenhouseId)}/backup?temperatureOnly=true&includeHumidity=true")?.optJSONObject("backup")
 
     private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject =
         requestOrNull(method, path, body) ?: JSONObject()
@@ -340,7 +348,7 @@ object CloudJsonCodec {
         device(json), json.getLong("createdAtEpochMs"),
         maxOf(json.getLong("createdAtEpochMs"), json.optLong("enrollmentEpochMs")),
         json.optLongOrNull("lastDataUploadEpochMs")?.takeIf { it > 0 }, json.optBoolean("sensorTemperatureMode"),
-        json.optLong("enrollmentEpochMs") > 0
+        json.optLong("enrollmentEpochMs") > 0, json.optBoolean("sensorHumidityMode")
     )
 
     fun alert(json: JSONObject) = MonitoringAlert(
@@ -348,6 +356,7 @@ object CloudJsonCodec {
         greenhouseId = json.optString("greenhouseId"),
         type = when (json.getString("type")) {
             "CRITICAL_TEMPERATURE" -> MonitoringAlertType.CriticalTemperature
+            "CRITICAL_HUMIDITY" -> MonitoringAlertType.CriticalHumidity
             "SERVER_OFFLINE" -> MonitoringAlertType.ServerOffline
             "SENSOR_COMMUNICATION_FAILURE" -> MonitoringAlertType.SensorCommunicationFailure
             else -> MonitoringAlertType.Information
