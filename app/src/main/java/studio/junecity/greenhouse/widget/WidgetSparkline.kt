@@ -17,8 +17,8 @@ internal fun widgetSparkline(
     val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     if (points.size < 2) return image
     val canvas = Canvas(image)
-    val stroke = (width / 170f).coerceIn(1.5f, 4f)
-    val radius = stroke * 1.5f
+    val stroke = (width / 110f).coerceIn(1.5f, 5.5f)
+    val radius = stroke * 1.7f
     val edge = radius + 1f
     val bottom = height - edge
     val minimum = points.minOf(value)
@@ -33,7 +33,7 @@ internal fun widgetSparkline(
         strokeCap = Paint.Cap.ROUND
     }
     val gradient = LinearGradient(0f, 0f, 0f, height.toFloat(),
-        (color and 0x00ffffff) or 0x48000000, color and 0x00ffffff, Shader.TileMode.CLAMP)
+        (color and 0x00ffffff) or 0x61000000, color and 0x00ffffff, Shader.TileMode.CLAMP)
     var startX = 0f
     var lastX = 0f
     var lastY = 0f

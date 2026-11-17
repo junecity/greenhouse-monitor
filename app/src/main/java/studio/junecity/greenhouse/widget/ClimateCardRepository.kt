@@ -76,6 +76,10 @@ internal class ClimateCardRepository(context: Context) {
         }
     }
 
+    internal fun weatherDue(zip: String, now: Long = System.currentTimeMillis()): Boolean =
+        now - metadata.getLong("weather.$zip.checked", 0L) !in 0 until 20 * 60_000L &&
+            now - metadata.getLong("weather.$zip.at", 0L) !in 0 until 20 * 60_000L
+
     private fun readWeather(zip: String): WidgetOutdoor? {
         val at = metadata.getLong("weather.$zip.at", 0L)
         if (at == 0L) return null
@@ -116,6 +120,9 @@ internal class ClimateCardRepository(context: Context) {
         private const val STORE = "climate_card_sources"
         private fun failureKey(owner: CloudEnrollment) = "failed.${owner.widgetScope()}"
 
+        internal fun feedFailed(context: Context, owner: CloudEnrollment) =
+            context.getSharedPreferences(STORE, Context.MODE_PRIVATE).getBoolean(failureKey(owner), false)
+
         fun feedResult(context: Context, owner: CloudEnrollment?, failed: Boolean) {
             if (owner == null || SecureSettingsStore(context).cloudEnrollment() != owner) return
             val store = context.getSharedPreferences(STORE, Context.MODE_PRIVATE)
@@ -133,13 +140,13 @@ internal class ClimateCardRepository(context: Context) {
             if (reading != null && reading.zipCode != zip) return
             val temperature = reading?.temperatureF?.takeIf(Double::isFinite)
             val at = reading?.currentTimeMs
-            val edit = store.edit()
+            val edit = store.edit().putLong("$prefix.checked", System.currentTimeMillis())
             if (temperature != null && at != null && at > 0L) {
                 if (at < store.getLong("$prefix.at", 0L)) return
                 edit.putString("$prefix.value", temperature.toString()).putLong("$prefix.at", at)
                     .putBoolean("$prefix.failed", false)
             } else {
-                if (store.getBoolean("$prefix.failed", false)) return
+                if (store.getBoolean("$prefix.failed", false)) { edit.apply(); return }
                 edit.putBoolean("$prefix.failed", true)
             }
             edit.apply()

@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.42.1 (89) · Full-width live home widget
+
+- The native widget requests five columns by two rows, with adjacent reading tiles and graph plus one footer at ordinary phone widths. Preserve separate compact, tall and enlarged-font layouts and the bounded responsive size map. The picker uses an actual Android render with sample readings; never display that image as live data. See docs/CLIMATE_MONITORING_CARD.md.
+- WidgetSyncWorker uses upload markers from the viewer’s existing authenticated monitor; pinning also requests data. Keep fetches scoped to the selected server and sensor, reject incomplete snapshots and coalesce background redraws through ClimateWidget’s private broadcast. A sync or redraw never changes observation time. WidgetWeatherRefresh checks the configured ZIP separately. CurrentGoveeReadings coordinates the foreground collector with the server service, WorkManager and pinned standalone monitoring. BLE uses the existing enrolled radio collection path.
+- 197 JVM tests and lint (zero errors) passed. Android 10: four background collection, account isolation and viewer widget cases passed twice. Android 15: five launcher test executions and one standalone collector regression passed. Checked phone-width host captures and 130%/150% system text. Verified and published the signed APK on the stable Drive link and private development catalog. No backend/schema changes. Real greenhouse uploads, physical radios and customer launcher sizing remain unverified for this build.
+
 ## 2026-11-16 · Greenhouse Studio 2.42.0 (88) · Dashboard climate card and home widget
 
 - Dashboard → Climate details and each native home widget share ClimateCardRepository and GreenhouseWidgetUiState. Preserve per-enrollment, greenhouse, sensor and unit scope. Keep current spatial averages aligned with the Dashboard, timestamps tied to real observations and six-hour plots split across gaps. Outdoor weather and the learned Energy target are optional and have separate provenance.

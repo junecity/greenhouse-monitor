@@ -64,10 +64,11 @@ class WidgetSettingsActivity : ComponentActivity() {
                                 listOf(false to "Fahrenheit", true to "Celsius")) { celsius = it }
                             Button(onClick = {
                                 val current = secure.cloudEnrollment()
-                                if (current != null && current.ownsWidget(owner.widgetScope())) {
+                                if (current == owner) {
                                     options.edit().putString("scope", owner.widgetScope()).putString("house", if (sensor.isEmpty()) house else selectedHouse)
                                         .putString("sensor", sensor).putString("metric", metric.name).putBoolean("celsius", celsius).apply()
                                     ClimateWidget.refresh(this@WidgetSettingsActivity, id)
+                                    WidgetSyncWorker.enqueue(this@WidgetSettingsActivity)
                                     setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,id))
                                 }
                                 finish()

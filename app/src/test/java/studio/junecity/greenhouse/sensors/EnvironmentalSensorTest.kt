@@ -33,11 +33,13 @@ class EnvironmentalSensorTest {
         assertEquals("—", model(emptyList(), now, true).temperatureText)
     }
     @Test fun launcherUsesWidthHeightAndFontScaleBeforeOfferingAChart() {
-        assertEquals(LauncherCard.Compact, launcherCard(339, 420, 1f))
-        assertEquals(LauncherCard.Standard, launcherCard(340, 280, 1f))
+        assertEquals(LauncherCard.Compact, launcherCard(299, 150, 1f))
+        assertEquals(LauncherCard.Compact, launcherCard(360, 119, 1f))
+        assertEquals(LauncherCard.Wide, launcherCard(300, 120, 1f))
+        assertEquals(LauncherCard.Wide, launcherCard(386, 156, 1f))
         assertEquals(LauncherCard.Wide, launcherCard(620, 220, 1f))
-        assertEquals(LauncherCard.Compact, launcherCard(620, 100, 1f))
-        assertEquals(LauncherCard.Compact, launcherCard(390, 250, 1.3f))
+        assertEquals(LauncherCard.Standard, launcherCard(340, 280, 1f))
+        assertEquals(LauncherCard.Compact, launcherCard(340, 138, 1.3f))
         assertEquals(LauncherCard.Standard, launcherCard(390, 360, 1.3f))
     }
 }

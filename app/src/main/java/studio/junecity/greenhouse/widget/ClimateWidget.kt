@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -28,12 +29,14 @@ internal fun CloudEnrollment.ownsWidget(savedScope: String?): Boolean {
 
 internal enum class WidgetMetric(val title: String) { Both("Temperature and humidity"), Temperature("Temperature"), Humidity("Humidity") }
 class ClimateWidget : AppWidgetProvider() {
-    private fun deliver(context: Context, ids: IntArray) {
+    private fun deliver(context: Context, ids: IntArray, coalesce: Boolean = false) {
         val pendingResult = goAsync()
-        worker.execute {
+        val draw = Runnable {
+            if (coalesce) synchronized(Companion) { pending = false }
             try { ids.forEach { render(context, it) } }
             finally { pendingResult?.finish() }
         }
+        if (coalesce) handler.postDelayed({ worker.execute(draw) }, 250) else worker.execute(draw)
     }
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -51,6 +54,11 @@ class ClimateWidget : AppWidgetProvider() {
         }
     }
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == READINGS_CHANGED) {
+            val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
+            deliver(context, ids, coalesce = true)
+            return
+        }
         if (intent.action == CHECK_AGE) {
             val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id)?.provider == ComponentName(context, ClimateWidget::class.java))
@@ -69,9 +77,11 @@ class ClimateWidget : AppWidgetProvider() {
         val options = settings(context, id)
         if (!options.contains("scope")) options.edit().putString("scope", owner.widgetScope()).apply()
         deliver(context, intArrayOf(id))
+        WidgetSyncWorker.enqueue(context)
     }
 
     companion object {
+        private const val READINGS_CHANGED = "studio.junecity.greenhouse.widget.READINGS_CHANGED"
         private const val CHECK_AGE = "studio.junecity.greenhouse.widget.CHECK_AGE"
 
         // A sleeping phone need not wake to recolor the launcher. Android may batch this
@@ -101,14 +111,23 @@ class ClimateWidget : AppWidgetProvider() {
         }
 
         internal fun settings(context: Context, id: Int) = context.getSharedPreferences("climate_widget_$id", Context.MODE_PRIVATE)
+        internal fun canDisplay(owner: CloudEnrollment, options: SharedPreferences): Boolean {
+            val scope = options.getString("scope", null)
+            return owner.ownsWidget(scope) && (scope == owner.widgetScope() ||
+                options.getString("house", "").isNullOrBlank() && options.getString("sensor", "").isNullOrBlank())
+        }
+
         internal fun viewerReady(context: Context, owner: CloudEnrollment): Boolean =
             owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient() ||
                 context.getSharedPreferences("widget_sync", 0).getString("scope", "") == owner.widgetScope()
 
-        internal fun viewerSynced(context: Context, owner: CloudEnrollment) {
-            context.getSharedPreferences("widget_sync", 0).edit().putString("scope", owner.widgetScope())
-                .putLong("updatedAt", System.currentTimeMillis()).apply()
+        internal fun viewerSynced(context: Context, owner: CloudEnrollment, upload: String? = null) {
+            val sync = context.getSharedPreferences("widget_sync", 0).edit()
+                .putString("scope", owner.widgetScope()).putLong("updatedAt", System.currentTimeMillis())
+            if (upload != null) sync.putString("upload", upload)
+            sync.apply()
             changed(context)
+            WidgetWeatherRefresh.enqueue(context, owner)
         }
 
         private val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -121,20 +140,19 @@ class ClimateWidget : AppWidgetProvider() {
         private var pending = false
         @Synchronized internal fun changed(context: Context) {
             if (pending) return
+            val component = ComponentName(context, ClimateWidget::class.java)
+            if (AppWidgetManager.getInstance(context).getAppWidgetIds(component).isEmpty()) return
+            // Hand the update to Android before a short-lived worker finishes. The receiver
+            // keeps its broadcast alive while coalescing writes and publishing the RemoteViews.
+            context.sendBroadcast(Intent(READINGS_CHANGED).setComponent(component))
             pending = true
-            val app = context.applicationContext
-            handler.postDelayed({
-                synchronized(this) { pending = false }
-                val manager = AppWidgetManager.getInstance(app)
-                manager.getAppWidgetIds(ComponentName(app, ClimateWidget::class.java)).forEach { refresh(app, it) }
-            }, 500)
         }
 
         internal fun render(context: Context, id: Int) {
             val options = settings(context, id)
             val owner = SecureSettingsStore(context).cloudEnrollment()
             val savedScope = options.getString("scope", null)
-            val data = if (owner != null && owner.ownsWidget(savedScope)) {
+            val data = if (owner != null && canDisplay(owner, options)) {
                 val sameSource = savedScope == owner.widgetScope()
                 ClimateCardRepository(context).load(
                     owner = owner,
@@ -143,7 +161,7 @@ class ClimateWidget : AppWidgetProvider() {
                     celsius = options.takeIf { it.contains("celsius") }?.getBoolean("celsius", false)
                 )
             } else GreenhouseWidgetUiState(title = "Greenhouse Studio", status = WidgetFeedStatus.Empty,
-                statusMessage = "Open Greenhouse Studio to set up")
+                statusMessage = if (owner?.ownsWidget(savedScope) == true) "Switch to the configured greenhouse" else "Open Greenhouse Studio to set up")
             scheduleFreshnessCheck(context, id, data.nextStatusAt)
             val metric = WidgetMetric.entries.find { it.name == options.getString("metric", "") } ?: WidgetMetric.Both
             val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -155,13 +173,20 @@ class ClimateWidget : AppWidgetProvider() {
                 @Suppress("DEPRECATION")
                 val sizes = bounds.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
                     .orEmpty().filter { it.width.isFinite() && it.height.isFinite() && it.width > 0 && it.height > 0 }.distinct()
-                if (sizes.isNotEmpty() && sizes.size <= 4) {
-                    val layouts = sizes.associateWith { view(it.width.roundToInt(), it.height.roundToInt()) }
+                if (sizes.isNotEmpty()) {
+                    // Keep chart bitmap memory bounded on launchers that advertise many sizes.
+                    // Responsive candidates still use the actual slot at display time.
+                    val font = context.resources.configuration.fontScale.coerceAtLeast(1f)
+                    val candidates = if (sizes.size <= 4) sizes else listOf(
+                        SizeF(160f, 96f), SizeF(300f * font, 120f * font),
+                        SizeF(386f * font, 156f * font), SizeF(340f, 280f * font), SizeF(620f, 220f * font)
+                    )
+                    val layouts = candidates.associateWith { view(it.width.roundToInt(), it.height.roundToInt()) }
                     manager.updateAppWidget(id, if (layouts.size == 1) layouts.values.single() else RemoteViews(layouts))
                     return
                 }
             }
-            val minWidth = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 260)
+            val minWidth = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 360)
             val maxHeight = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 150)
             val maxWidth = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth)
             val minHeight = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, maxHeight)

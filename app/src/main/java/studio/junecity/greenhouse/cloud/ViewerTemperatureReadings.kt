@@ -48,7 +48,13 @@ internal fun temperatureSnapshot(
 internal suspend fun AuthenticatedCloudGateway.viewerReadingCheck(
     context: Context, enrollment: CloudEnrollment, inbox: AlertInbox?
 ): ViewerReadingCheck {
-    val sources = ClientTemperatureAlarms.readingSources(context, enrollment, devices(), System.currentTimeMillis())
+    val inventory = devices()
+    try {
+        studio.junecity.greenhouse.widget.WidgetSyncWorker.serverUploads(context, enrollment, inventory)
+    } catch (e: RuntimeException) {
+        android.util.Log.w("GreenhouseWidget", "Unable to schedule widget upload check", e)
+    }
+    val sources = ClientTemperatureAlarms.readingSources(context, enrollment, inventory, System.currentTimeMillis())
         .filterNot { inbox?.sensorTemperatureInbox == true && inbox.complete && it.sensorTemperatureMode }
     var complete = true
     val readings = mutableListOf<ServerTemperatures>()

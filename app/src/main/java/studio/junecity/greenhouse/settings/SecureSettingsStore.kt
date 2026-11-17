@@ -81,7 +81,13 @@ class SecureSettingsStore(private val context: Context) {
     fun saveCloudSession(value: CloudSession) = saveEncrypted("cloud_session", value.toJson())
     fun cloudSession(): CloudSession? = loadEncrypted("cloud_session")?.let { runCatching { CloudSession.parse(it) }.getOrNull() }
     fun clearCloudSession() = prefs.edit().remove("cloud_session").apply()
-    fun saveCloudEnrollment(value: CloudEnrollment) {
+    private companion object { val enrollmentWrites = Any() }
+
+    internal fun <T> withCurrentEnrollment(expected: CloudEnrollment, apply: () -> T): T? = synchronized(enrollmentWrites) {
+        if (cloudEnrollment() == expected) apply() else null
+    }
+
+    fun saveCloudEnrollment(value: CloudEnrollment) = synchronized(enrollmentWrites) {
         val previous = cloudEnrollment()
         if (previous?.role == CloudDeviceRole.GreenhouseServer && previous != value)
             ManagedServerUpdate.forgetEnrollment(context)
@@ -99,9 +105,10 @@ class SecureSettingsStore(private val context: Context) {
         prefs.registerOnSharedPreferenceChangeListener(listener)
         return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    fun clearCloudEnrollment() {
+    fun clearCloudEnrollment() = synchronized(enrollmentWrites) {
         ManagedServerUpdate.forgetEnrollment(context)
-        prefs.edit().remove("cloud_enrollment").apply()
+        // Delayed widget or monitor work can start in a new process immediately after sign-out.
+        check(prefs.edit().remove("cloud_enrollment").commit())
         ClientTemperatureAlarms.forget(context)
         context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
         ClimateWidget.changed(context)

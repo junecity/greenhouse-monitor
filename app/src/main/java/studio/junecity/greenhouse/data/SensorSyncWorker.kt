@@ -2,41 +2,19 @@ package studio.junecity.greenhouse.data
 
 import android.content.Context
 import androidx.work.*
-import studio.junecity.greenhouse.settings.isStandaloneClient
+import kotlinx.coroutines.CancellationException
 import studio.junecity.greenhouse.settings.SecureSettingsStore
-import studio.junecity.greenhouse.settings.ZoneAssignmentStore
-import studio.junecity.greenhouse.settings.AppPreferencesStore
-import studio.junecity.greenhouse.settings.CurrentSensorStore
-import studio.junecity.greenhouse.sensors.isLocalRadio
-import studio.junecity.greenhouse.sensors.replaceGovee
-import studio.junecity.greenhouse.sensors.withCurrentAssignments
-import studio.junecity.greenhouse.sensors.collectReadings
-import studio.junecity.greenhouse.sensors.GoveeSensorProvider
-import studio.junecity.greenhouse.sensors.SensorProviderCredential
+import studio.junecity.greenhouse.sensors.CurrentGoveeReadings
 import java.util.concurrent.TimeUnit
-import studio.junecity.greenhouse.widget.ClimateCardRepository
 
-class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(context,params){
-    override suspend fun doWork():Result{
-        val secure=SecureSettingsStore(applicationContext)
-        val owner = secure.cloudEnrollment()
-        val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
-        val key=secure.sensorKey(owner) ?: return Result.success()
-        return runCatching{
-            val provider=GoveeSensorProvider();val credential=SensorProviderCredential.ApiKey(key);val history=HistoryStore(applicationContext,suffix);val notifier=AlertNotifier(applicationContext,suffix);val zones=ZoneAssignmentStore(applicationContext,suffix);val prefs=AppPreferencesStore(applicationContext,suffix)
-            val store = CurrentSensorStore(applicationContext,suffix)
-            val collected = provider.collectReadings(credential, prefs.load(), store.load(), store.excludedIds(), zones::zone)
-            if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return Result.success()
-            val sensors = collected.withCurrentAssignments(prefs.load(), zones::zone)
-            val active = store.replaceGovee(sensors)
-            active.filter{it.online && !it.isLocalRadio()}.forEach{history.insert(it);notifier.evaluate(it, owner)}
-            ClimateCardRepository.feedResult(applicationContext, owner, failed = false)
+class SensorSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val owner = SecureSettingsStore(applicationContext).cloudEnrollment() ?: return Result.success()
+        return try {
+            CurrentGoveeReadings.refresh(applicationContext, owner)
             Result.success()
-        }.getOrElse {
-            if (it is kotlinx.coroutines.CancellationException) throw it
-            ClimateCardRepository.feedResult(applicationContext, owner, failed = true)
-            Result.retry()
-        }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { Result.retry() }
     }
     companion object{
         fun schedule(context:Context){

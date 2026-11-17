@@ -2,6 +2,8 @@ package studio.junecity.greenhouse.sensors
 
 import android.content.Context
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.produceIn
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.data.AlertNotifier
@@ -31,8 +33,25 @@ internal fun CurrentSensorStore.applyShellyPackets(
     return all
 }
 
+private val radioGate = Mutex()
+
+/** Briefly use the normal collector when a standalone phone only has its home screen open. */
+internal suspend fun sampleWidgetRadios(context: Context, owner: CloudEnrollment) {
+    if (!owner.isStandaloneClient() || !SensorBluetooth.allowed(context) || !radioGate.tryLock()) return
+    try {
+        val now = System.currentTimeMillis()
+        if (CurrentSensorStore(context, "_standalone").load().none {
+            it.isLocalRadio() && (!it.online || now - it.updatedAtEpochMs !in 0 until 60_000L)
+        }) return
+        withTimeoutOrNull(30_000L) { collectRadioLoop(context, owner, "_standalone") }
+    } finally { radioGate.unlock() }
+}
+
 /** One BLE scan serves the whole greenhouse. Only explicitly added addresses enter the inventory. */
-internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, suffix: String) = withContext(Dispatchers.IO) {
+internal suspend fun collectShelly(context: Context, owner: CloudEnrollment?, suffix: String) =
+    radioGate.withLock { collectRadioLoop(context, owner, suffix) }
+
+private suspend fun collectRadioLoop(context: Context, owner: CloudEnrollment?, suffix: String) = withContext(Dispatchers.IO) {
     if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return@withContext
     launch { collectGoveeBatteries(context, owner, suffix) }
     launch { collectEnvironmental(context, owner, suffix) }

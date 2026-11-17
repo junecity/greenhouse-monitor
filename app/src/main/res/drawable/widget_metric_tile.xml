@@ -1,4 +1,4 @@
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/climate_tile" />
-    <corners android:radius="16dp" />
+    <gradient android:angle="270" android:startColor="#303940" android:endColor="#202931" />
+    <corners android:radius="10dp" />
 </shape>

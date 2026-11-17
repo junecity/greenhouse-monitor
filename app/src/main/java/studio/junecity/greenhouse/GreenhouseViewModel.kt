@@ -167,19 +167,10 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         sensorJob = viewModelScope.launch {
             if (!silent) _state.value = _state.value.copy(refreshing = true, message = null)
             try {
-                val credential = SensorProviderCredential.ApiKey(key)
-                val prefs = _state.value.preferences
-                val collected = govee.collectReadings(credential, prefs, storage.sensors.load(), storage.sensors.excludedIds(), storage.zones::zone)
-                if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return@launch
-                val latest = _state.value.preferences
-                val sensors = storage.sensors.replaceGovee(collected.withCurrentAssignments(latest, storage.zones::zone))
-                ClimateCardRepository.feedResult(getApplication(), owner, failed = false)
+                val sensors = CurrentGoveeReadings.refresh(getApplication(), owner, govee, force = !silent) ?: return@launch
+                if (stores != storage || secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return@launch
                 ensurePositions(sensors)
                 _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = storage.sensors.colorSlots(), goveeConnected = true, message = "Updated ${sensors.size} sensors")
-                withContext(Dispatchers.IO) {
-                    sensors.filterNot { it.isLocalRadio() }.forEach { if (it.isFresh()) storage.history.insert(it); storage.notifier.evaluate(it, owner) }
-                }
-                if (stores != storage) return@launch
                 loadHistory()
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (error: Exception) {

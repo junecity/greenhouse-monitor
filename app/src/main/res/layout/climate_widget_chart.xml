@@ -1,4 +1,5 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_chart_panel" android:background="@drawable/widget_chart_tile"
     android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
     <LinearLayout android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
         <TextView android:id="@+id/widget_period" style="@style/WidgetCaption" android:layout_width="0dp" android:layout_weight="1" />

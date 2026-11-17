@@ -1,10 +1,14 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_body" style="@style/WidgetBody">
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_body" style="@style/WidgetBody">
     <include layout="@layout/climate_widget_header" />
-    <LinearLayout android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginVertical="8dp">
-        <include layout="@layout/climate_widget_tiles" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
-        <include layout="@layout/climate_widget_chart" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight=".9"
-            android:layout_marginStart="16dp" />
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="6dp" android:layout_marginBottom="8dp" android:orientation="horizontal">
+        <include layout="@layout/climate_widget_tiles"
+            android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="47" />
+        <include layout="@layout/climate_widget_chart"
+            android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="53"
+            android:layout_marginStart="6dp" />
     </LinearLayout>
-    <include layout="@layout/climate_widget_metadata" />
-    <include layout="@layout/climate_widget_footer" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" />
+    <include layout="@layout/climate_widget_strip_footer" />
 </LinearLayout>

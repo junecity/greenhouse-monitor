@@ -16,30 +16,40 @@ import studio.junecity.greenhouse.model.CameraMode
 import studio.junecity.greenhouse.settings.*
 
 private val viewerSync = Mutex()
+private const val SCOPE = "scope"
+private const val UPLOAD = "upload"
+
+private fun alreadySynced(context: Context, owner: CloudEnrollment, upload: String?, intervalMs: Long): Boolean {
+    val saved = context.getSharedPreferences("widget_sync", Context.MODE_PRIVATE)
+    if (saved.getString(SCOPE, null) != owner.widgetScope() || ClimateCardRepository.feedFailed(context, owner)) return false
+    return if (upload != null) saved.getString(UPLOAD, null) == upload
+        else System.currentTimeMillis() - saved.getLong("updatedAt", 0) in 0 until intervalMs
+}
 
 /** The dashboard and launcher refreshes serialize their snapshot reads and writes. */
 internal suspend fun syncViewerReadings(context: Context, owner: CloudEnrollment, skipRecent: Boolean = false,
-                                       fetch: suspend () -> JSONObject?): JSONObject? = viewerSync.withLock {
+                                       upload: String? = null, fetch: suspend () -> JSONObject?): JSONObject? = viewerSync.withLock {
     withContext(Dispatchers.IO) {
         val secure = SecureSettingsStore(context)
-        if (secure.cloudEnrollment() != owner || owner.greenhouseId.isBlank()) return@withContext null
-        val sync = context.getSharedPreferences("widget_sync", 0)
-        if (skipRecent && sync.getString("scope", "") == owner.widgetScope() &&
-            System.currentTimeMillis() - sync.getLong("updatedAt", 0) in 0L..60_000L) return@withContext null
+        if (secure.cloudEnrollment() != owner || owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient()) return@withContext null
+        if (skipRecent && alreadySynced(context, owner, upload, 60_000L)) return@withContext null
         try {
             val snapshot = fetch()
-            if (secure.cloudEnrollment() != owner) return@withContext null
-            if (snapshot == null) {
-                // A server that has never supplied a snapshot is still setting up. When a
-                // previously available source disappears, mark its retained readings stale.
-                ClimateCardRepository.feedResult(context, owner, failed = ClimateWidget.viewerReady(context, owner))
-                return@withContext null
+            secure.withCurrentEnrollment(owner) {
+                if (snapshot == null) {
+                    ClimateCardRepository.feedResult(context, owner, failed = ClimateWidget.viewerReady(context, owner))
+                    return@withCurrentEnrollment null
+                }
+                // Partial backups can be used during a manual restore. They cannot authenticate
+                // the shared inventory or floor plan left behind by an earlier viewer enrollment.
+                require(snapshot.optJSONObject("preferences") != null && snapshot.optJSONArray("sensors") != null) {
+                    "Server snapshot is missing the greenhouse or sensor inventory"
+                }
+                GreenhouseBackupStore(context, viewerHistorySuffix(owner)).restore(snapshot, CameraMode.ViewerClient)
+                ClimateCardRepository.feedResult(context, owner, failed = false)
+                ClimateWidget.viewerSynced(context, owner, upload)
+                snapshot
             }
-            GreenhouseBackupStore(context, viewerHistorySuffix(owner)).restore(snapshot, CameraMode.ViewerClient)
-            if (secure.cloudEnrollment() != owner) return@withContext null
-            ClimateCardRepository.feedResult(context, owner, failed = false)
-            ClimateWidget.viewerSynced(context, owner)
-            snapshot
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -51,30 +61,63 @@ internal suspend fun syncViewerReadings(context: Context, owner: CloudEnrollment
 
 class WidgetSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val context = applicationContext
-        val owner = SecureSettingsStore(context).cloudEnrollment() ?: return Result.success()
-        if (owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient() || owner.greenhouseId.isBlank()) return Result.success()
-        val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
-        if (ids.none { owner.ownsWidget(ClimateWidget.settings(context, it).getString("scope", null)) }) return Result.success()
         val config = CloudRuntime.configurationOrNull() ?: return Result.success()
-        return try {
-            syncViewerReadings(context, owner, skipRecent = true) {
-                gatewayForEnrollment(context, config, owner).greenhouseBackup(owner.greenhouseId)
-            }
-            Result.success()
-        } catch (cancel: CancellationException) {
-            throw cancel
-        } catch (_: Exception) {
-            // Retain the last timestamp and retry at the next launcher refresh.
-            Result.failure()
+        return refresh(applicationContext, inputData.getString(SCOPE), inputData.getString(UPLOAD)) { owner ->
+            gatewayForEnrollment(applicationContext, config, owner).greenhouseBackup(owner.greenhouseId)
         }
     }
 
     companion object {
+        private fun hasPin(context: Context, owner: CloudEnrollment): Boolean {
+            val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
+            return ids.any { ClimateWidget.canDisplay(owner, ClimateWidget.settings(context, it)) }
+        }
+
+        internal suspend fun refresh(context: Context, expectedScope: String?, upload: String?,
+                                     fetch: suspend (CloudEnrollment) -> JSONObject?): Result {
+            val owner = SecureSettingsStore(context).cloudEnrollment() ?: return Result.success()
+            if (owner.widgetScope() != expectedScope || owner.role != CloudDeviceRole.ViewerClient ||
+                owner.isStandaloneClient() || !hasPin(context, owner)) return Result.success()
+            return try {
+                syncViewerReadings(context, owner, skipRecent = true, upload = upload) { fetch(owner) }
+                Result.success()
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (e: CloudApiException) {
+                if (e.statusCode in 400..499 && e.statusCode !in setOf(401, 408, 429)) Result.failure() else Result.retry()
+            } catch (_: Exception) {
+                Result.retry()
+            }
+        }
+
         fun enqueue(context: Context) {
+            val owner = SecureSettingsStore(context).cloudEnrollment() ?: return
+            WidgetWeatherRefresh.enqueue(context, owner)
+            if (owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient()) {
+                WidgetCollectorRefresh.enqueue(context)
+                return
+            }
+            if (hasPin(context, owner)) request(context, owner, null)
+        }
+
+        /** Reuse the alarm monitor's authenticated device list. Widget downloads run outside the alarm poll. */
+        internal fun serverUploads(context: Context, owner: CloudEnrollment, devices: List<AccountDevice>) {
+            if (owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient() || !hasPin(context, owner)) return
+            val server = devices.singleOrNull {
+                val device = it.device
+                device.tenantId == owner.tenantId && device.greenhouseId == owner.greenhouseId &&
+                    device.role == CloudDeviceRole.GreenhouseServer && device.enabled && !device.communicationSuspended
+            } ?: return
+            val upload = server.lastDataUploadEpochMs?.let { "${server.device.id}|${server.enrollmentEpochMs}|$it" }
+            val interval = if (upload == null) AppPreferencesStore(context).load().activeRefreshMinutes * 60_000L else 0L
+            if (!alreadySynced(context, owner, upload, interval)) request(context, owner, upload)
+        }
+
+        private fun request(context: Context, owner: CloudEnrollment, upload: String?) {
             val work = OneTimeWorkRequestBuilder<WidgetSyncWorker>()
+                .setInputData(workDataOf(SCOPE to owner.widgetScope(), UPLOAD to upload))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-            WorkManager.getInstance(context).enqueueUniqueWork("climate_widget_sync", ExistingWorkPolicy.KEEP, work)
+            WorkManager.getInstance(context).enqueueUniqueWork("climate_widget_sync${viewerHistorySuffix(owner)}", ExistingWorkPolicy.KEEP, work)
         }
     }
 }

@@ -87,6 +87,16 @@ class CloudHeartbeatService : Service() {
         }
         val gateway = runCatching { gatewayForEnrollment(this@CloudHeartbeatService, configuration, enrollment) }.getOrElse { stopSelf(); return@coroutineScope }
         launch { studio.junecity.greenhouse.sensors.collectShelly(this@CloudHeartbeatService, enrollment, "") }
+        // Govee has no continuous BLE temperature feed. Keep collecting while the server
+        // phone is on its launcher, independent of the camera, heartbeat and UI lifecycle.
+        launch {
+            while (isActive && secure.cloudEnrollment() == enrollment) {
+                try { studio.junecity.greenhouse.sensors.CurrentGoveeReadings.refresh(this@CloudHeartbeatService, enrollment) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { /* Keep the original observation time; retry next interval. */ }
+                delay(AppPreferencesStore(this@CloudHeartbeatService).load().activeRefreshMinutes.coerceIn(1, 15) * 60_000L)
+            }
+        }
         val appliedRules = AppliedAlertRules(this@CloudHeartbeatService, enrollment)
         var failures = 0
         val lastUpload = AtomicLong(0L)

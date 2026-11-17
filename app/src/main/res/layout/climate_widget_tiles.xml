@@ -2,16 +2,17 @@
     android:layout_width="match_parent" android:layout_height="match_parent">
     <LinearLayout android:id="@+id/widget_temperature_column" style="@style/WidgetTile">
         <TextView android:id="@+id/widget_temperature_label" style="@style/WidgetCaption"
-            android:fontFamily="sans-serif-medium" android:textColor="@color/climate_temperature"
+            android:fontFamily="sans-serif-medium" android:textColor="@color/widget_amber"
             android:text="@string/widget_temperature" />
         <TextView android:id="@+id/widget_temperature" style="@style/WidgetValue" />
         <TextView android:id="@+id/widget_temperature_range" style="@style/WidgetCaption"
-            android:textColor="@color/climate_temperature" android:layout_marginTop="2dp" />
+            android:textColor="@color/widget_amber" android:layout_marginTop="2dp" />
     </LinearLayout>
-    <LinearLayout android:orientation="horizontal" android:id="@+id/widget_divider" android:layout_width="8dp" android:layout_height="1dp" />
-    <LinearLayout android:id="@+id/widget_humidity_column" style="@style/WidgetTile">
+    <LinearLayout android:orientation="horizontal" android:id="@+id/widget_divider" android:layout_width="6dp" android:layout_height="1dp" />
+    <LinearLayout android:id="@+id/widget_humidity_column" style="@style/WidgetTile"
+        android:background="@drawable/widget_humidity_tile">
         <TextView android:id="@+id/widget_humidity_label" style="@style/WidgetCaption"
-            android:fontFamily="sans-serif-medium" android:textColor="@color/climate_humidity"
+            android:fontFamily="sans-serif-medium" android:textColor="@color/widget_cyan"
             android:text="@string/widget_humidity" />
         <TextView android:id="@+id/widget_humidity" style="@style/WidgetValue" />
         <TextView android:id="@+id/widget_humidity_range" style="@style/WidgetCaption" android:layout_marginTop="2dp" />
