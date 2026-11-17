@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -16,6 +17,36 @@ class GooglePlayVerificationError(RuntimeError):
 
 def _epoch_seconds(value: str) -> int:
     return int(datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp())
+
+
+# A family lookup lets Play identify the currently effective item during a deferred change.
+GREENHOUSE_FAMILY = "greenhouse_extra"
+GREENHOUSE_SKU = re.compile(r"greenhouse_extra_([1-9][0-9]{0,2})")
+
+
+def parse_greenhouse_subscription(payload: dict) -> dict:
+    items = [item for item in payload.get("lineItems") or []
+             if GREENHOUSE_SKU.fullmatch(item.get("productId") or "")]
+    if not items:
+        raise GooglePlayVerificationError("google_play_product_mismatch")
+    if any((item.get("offerDetails") or {}).get("basePlanId") != "monthly" for item in items):
+        raise GooglePlayVerificationError("purchase_not_eligible")
+    # Old and new products coexist on a deferred replacement token. Only the item
+    # with a paid expiry carries entitlement. At renewal its successor has the later expiry.
+    effective = max(items, key=lambda item: _epoch_seconds(item["expiryTime"]) if item.get("expiryTime") else 0)
+    parsed = parse_subscription(payload, effective["productId"], base_plan="monthly")
+    future = (effective.get("deferredItemReplacement") or {}).get("productId")
+    new_item = next((item for item in items if item["productId"] == future and not item.get("expiryTime")), None)
+    if future and not new_item:
+        raise GooglePlayVerificationError("purchase_not_eligible")
+    expiry = effective.get("expiryTime")
+    through = int(datetime.fromisoformat(expiry.replace("Z", "+00:00")).timestamp() * 1000) if expiry else 0
+    parsed["active"] = (payload.get("subscriptionState") in {"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+                        "SUBSCRIPTION_STATE_CANCELED"} and through > datetime.now(timezone.utc).timestamp() * 1000)
+    parsed.update(productId=effective["productId"], nextProductId=future, expiresAtMillis=through,
+                  acknowledgeProductId=future or effective["productId"],
+                  renews=bool(future) or (effective.get("autoRenewingPlan") or {}).get("autoRenewEnabled") is True)
+    return parsed
 
 
 def parse_subscription(payload: dict, expected_product_id: str, *, base_plan: str | None = None) -> dict:
@@ -33,13 +64,18 @@ def parse_subscription(payload: dict, expected_product_id: str, *, base_plan: st
         raise GooglePlayVerificationError("google_play_expiration_missing")
     expires_at = max(expirations, default=0)
     active = state in {"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "SUBSCRIPTION_STATE_CANCELED"} and expires_at > datetime.now(timezone.utc).timestamp()
+    # A Play Store resubscription carries the previous account identifiers only
+    # until acknowledgement. The current subscription's own binding takes priority.
+    repurchase = payload.get("outOfAppPurchaseContext") or {}
+    expired_binding = (repurchase.get("expiredExternalAccountIdentifiers") or {}).get("obfuscatedExternalAccountId")
+    binding = (payload.get("externalAccountIdentifiers") or {}).get("obfuscatedExternalAccountId")
     return {
         "active": active,
         "testPurchase": isinstance(payload.get("testPurchase"), dict),
-        "accountBinding": (payload.get("externalAccountIdentifiers") or {}).get("obfuscatedExternalAccountId"),
+        "accountBinding": binding or expired_binding,
         "expiresAt": expires_at,
         "startedAt": _epoch_seconds(payload["startTime"]) if payload.get("startTime") else None,
-        "linkedPurchaseToken": payload.get("linkedPurchaseToken"),
+        "linkedPurchaseToken": payload.get("linkedPurchaseToken") or repurchase.get("expiredPurchaseToken"),
         "subscriptionState": state,
         "acknowledgementState": payload.get("acknowledgementState"),
         "latestOrderId": payload.get("latestOrderId"),
@@ -78,17 +114,20 @@ def verify_google_play_purchase(product_id: str, purchase_token: str, *, test_ac
             raise GooglePlayVerificationError("google_play_verification_failed")
         payload = result.json()
         bound_account = test_account_binding or account_binding
-        verified = parse_subscription(payload, product_id, base_plan="monthly" if bound_account is not None else None)
+        verified = (parse_greenhouse_subscription(payload) if product_id == GREENHOUSE_FAMILY else
+                    parse_subscription(payload, product_id, base_plan="monthly" if bound_account is not None else None))
         if bound_account is not None and verified["active"]:
             if verified["testPurchase"] != require_test_purchase or verified["accountBinding"] != bound_account:
                 raise GooglePlayVerificationError("purchase_not_eligible")
             if verified["acknowledgementState"] == "ACKNOWLEDGEMENT_STATE_PENDING":
+                ack_product = verified.get("acknowledgeProductId", product_id)
                 ack_url = (
                     "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/"
-                    f"{quote(package_name, safe='')}/purchases/subscriptions/{quote(product_id, safe='')}"
+                    f"{quote(package_name, safe='')}/purchases/subscriptions/{quote(ack_product, safe='')}"
                     f"/tokens/{quote(purchase_token, safe='')}:acknowledge"
                 )
-                if not session.post(ack_url, json={}, timeout=10).ok:
+                ack_body = {"externalAccountIds": {"obfuscatedAccountId": bound_account}} if payload.get("outOfAppPurchaseContext") else {}
+                if not session.post(ack_url, json=ack_body, timeout=10).ok:
                     raise GooglePlayVerificationError("google_play_acknowledgement_failed")
             elif verified["acknowledgementState"] != "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED":
                 raise GooglePlayVerificationError("google_play_acknowledgement_unknown")

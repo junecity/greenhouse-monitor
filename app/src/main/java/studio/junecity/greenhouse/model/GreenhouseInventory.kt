@@ -21,5 +21,17 @@ internal fun AppPreferences.sensorHouse(sensor: GoveeSensor): String {
     return if (greenhouses.any { it.id == id }) id else ""
 }
 
+/** A paused house keeps its inventory and recorded history. Unassigned devices remain available for setup. */
+internal fun AppPreferences.monitorsSensor(sensor: GoveeSensor, now: Long = System.currentTimeMillis()): Boolean =
+    greenhouses.find { it.id == sensorHouse(sensor) }?.isMonitoring(now) != false
+
 internal fun List<GoveeSensor>.inSavedHouses(preferences: AppPreferences) =
     map { sensor -> sensor.copy(greenhouseId = preferences.sensorHouse(sensor)) }
+
+internal fun GreenhouseUiState.withMonitoringAccess(now: Long): GreenhouseUiState {
+    if (preferences.greenhouses.all { it.isMonitoring(now) }) return this
+    return copy(sensors = sensors.map { sensor ->
+        if (preferences.monitorsSensor(sensor, now)) sensor
+        else sensor.copy(online = false, temperatureF = null, humidityPercent = null, lightLevel = null)
+    })
+}

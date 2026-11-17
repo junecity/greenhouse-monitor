@@ -15,7 +15,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from google_play_verifier import GooglePlayVerificationError, verify_google_play_purchase
+from google_play_verifier import GREENHOUSE_SKU, GooglePlayVerificationError, verify_google_play_purchase
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
@@ -410,8 +410,47 @@ def _trend(items: Iterable[dict], predicate=lambda _item: True) -> list[dict]:
     return [{"date": key, "value": counts[key]} for key in sorted(counts)]
 
 
+def billing_counts(accounts: list[dict], now_ms: int) -> dict | None:
+    totals = {kind: {"greenhouseAccounts": 0, "extraSlots": 0, "endingGreenhousePlans": 0, "recordingAccounts": 0}
+              for kind in ("production", "licenseTest")}
+    owners = {"ACCOUNT#" + item["accountId"]: item.get("tenantId") for item in accounts}
+    keys = [{"pk": owner, "sk": product} for owner in owners for product in ("GREENHOUSE_PLAN", "CAMERA_STORAGE")]
+    for start in range(0, len(keys), 100):
+        pending = {table.name: {"Keys": keys[start:start + 100],
+                   "ProjectionExpression": "pk, sk, tenantId, productId, testPurchase, checkedAt, paidThroughEpochMs, paidThrough, renews"}}
+        for attempt in range(4):
+            try:
+                page = table.meta.client.batch_get_item(RequestItems=pending)
+            except ClientError:
+                # The operator can still view operational metrics during a billing-read outage.
+                return None
+            for row in page.get("Responses", {}).get(table.name, []):
+                key = row["pk"]
+                if key not in owners or not isinstance(row.get("testPurchase"), bool) or not row.get("checkedAt"):
+                    continue
+                counts = totals["licenseTest" if row["testPurchase"] else "production"]
+                if row["sk"] == "CAMERA_STORAGE" and int(row.get("paidThrough", 0)) * 1000 > now_ms:
+                    counts["recordingAccounts"] += 1
+                elif (row["sk"] == "GREENHOUSE_PLAN" and row.get("tenantId") == owners[key]
+                      and int(row.get("paidThroughEpochMs", 0)) > now_ms):
+                    sku = GREENHOUSE_SKU.fullmatch(row.get("productId") or "")
+                    if sku:
+                        counts["greenhouseAccounts"] += 1
+                        counts["extraSlots"] += int(sku[1])
+                        counts["endingGreenhousePlans"] += int(row.get("renews") is False)
+            pending = page.get("UnprocessedKeys")
+            if not pending:
+                break
+            if attempt < 3:
+                time.sleep(0.05 * 2 ** attempt)
+        else:
+            return None
+    return totals
+
+
 def dashboard() -> dict:
-    now = int(time.time())
+    now_ms = int(time.time() * 1000)
+    now = now_ms // 1000
     accounts = entity_items("ACCOUNT")
     identities = customer_identities()
     devices = entity_items("DEVICE")
@@ -433,6 +472,7 @@ def dashboard() -> dict:
     connected_sensors = sum(item.get("sensorCount", 0) for item in safe_devices if item.get("online"))
     return {
         "generatedAt": now,
+        "billing": billing_counts(customer_accounts, now_ms),
         "metrics": {
             "totalCustomers": len(registered_subjects),
             "activeCustomers": sum(1 for item in customer_accounts if item.get("state", "ACTIVE") == "ACTIVE"),

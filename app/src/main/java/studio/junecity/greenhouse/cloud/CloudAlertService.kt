@@ -1,7 +1,6 @@
 package studio.junecity.greenhouse.cloud
 
 import studio.junecity.greenhouse.R
-import studio.junecity.greenhouse.settings.isStandaloneClient
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -114,10 +113,10 @@ class CloudAlertService : Service() {
         val enrollment = SecureSettingsStore(this).cloudEnrollment()
         polling.start(enrollment) {
             kotlinx.coroutines.coroutineScope {
-                val widgetCollector = if (enrollment != null && enrollment.isStandaloneClient()) launch {
+                val localCollector = if (enrollment?.role == CloudDeviceRole.ViewerClient) launch {
                     studio.junecity.greenhouse.widget.WidgetCollectorRefresh.monitorStandalone(applicationContext, enrollment)
                 } else null
-                try { pollLoop(enrollment, startId) } finally { widgetCollector?.cancel() }
+                try { pollLoop(enrollment, startId) } finally { localCollector?.cancel() }
             }
         }
         return START_STICKY

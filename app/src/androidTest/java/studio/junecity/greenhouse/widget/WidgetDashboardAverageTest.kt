@@ -96,6 +96,7 @@ class WidgetDashboardAverageTest {
         val state = mutableStateOf(GreenhouseUiState(preferences = prefs, sensors = first, standalone = true))
         try {
             secure.saveCloudEnrollment(owner)
+            studio.junecity.greenhouse.seedMonitoredPlan(app,owner,prefs)
             prefsStore.save(prefs)
             val whole = pin(owner)
             val top = pin(owner, sensor = "top")

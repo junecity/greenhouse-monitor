@@ -150,7 +150,8 @@ class ClimateWidget : AppWidgetProvider() {
             if (AppWidgetManager.getInstance(context).getAppWidgetIds(component).isEmpty()) return
             // Hand the update to Android before a short-lived worker finishes. The receiver
             // keeps its broadcast alive while coalescing writes and publishing the RemoteViews.
-            context.sendBroadcast(Intent(READINGS_CHANGED).setComponent(component))
+            // This private, user-visible redraw should not sit behind the background broadcast queue.
+            context.sendBroadcast(Intent(READINGS_CHANGED).setComponent(component).addFlags(Intent.FLAG_RECEIVER_FOREGROUND))
             pending = true
         }
 

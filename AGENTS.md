@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.44.0 (92) · Greenhouse subscriptions and multi-camera recording
+
+- Settings → General → Manage greenhouses uses an account-wide first free greenhouse and one monthly Play capacity subscription for additional active houses. A standalone and a paired greenhouse can coexist. Attaching a server to the same house reuses its slot. Preserve pre-upgrade floor plans, scoped local sensors, backup ownership and retained readings across source changes. History → time range → Export saved readings exports the selected house to CSV.
+- greenhouse_plan.py binds Play tokens to accounts, reserves competing confirmations atomically before acknowledgement, and uses the Play expiry and replacement state for access. Paid monitoring continues through a scheduled reduction. The Dashboard and final-day notification name the house and date. Settings, background collection, alarms, snapshots and widgets use the verified per-house access. Existing independent critical alarm stops remain available.
+- Camera storage is an independent account-wide purchase. Cameras → Playback → Cloud library can request an authorized minute from one ready server or from each ready server, with per-house results. A retry reuses the same recording ID and quota reservation. The admin dashboard reports customer and license-test counts separately. Deploy the application and admin stacks before releasing this Android build. The operator notes and suggested prices are in docs/AWS_DEPLOYMENT.md.
+- Local Android, backend, admin portal and two-emulator camera tests used simulated billing and storage. The signed direct test APK and internal testing AAB use development outputs. Physical devices, a real Play subscription and production AWS recording remain to be verified. See CHANGELOG.md for checks and the local release package.
+
 ## 2026-11-17 · Greenhouse Studio 2.43.0 (91) · Paid cloud recording release candidate
 
 - Cameras → Playback → Cloud library offers the account-bound Google Play monthly plan. Keep short clips and timelapses local and live-stream access independent. CameraLibraryScreen, VideoSubscriptionDialog and ArchivePurchaseWorker show the Play offer, recover interrupted payment and retain the same recording ID when an upload is retried.

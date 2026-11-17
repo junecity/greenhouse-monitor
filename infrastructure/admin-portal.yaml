@@ -247,6 +247,7 @@ Resources:
               Effect: Allow
               Action:
                 - dynamodb:GetItem
+                - dynamodb:BatchGetItem
                 - dynamodb:Query
                 - dynamodb:UpdateItem
                 - dynamodb:PutItem

@@ -254,7 +254,11 @@ internal fun CameraWorkspace(
                         CameraAction("Cloud library", cloud) { cloud = true }
                     }
                     if (cloud) {
-                        if (paid) CloudMovies(api, house, revision, { playback = it }, { tab = 3 })
+                        if (paid && !server && api != null) {
+                            AccountCameraLibrary(api, house, state.preferences.activeGreenhouse.name) { selected, changes ->
+                                CloudMovies(api, selected, revision + changes, { playback = it }, { tab = 3 })
+                            }
+                        } else if (paid) CloudMovies(api, house, revision, { playback = it }, { tab = 3 })
                         else {
                             CameraNote(accessStatus.ifBlank {
                                 if (api == null || house.isBlank()) "Cloud recording requires a paired account."
@@ -338,7 +342,7 @@ internal fun CameraWorkspace(
                     )
                     CameraHeading("Cloud recording")
                     CameraNote(
-                        "Record one minute on the greenhouse phone and play it on either phone for seven days. Cloud storage is a separate paid add-on."
+                        "One subscription covers your account’s camera phones. Save up to 24 one-minute clips per day across all greenhouses and replay them for seven days."
                     )
                     CameraNote(
                         accessStatus.ifBlank { "Cloud recording requires a paired account." }

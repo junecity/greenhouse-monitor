@@ -87,6 +87,7 @@ class EnvironmentalRadioTest {
         val component = ComponentName(context, ClimateWidget::class.java)
         try {
             secure.saveCloudEnrollment(owner)
+            studio.junecity.greenhouse.seedMonitoredPlan(context,owner)
             sensors.enroll(sample)
             instrumentation.uiAutomation.adoptShellPermissionIdentity(android.Manifest.permission.BIND_APPWIDGET)
             try { assertTrue(manager.bindAppWidgetIdIfAllowed(id,component)) }
@@ -436,6 +437,7 @@ class EnvironmentalRadioTest {
             assertWidget(R.id.widget_temperature, "72°F")
             standalone.save(emptyList())
             secure.saveCloudEnrollment(local)
+            studio.junecity.greenhouse.seedMonitoredPlan(context,local)
             assertWidget(R.id.widget_time, "No sensors selected")
             standalone.save(listOf(sample("_standalone", 65.0)))
             assertWidget(R.id.widget_temperature, "65°F")

@@ -6,9 +6,12 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -20,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
@@ -31,6 +35,7 @@ import kotlinx.coroutines.withContext
 import org.webrtc.VideoTrack
 import studio.junecity.greenhouse.camera.CameraStreamProfile
 import studio.junecity.greenhouse.settings.AppPreferencesStore
+import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.streaming.CloudCameraLease
 import studio.junecity.greenhouse.streaming.KinesisWebSocketSignaling
@@ -38,7 +43,7 @@ import studio.junecity.greenhouse.streaming.LibWebRtcPeer
 import studio.junecity.greenhouse.streaming.WebRtcPeerEvents
 import studio.junecity.greenhouse.streaming.WebRtcRole
 
-/** Polls only for authorized, on-demand sessions; the camera opens only while a viewer is connected. */
+/** The foreground camera serves an authorized live session or a paid one-minute recording order. */
 class CloudCameraServerService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val worker = EnrollmentBoundWorker(scope)
@@ -81,22 +86,41 @@ class CloudCameraServerService : Service() {
             stopSelf(); return
         }
         Log.i(TAG, "Camera server ready for authorized on-demand sessions")
-        while (scope.isActive) {
-            val pending = runCatching { gateway.pendingRemoteStreamingSession(enrollment.deviceId) }
-                .onFailure { Log.w(TAG, "Unable to poll for a camera session", it) }
-                .getOrNull()
-            if (pending == null) {
-                delay(POLL_INTERVAL_MS)
-            } else {
-                try {
-                    cameraSessionLock.withLock { serve(gateway, pending) }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    Log.w(TAG, "Camera session ended before it could serve the viewer", error)
+        val recorder = ServerArchiveRecorder(this, enrollment, gateway) {
+            if (scope.isActive) showNotification(it, cameraActive = true)
+        }
+        val cameraManager = getSystemService(CameraManager::class.java)
+        val hasFrontCamera = runCatching { cameraManager.cameraIdList.any { id ->
+            cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+        } }.getOrDefault(false)
+        if (enrollment.deviceSecret != null && hasFrontCamera &&
+            checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) readyOwner.set(enrollment)
+        try {
+            while (currentCoroutineContext().isActive) {
+                val signaled = requestedOwner.compareAndSet(enrollment, null)
+                if (signaled || recorder.retryDue) {
+                    try { cameraSessionLock.withLock { recorder.process(signaled) } }
+                    catch (cancel: CancellationException) { throw cancel }
+                    catch (error: Exception) { Log.w(TAG, "Unable to claim a remote recording", error) }
+                }
+                val pending = runCatching { gateway.pendingRemoteStreamingSession(enrollment.deviceId) }
+                    .onFailure { Log.w(TAG, "Unable to poll for a camera session", it) }
+                    .getOrNull()
+                if (pending == null) {
                     delay(POLL_INTERVAL_MS)
+                } else {
+                    try {
+                        cameraSessionLock.withLock { serve(gateway, pending) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Camera session ended before it could serve the viewer", error)
+                        delay(POLL_INTERVAL_MS)
+                    }
                 }
             }
+        } finally {
+            readyOwner.compareAndSet(enrollment, null)
         }
     }
 
@@ -184,6 +208,12 @@ class CloudCameraServerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        private val readyOwner = java.util.concurrent.atomic.AtomicReference<CloudEnrollment?>()
+        private val requestedOwner = java.util.concurrent.atomic.AtomicReference<CloudEnrollment?>()
+        internal fun isRecordingReady(owner: CloudEnrollment) = readyOwner.get() == owner
+        internal fun signalRecording(owner: CloudEnrollment) {
+            readyOwner.get()?.takeIf { it == owner }?.let(requestedOwner::set)
+        }
         private val cameraSessionLock = Mutex()
         private const val CHANNEL = "greenhouse_cloud_camera"
         private const val NOTIFICATION_ID = 4173

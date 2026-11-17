@@ -249,7 +249,11 @@ private fun CloudOnboarding(
                     val registered = if (existingEnrollment != null) gateway.currentDevice() else gateway.registerClientDevice()
                     val greenhouse = if(existingEnrollment?.localSensors==true) existingEnrollment.greenhouseId else
                         resolveClientGreenhouse(existingEnrollment?.greenhouseId, registered.greenhouseId, gateway::devices)
-                    if (existingEnrollment != null) {
+                    if (existingEnrollment?.role == CloudDeviceRole.ViewerClient && existingEnrollment.tenantId.isNotBlank() &&
+                        existingEnrollment.tenantId != registered.tenantId) {
+                        val nextHouse = resolveClientGreenhouse(null,registered.greenhouseId,gateway::devices)
+                        onComplete(CloudEnrollment(deviceId,nextHouse,CloudDeviceRole.ViewerClient,tenantId=registered.tenantId),true)
+                    } else if (existingEnrollment != null) {
                         if (greenhouse.isNotBlank() && greenhouse != existingEnrollment.greenhouseId || existingEnrollment.tenantId != registered.tenantId) {
                             secure.saveCloudEnrollment(existingEnrollment.copy(greenhouseId = greenhouse, tenantId = registered.tenantId))
                         }
@@ -519,6 +523,9 @@ internal fun accountErrorMessage(error: Throwable): String {
         }
         .joinToString(" ")
     return when {
+        raw.contains("greenhouse_plan_required") -> "An additional greenhouse needs an active slot. Open Settings → General → Manage greenhouses."
+        raw.contains("greenhouse_already_has_server") -> "This greenhouse already has a server. Choose Replace Server to change phones."
+        raw.contains("greenhouse_plan_conflict") || raw.contains("greenhouse_plan_changed") -> "The greenhouse plan changed. Refresh it and try again."
         raw.contains("release_unavailable") -> "This release is unavailable. Refresh the server details to check for the latest version."
         raw.contains("server_enrollment_required") -> "Enroll the greenhouse phone as a dedicated device before requesting an unattended update."
         raw.contains("server_enrollment_changed") -> "The server’s update settings changed. Refresh its details and choose the update again."

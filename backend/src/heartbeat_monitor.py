@@ -7,7 +7,8 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from alerts import new_alert
-from domain import is_missing_heartbeat
+from domain import Principal, is_missing_heartbeat
+from greenhouse_plan import monitoring_enabled
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
@@ -30,6 +31,9 @@ def handler(_event, _context):
             result = table.query(**query)
             for device in result.get("Items", []):
                 if not is_missing_heartbeat(device, cutoff):
+                    continue
+                owner = Principal(device["accountId"], device["tenantId"], device["deviceId"])
+                if not monitoring_enabled(table, owner, device["greenhouseId"]):
                     continue
                 now = int(time.time())
                 alert = new_alert(

@@ -52,11 +52,24 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     private fun restoredState(): GreenhouseUiState {
         val enrollment = secure.cloudEnrollment()
         val viewer = enrollment?.role == CloudDeviceRole.ViewerClient
+        if (enrollment != null && (enrollment.isStandaloneClient() &&
+                studio.junecity.greenhouse.settings.GreenhousePlanCache.localCollector(getApplication(),enrollment) == null ||
+                !studio.junecity.greenhouse.widget.ClimateWidget.viewerReady(getApplication(), enrollment))) {
+            return GreenhouseUiState(preferences = AppPreferences(cameraMode = CameraMode.ViewerClient),
+                message = "Waiting for readings from this greenhouse")
+        }
         val prefs = preferences.loadForMonitoring(enrollment)
         return GreenhouseUiState(sensorColorSlots = currentSensors.colorSlots(), standalone = enrollment.isStandaloneClient(), sensors = currentSensors.load().inSavedHouses(prefs),
             preferences = if (viewer) prefs.copy(cameraMode = CameraMode.ViewerClient) else prefs,
             goveeConnected = if (viewer && !enrollment.isStandaloneClient()) currentSensors.load().any { it.isFresh() }
                 else secure.sensorKey(enrollment) != null)
+    }
+
+    internal fun updateMonitoringAccess(owner: CloudEnrollment) {
+        if (secure.cloudEnrollment() != owner) return
+        val current = _state.value
+        val updated = GreenhousePlanCache(getApplication(), owner).applyTo(current.preferences)
+        if (updated != current.preferences) _state.value = current.copy(preferences = updated)
     }
 
     fun reloadAfterRestore() {
@@ -76,6 +89,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
             sensorJob?.cancel()
             stores = selected
             _state.value = restoredState().copy(screen = _state.value.screen)
+            loadHistory()
         }
     }
 
@@ -107,6 +121,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 storage.history.clear()
                 storage.preferences.clear()
             }
+            secure.cloudEnrollment()?.let { GreenhousePlanCache.resetLocalCollectorOwner(getApplication(),it) }
             _state.value = restoredState()
         } else {
             // Enrollment can restore a saved server backup before handing control to the monitor.
@@ -275,11 +290,12 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
         selectStores()
         val owner = secure.cloudEnrollment()
         if (owner?.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()) return
-        val prefs = preferences.loadForMonitoring(owner)
+        val saved = preferences.loadForMonitoring(owner)
+        val prefs = if (owner?.role == CloudDeviceRole.ViewerClient) saved.copy(cameraMode = CameraMode.ViewerClient) else saved
         val sensors = currentSensors.load().inSavedHouses(prefs)
-        if (_state.value.sensors == sensors && _state.value.preferences.serverAlertRules == prefs.serverAlertRules) return
+        if (_state.value.sensors == sensors && _state.value.preferences == prefs) return
         _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = currentSensors.colorSlots(),
-            preferences = _state.value.preferences.copy(serverAlertRules = prefs.serverAlertRules))
+            preferences = prefs)
         ensurePositions(sensors)
         if (_state.value.screen == AppScreen.History) loadHistory()
     }

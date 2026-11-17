@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import gzip
+import io
 import hashlib
 import hmac
 import os
@@ -17,6 +19,8 @@ from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
 
 from alert_rules import greenhouse_rules, heartbeat_rules
+import greenhouse_plan
+import remote_recording
 from camera_archive import archive
 from alerts import LEGACY_TEMPERATURE_MESSAGE, new_alert, temperature_breach_message
 from sensor_temperature import (
@@ -34,6 +38,7 @@ PENDING_SESSION_SECONDS = 300
 AUTHORIZATION_LEASE_SECONDS = 120
 MAXIMUM_SESSION_SECONDS = 4 * 60 * 60
 MAX_ALERT_QUERY_PAGES = 5
+MAX_SNAPSHOT_BYTES = 350_000
 SERVER_PAIRING_SECONDS = 120
 
 
@@ -182,6 +187,8 @@ def register_server_device(event, principal: Principal):
         "serverDeviceId": device_id, "enabled": True, "createdAt": now,
         "adminEntity": "GREENHOUSE", "adminSort": f"{now:020d}#{greenhouse_id}",
     }
+    slot = greenhouse_plan.server_allocation(table, principal, greenhouse_id, body.get("planHouseId"),
+                                            body.get("greenhouseName") or "Greenhouse", play_catalog)
     table.meta.client.transact_write_items(TransactItems=[
         {"Put": {
             "TableName": table.name, "Item": device,
@@ -205,6 +212,7 @@ def register_server_device(event, principal: Principal):
             "ConditionExpression": "attribute_not_exists(pk) OR (tenantId=:tenant AND accountId=:account)",
             "ExpressionAttributeValues": {":tenant": principal.tenant_id, ":account": principal.account_id},
         }},
+        slot,
     ])
     return response(201, {
         "id": device_id, "greenhouseId": greenhouse_id,
@@ -693,6 +701,8 @@ def create_server_invitation(event, principal: Principal):
         replaced = get_owned("DEVICE", replace_device_id, principal.tenant_id)
         if replaced.get("accountId") != principal.account_id or replaced.get("role") != "GREENHOUSE_SERVER" or replaced.get("greenhouseId") != greenhouse_id:
             raise AccessDenied("invalid_replacement")
+    alias = body.get("planHouseId")
+    greenhouse_plan.server_allocation(table, principal, greenhouse_id, alias, greenhouse_name, play_catalog)
     code = secrets.token_urlsafe(24)
     code_hash = pairing_code_hash(code)
     now = int(datetime.now(timezone.utc).timestamp())
@@ -701,7 +711,7 @@ def create_server_invitation(event, principal: Principal):
     table.put_item(Item={
         "pk": f"PAIRING#{code_hash}", "sk": "SERVER_INVITATION", "invitationId": invitation_id,
         "tenantId": principal.tenant_id, "accountId": principal.account_id,
-        "greenhouseId": greenhouse_id, "greenhouseName": greenhouse_name,
+        "greenhouseId": greenhouse_id, "greenhouseName": greenhouse_name, "planHouseId": alias,
         "replaceServerDeviceId": replace_device_id, "requestedByDeviceId": principal.device_id,
         "createdAt": now, "expiresAt": expires_at,
     }, ConditionExpression="attribute_not_exists(pk)")
@@ -727,7 +737,7 @@ def request_server_pairing(event):
         "pk": f"SERVER_PAIRING#{request_id}", "sk": "METADATA", "requestId": request_id,
         "tenantId": invitation["tenantId"], "accountId": invitation["accountId"],
         "greenhouseId": invitation["greenhouseId"], "greenhouseName": invitation.get("greenhouseName", "Greenhouse"),
-        "replaceServerDeviceId": invitation.get("replaceServerDeviceId"),
+        "replaceServerDeviceId": invitation.get("replaceServerDeviceId"), "planHouseId": invitation.get("planHouseId"),
         "serverDeviceId": device_id, "deviceSecretHash": hashlib.sha256(device_secret.encode("utf-8")).hexdigest(),
         "state": "PENDING_APPROVAL", "createdAt": now, "expiresAt": int(invitation["expiresAt"]),
     }
@@ -805,6 +815,7 @@ def approve_server_pairing(principal: Principal, request_id: str):
                 "SET greenhouseId=:greenhouse, enabled=:enabled, communicationSuspended=:connected, "
                 "deviceSecretHash=:secret, reauthorizedAt=:now, adminEntity=:entity, adminSort=:sort "
                 "REMOVE revokedAt, revokedBy, replacedAt, replacedBy, managedUpdates, updateMode, updateStatus, "
+                "archiveCommandId, archiveCommandUntil, archiveCommandState, remoteRecordingReady, "
                 "appliedAlertRulesHouse, appliedAlertRulesRevision, sensorTemperatureMode, "
                 "criticalTemperature, criticalAlertedAt, criticalIncidentId, criticalAlertMessage, "
                 + ", ".join(UPDATE_ORDER_FIELDS)
@@ -845,6 +856,8 @@ def approve_server_pairing(principal: Principal, request_id: str):
                 "ConditionExpression": "tenantId=:tenant AND accountId=:account",
                 "ExpressionAttributeValues": {":disabled": False, ":now": now, ":device": device_id, ":tenant": principal.tenant_id, ":account": principal.account_id},
             }})
+    transaction.append(greenhouse_plan.server_allocation(table, principal, greenhouse_id, request.get("planHouseId"),
+                                                      greenhouse["name"], play_catalog))
     table.meta.client.transact_write_items(TransactItems=transaction)
     return response(200, {"requestId": request_id, "state": "APPROVED", "serverDeviceId": device_id, "greenhouseId": greenhouse_id})
 
@@ -881,26 +894,48 @@ def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bo
     )
     if write and not authorized_server:
         raise AccessDenied("server_device")
+    if write and not greenhouse_plan.monitoring_enabled(table, principal, greenhouse_id):
+        raise greenhouse_plan.PlanError(409, "greenhouse_paused")
     if not write and device.get("role") != "VIEWER_CLIENT" and not authorized_server:
         raise AccessDenied("authorized_device_required")
     key = {"pk": f"GREENHOUSE#{greenhouse_id}", "sk": "BACKUP"}
     if not write:
         item = table.get_item(Key=key, ConsistentRead=True).get("Item")
-        backup = json.loads(item["backupJson"]) if item else None
+        backup = None
+        if item:
+            if "backupGzip" in item:
+                with gzip.GzipFile(fileobj=io.BytesIO(bytes(item["backupGzip"]))) as stream:
+                    raw = stream.read(MAX_SNAPSHOT_BYTES + 1)
+                if len(raw) > MAX_SNAPSHOT_BYTES:
+                    return response(500, {"error": "invalid_saved_backup"})
+                backup = json.loads(raw)
+            else:
+                backup = json.loads(item["backupJson"])
+        paused = not greenhouse_plan.monitoring_enabled(table, principal, greenhouse_id)
         if backup and (event.get("queryStringParameters") or {}).get("temperatureOnly") == "true":
             backup = {key: backup[key] for key in ("schema", "preferences", "sensors", "serverHealth") if key in backup}
-        return response(200, {"backup": backup, "updatedAt": int(item.get("updatedAt", 0)) if item else None})
+        if backup and paused:
+            backup["monitoringPaused"] = True
+        return response(200, {"backup": backup, "updatedAt": int(item.get("updatedAt", 0)) if item else None,
+                              **({"monitoringPaused": True} if paused else {})})
     body = json.loads(event.get("body") or "{}")
     backup = body.get("backup")
     if not isinstance(backup, dict) or backup.get("schema") not in {1, 2}:
         return response(400, {"error": "valid_backup_required"})
     encoded = json.dumps(backup, separators=(",", ":"))
-    if len(encoded.encode("utf-8")) > 350_000:
+    raw = encoded.encode("utf-8")
+    if len(raw) > MAX_SNAPSHOT_BYTES:
         return response(413, {"error": "backup_too_large"})
     now = int(datetime.now(timezone.utc).timestamp())
+    # DynamoDB rounds writes up to whole KiB. Skip gzip for very small snapshots.
+    stored = {"backupJson": encoded}
+    if len(raw) >= 1024:
+        compressed = gzip.compress(raw, compresslevel=3, mtime=0)
+        if len(compressed) < len(raw):
+            stored = {"backupGzip": compressed}
     table.put_item(Item={
         **key, "accountId": principal.account_id, "tenantId": principal.tenant_id,
-        "greenhouseId": greenhouse_id, "backupJson": encoded, "updatedAt": now,
+        "greenhouseId": greenhouse_id, **stored, "updatedAt": now,
     })
     return response(204, {})
 
@@ -1196,7 +1231,7 @@ def pending_alerts(principal: Principal, include_recovered=False):
             return None
         if server_id not in server_states:
             server = table.get_item(Key={"pk": f"DEVICE#{server_id}", "sk": "METADATA"}, ConsistentRead=True).get("Item", {})
-            server_states[server_id] = server
+            server_states[server_id] = server if greenhouse_plan.monitoring_enabled(table, principal, server.get("greenhouseId")) else {}
         server = server_states[server_id]
         if (server.get("tenantId") == principal.tenant_id and server.get("accountId") == principal.account_id
                 and server.get("greenhouseId") == item["greenhouseId"] and server.get("role") == "GREENHOUSE_SERVER"
@@ -1332,6 +1367,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     body = json.loads(event.get("body") or "{}")
     now = int(datetime.now(timezone.utc).timestamp())
     shard = sum(device_id.encode()) % 16
+    monitoring = greenhouse_plan.monitoring_enabled(table, principal, device.get("greenhouseId"))
     sensor_healthy = bool(body.get("sensorConnectionHealthy"))
     critical_temperature = body.get("criticalTemperature") is True
     critical_message = temperature_breach_message(body.get("temperatureBreach"), now)
@@ -1339,7 +1375,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     if "temperatureEvaluated" in body and critical_temperature and not critical_message:
         evaluated = False
     observations = None
-    if "temperatureObservations" in body:
+    if monitoring and "temperatureObservations" in body:
         if body.get("greenhouseId", device.get("greenhouseId")) != device.get("greenhouseId"):
             raise AccessDenied("greenhouse_mismatch")
         if device.get("deviceSecretHash") and not device_authenticated:
@@ -1370,6 +1406,10 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
         ":adminEntity": "DEVICE",
         ":adminSort": f"{int(device.get('createdAt', now)):020d}#{device_id}",
     }
+    # Readiness is advertised only by the authenticated, actively listening camera service.
+    ready_to_record = body.get("remoteRecordingReady") is True and device_authenticated
+    set_parts.append("remoteRecordingReady=:captureReady")
+    expression_values[":captureReady"] = ready_to_record
     set_parts.extend(["managedUpdates=:managed", "updateMode=:mode"])
     managed = body.get("managedUpdates") is True
     mode = update_mode(body)
@@ -1464,7 +1504,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     alert_records = []
     marker_conditions = []
     temperature_delivery = []
-    if not sensor_healthy and "sensorAlertedAt" not in device:
+    if monitoring and not sensor_healthy and "sensorAlertedAt" not in device:
         marker_conditions.append("attribute_not_exists(sensorAlertedAt)")
         alert_records.append(new_alert(
             account_id=principal.account_id, tenant_id=principal.tenant_id,
@@ -1492,7 +1532,7 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
                         "Key": recovery_inbox_key(principal.account_id, old_id)}})
                 else:
                     temperature_delivery.append(record_recovery(table, principal.account_id, old_id, now, "NORMAL"))
-    elif evaluated and not device.get("sensorTemperatureMode"):
+    elif monitoring and evaluated and not device.get("sensorTemperatureMode"):
         marker_conditions.append("attribute_not_exists(sensorTemperatureMode)")
         set_parts.append("criticalTemperature=:critical")
         expression_values[":critical"] = critical_temperature
@@ -1560,6 +1600,8 @@ def heartbeat(event, principal: Principal, device_id: str, device_authenticated=
     transaction.extend(temperature_delivery)
     table.meta.client.transact_write_items(TransactItems=transaction)
     command = {"alertRules": alert_policy} if alert_policy is not None else {}
+    if monitoring and ready_to_record and remote_recording.pending_hint(device, now):
+        command["remoteRecordingPending"] = True
     if not target:
         return response(200 if command else 204, command)
     command["requestedUpdateCode"] = target
@@ -1588,6 +1630,8 @@ def handler(event, _context):
         else:
             principal = principal_from(event)
         if method == "POST" and parts == ["v1", "devices"]:
+            if device_authenticated:
+                raise AccessDenied("device_route_not_allowed")
             role = json.loads(event.get("body") or "{}").get("role")
             return register_client_device(event, principal) if role == "VIEWER_CLIENT" else register_server_device(event, principal)
         if method == "GET" and parts == ["v1", "devices", "current"]:
@@ -1595,7 +1639,12 @@ def handler(event, _context):
         if len(parts) == 5 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "recordings":
             return archive(event, principal, require_resource_id(parts[2]), parts[4], method,
                            device_authenticated=device_authenticated, table=table, get_owned=get_owned,
-                           checkout_for=play_test_checkout, catalog_for=play_catalog, response=response)
+                           checkout_for=play_test_checkout, catalog_for=play_catalog, response=response,
+                           monitoring_enabled=greenhouse_plan.monitoring_enabled)
+        if len(parts) in {2, 3} and parts[:2] == ["v1", "greenhouse-plan"]:
+            requester = require_enabled_requester(principal)
+            return greenhouse_plan.handle(table, principal, requester, method, parts[2] if len(parts) == 3 else None,
+                                          event.get("body"), play_catalog, response, device_authenticated)
         if device_authenticated and not (
             (method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] in {"stream-sessions", "update-package"}) or
             (method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat") or
@@ -1652,6 +1701,8 @@ def handler(event, _context):
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":
             return heartbeat(event, principal, parts[2], device_authenticated)
         return response(404, {"error": "not_found"})
+    except greenhouse_plan.PlanError as error:
+        return response(error.status, {"error": str(error)})
     except AccessDenied as error:
         print(json.dumps({
             "event": "authorization_denied", "reason": str(error),

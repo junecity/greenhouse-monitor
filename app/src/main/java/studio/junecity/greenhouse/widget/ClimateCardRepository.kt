@@ -50,6 +50,7 @@ internal class ClimateCardRepository(context: Context) {
             val prefs = AppPreferencesStore(app, suffix).loadForMonitoring(owner)
             val house = if (houseId.isNullOrBlank()) prefs.activeGreenhouse else prefs.greenhouses.find { it.id == houseId }
             if (house == null) return unavailable(WidgetFeedStatus.Empty, "Choose a greenhouse")
+            if (!house.isMonitoring(now)) return unavailable(WidgetFeedStatus.Empty, "Monitoring paused · ${house.name}")
             val all = CurrentSensorStore(app, suffix).load().inSavedHouses(prefs).filter { it.greenhouseId == house.id }
             val selected = all.filter { sensorId.isNullOrBlank() || it.id == sensorId }
             val internet = app.getSystemService(ConnectivityManager::class.java).let {

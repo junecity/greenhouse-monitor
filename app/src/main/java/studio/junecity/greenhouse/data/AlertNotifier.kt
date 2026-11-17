@@ -8,6 +8,7 @@ import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.cloud.TemperatureBreach
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.AppPreferencesStore
+import studio.junecity.greenhouse.settings.isStandaloneClient
 import studio.junecity.greenhouse.settings.CloudEnrollment
 import kotlin.math.roundToInt
 
@@ -23,7 +24,8 @@ class AlertNotifier(private val context: Context, private val suffix: String = "
     fun forgetSensor(id: String) = synchronized(state) {
         manager.cancel("sensor/$id", id.hashCode())
         cancelOlderNotification(id)
-        state.edit().remove("condition_$id").remove("sent_$id").remove("measured_$id").apply()
+        state.edit().remove("condition_$id").remove("sent_$id").remove("measured_$id")
+            .remove("tenant_$id").remove("house_$id").remove("lastMessage_$id").apply()
     }
 
     private fun cancelOlderNotification(id: String) {
@@ -34,9 +36,16 @@ class AlertNotifier(private val context: Context, private val suffix: String = "
         }
     }
 
+    internal fun recordedLocalMessage(id: String?, house: String, at: Long, owner: CloudEnrollment): String? {
+        if (id == null || suffix != "_standalone" || state.getLong("sent_$id", -1) != at ||
+            state.getString("tenant_$id", null) != owner.tenantId || state.getString("house_$id", null) != house) return null
+        return state.getString("lastMessage_$id", null)
+    }
+
     fun evaluate(sensor: GoveeSensor, owner: CloudEnrollment? = null) {
         val settings = AppPreferencesStore(context, suffix).loadForMonitoring(owner)
         val house = settings.sensorHouse(sensor)
+        if (!settings.monitorsSensor(sensor)) return
         val prefs = settings.forAlertsIn(house)
         val now = System.currentTimeMillis()
         if (!prefs.masterEnabled || now < prefs.snoozedUntilEpochMs) return
@@ -72,14 +81,19 @@ class AlertNotifier(private val context: Context, private val suffix: String = "
                 .setSmallIcon(R.drawable.ic_notification_greenhouse)
                 .setContentTitle(title)
                 .setContentText(message)
-                .setContentIntent(AlertDestination.pending(context, id.hashCode(), house, id, false, now, tag))
+                .setContentIntent(AlertDestination.pending(context, id.hashCode(), house, id, false, now, tag,
+                    owner?.tenantId?.takeIf { suffix == "_standalone" && owner.isStandaloneClient() }))
                 .setAutoCancel(true)
                 .setVibrate(if (prefs.vibrationEnabled) longArrayOf(0, 250, 150, 250) else longArrayOf(0))
             if (prefs.soundEnabled) notice.setDefaults(NotificationCompat.DEFAULT_SOUND)
             runCatching {
                 manager.notify(tag, id.hashCode(), notice.build())
                 cancelOlderNotification(id)
-                state.edit().putString(key, kind).putLong("sent_$id", now).apply()
+                val saved = state.edit().putString(key, kind).putLong("sent_$id", now)
+                if (suffix == "_standalone" && owner != null) {
+                    saved.putString("tenant_$id", owner.tenantId).putString("house_$id", house).putString("lastMessage_$id", message)
+                }
+                saved.apply()
             }
         }
     }

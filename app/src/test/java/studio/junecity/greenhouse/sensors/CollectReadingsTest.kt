@@ -43,6 +43,24 @@ class CollectReadingsTest {
         assertEquals(requested, active.map { it.id })
     }
 
+    @Test fun expiredHouseSkipsProviderReadAndKeepsTimestampWhileFreeHouseUpdates() = runBlocking {
+        val annex = GreenhouseConfig(id = "annex", monitoringUntilEpochMs = now - 1)
+        val prefs = AppPreferences(greenhouses = listOf(GreenhouseConfig(), annex),
+            sensorGreenhouseIds = mapOf("door" to annex.id, "bench" to "main"))
+        val old = GoveeSensor("door", "H5179", "Door", 60.0, 90.0, true, now - 3_000)
+        val requested = mutableListOf<String>()
+        val result = provider {
+            requested.add(it.deviceId)
+            SensorMeasurement(it, 72.0, 80.0, connected = true, recordedAtEpochMs = now)
+        }.collectReadings(key, prefs, listOf(old)) { "Unassigned" }
+        assertEquals(listOf("bench"), requested)
+        assertEquals(old.updatedAtEpochMs, result.first().updatedAtEpochMs)
+        val displayed = GreenhouseUiState(preferences = prefs, sensors = result).withMonitoringAccess(now)
+        assertNull(displayed.sensors.first().temperatureF)
+        assertEquals(72.0, displayed.sensors.last().temperatureF!!, 0.0)
+        assertEquals(60.0, result.first().temperatureF!!, 0.0)
+    }
+
     @Test(expected=CancellationException::class) fun cancellationEndsTheBatch() {
         runBlocking {
             provider { throw CancellationException() }.collectReadings(key, AppPreferences(), emptyList()) { "Unassigned" }

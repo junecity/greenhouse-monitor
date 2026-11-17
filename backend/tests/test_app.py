@@ -313,7 +313,8 @@ class BootstrapApiTests(unittest.TestCase):
 
         self.assertEqual(201, result["statusCode"])
         self.assertEqual(1, len(fake.client.transactions))
-        self.assertEqual(3, len(fake.client.transactions[0]))
+        self.assertEqual(4, len(fake.client.transactions[0]))
+        self.assertEqual("GREENHOUSE_PLAN", fake.client.transactions[0][3]["Put"]["Item"]["sk"])
         device = fake.client.transactions[0][0]["Put"]["Item"]
         greenhouse = fake.client.transactions[0][1]["Put"]["Item"]
         self.assertEqual("tenant-existing", device["tenantId"])

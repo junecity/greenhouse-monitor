@@ -10,6 +10,7 @@ import kotlinx.coroutines.channels.Channel
 import studio.junecity.greenhouse.data.AlertNotifier
 import studio.junecity.greenhouse.data.HistoryStore
 import studio.junecity.greenhouse.model.GoveeSensor
+import studio.junecity.greenhouse.model.monitorsSensor
 import studio.junecity.greenhouse.settings.*
 import java.util.UUID
 
@@ -102,23 +103,28 @@ internal object EnvironmentalBluetooth {
     }
 }
 
-internal suspend fun collectEnvironmental(context: Context, owner: CloudEnrollment?, suffix: String) {
-    val secure = SecureSettingsStore(context)
+internal suspend fun collectEnvironmental(context: Context, owner: CloudEnrollment?, suffix: String,
+                                        access: CollectorEnrollment = CollectorEnrollment(context, owner)) {
     val store = CurrentSensorStore(context, suffix)
+    val preferences = AppPreferencesStore(context, suffix)
     val alerts = AlertNotifier(context, suffix)
     HistoryStore(context, suffix).use { history ->
-        while (currentCoroutineContext().isActive && secure.cloudEnrollment() == owner) {
-            val sensors = store.load().filter { it.id.startsWith("ess:") }
+        while (currentCoroutineContext().isActive && access.isCurrent()) {
+            val current = preferences.loadForMonitoring(owner)
+            val sensors = store.load().filter { it.id.startsWith("ess:") && current.monitorsSensor(it) }
             if (SensorBluetooth.allowed(context)) for (sensor in sensors) {
-                if (secure.cloudEnrollment() != owner) return
+                if (!access.isCurrent()) return
                 try {
                     val (temp, humidity) = EnvironmentalBluetooth.read(context, sensor.id.removePrefix("ess:"))
-                    if (secure.cloudEnrollment() != owner) return
-                    val now = System.currentTimeMillis()
-                    val all = store.update { rows -> rows.map {
-                        if (it.id == sensor.id) it.copy(temperatureF = temp, humidityPercent = humidity, online = true, updatedAtEpochMs = now) else it
-                    } }
-                    all.find { it.id == sensor.id }?.let { history.insert(it); alerts.evaluate(it, owner) }
+                    access.whileCurrent {
+                        if (preferences.loadForMonitoring(owner).monitorsSensor(sensor)) {
+                            val now = System.currentTimeMillis()
+                            val all = store.update { rows -> rows.map {
+                                if (it.id == sensor.id) it.copy(temperatureF = temp, humidityPercent = humidity, online = true, updatedAtEpochMs = now) else it
+                            } }
+                            all.find { it.id == sensor.id }?.let { history.insert(it); alerts.evaluate(it, owner) }
+                        }
+                    }
                 } catch (e: CancellationException) { throw e }
                 catch (_: Exception) { /* Keep the last timestamp; the dashboard ages the reading out. */ }
             }

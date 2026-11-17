@@ -204,6 +204,17 @@ class CustomerBackupTest {
         HistoryStore(context,"_standalone").use { assertNull(it.pendingRestore()) }
     }
 
+    @Test fun aPreviousAccountCannotReplayItsPendingSettingsUsingTheSamePhoneId() {
+        val currentOwner = enrollment.copy(tenantId = "current-account")
+        secure.saveCloudEnrollment(currentOwner)
+        val meta = org.json.JSONObject().put("kind","standalone").put("tenant","previous-account")
+            .put("house","").put("destination",currentOwner.deviceId)
+        HistoryStore(context,"_standalone").use { it.mergeBackup(meta.toString()) {} }
+        CustomerBackup(context,currentOwner).resumePendingRestore()
+        HistoryStore(context,"_standalone").use { assertNull(it.pendingRestore()) }
+        assertEquals("06382",prefs.load().zipCode)
+    }
+
     @Test fun viewerBackupRestoresOnlyForecastPreferences() {
         val viewer = enrollment.copy(localSensors=false,greenhouseId="paired")
         secure.saveCloudEnrollment(viewer)

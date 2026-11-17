@@ -49,14 +49,25 @@ class WidgetCollectorRefresh(context: Context, params: WorkerParameters) : Corou
             val secure = SecureSettingsStore(app)
             var radio: Job? = null
             try {
-                while (isActive && secure.cloudEnrollment() == owner && owner.isStandaloneClient()) {
-                    if (eligible(app, owner)) {
-                        if (radio?.isActive != true && CurrentSensorStore(app, "_standalone").load().any { it.isLocalRadio() })
-                            radio = launch { collectShelly(app, owner, "_standalone") }
-                        try { CurrentGoveeReadings.refresh(app, owner) }
+                while (isActive && secure.cloudEnrollment() == owner) {
+                    val collector = GreenhousePlanCache.localCollector(app, owner)
+                    if (collector != null) {
+                        val hasRadio = CurrentSensorStore(app, "_standalone").load().any {
+                            it.isLocalRadio() || it.sku.equals("H5179", true)
+                        }
+                        if (hasRadio && radio?.isActive != true) {
+                            radio = launch { collectShelly(app, collector, "_standalone", authenticatedAs = owner) }
+                        } else if (!hasRadio) {
+                            radio?.cancel()
+                            radio = null
+                        }
+                        try { CurrentGoveeReadings.refresh(app, collector, authenticatedAs = owner) }
                         catch (e: CancellationException) { throw e }
-                        catch (_: Exception) { /* Preserve the last observation until the provider returns. */ }
-                    } else { radio?.cancel(); radio = null }
+                        catch (_: Exception) { /* Keep the latest local reading while its provider is offline. */ }
+                    } else {
+                        radio?.cancel()
+                        radio = null
+                    }
                     delay(60_000L)
                 }
             } finally { radio?.cancel() }

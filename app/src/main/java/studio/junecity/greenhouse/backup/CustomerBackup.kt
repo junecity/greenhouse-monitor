@@ -21,7 +21,8 @@ internal suspend fun verifiedBackupScope(context: Context, enrollment: CloudEnro
     check(config != null && enrollment != null) { "Sign in or pair this phone first." }
     val device = gatewayForEnrollment(context, config, enrollment).currentDevice()
     check(device.id == enrollment.deviceId && device.enabled && !device.communicationSuspended &&
-        device.role == enrollment.role && device.tenantId.isNotBlank()) { "This phone is no longer authorized." }
+        device.role == enrollment.role && device.tenantId.isNotBlank() &&
+        (enrollment.tenantId.isBlank() || device.tenantId == enrollment.tenantId)) { "This phone is no longer authorized." }
     return when {
         device.role == CloudDeviceRole.GreenhouseServer -> {
             check(!device.greenhouseId.isNullOrBlank() && device.greenhouseId == enrollment.greenhouseId)
@@ -129,13 +130,23 @@ internal class CustomerBackup(private val context: Context, private val enrollme
     fun resumePendingRestore() = synchronized(restoreLock) {
         HistoryStore(context, suffix).use { db ->
             val meta = db.pendingRestore()?.let(::JSONObject) ?: return@use
-            if (meta.getString("destination") == deviceId) applyMetadata(meta)
+            val expected = localBackupScope(enrollment)
+            val sameScope = if (expected == null) enrollment?.tenantId.isNullOrBlank() else
+                meta.optString("tenant") == expected.tenant && meta.optString("house") == expected.house &&
+                    meta.optString("kind") == expected.kind
+            if (meta.getString("destination") == deviceId && sameScope) {
+                checkEnrollment()
+                applyMetadata(meta)
+            }
             db.finishRestore()
         }
     }
 
     private fun checkEnrollment() {
-        check(SecureSettingsStore(context).cloudEnrollment() == enrollment) { "Phone setup changed. Open Backup again." }
+        check(SecureSettingsStore(context).cloudEnrollment() == enrollment &&
+            (enrollment == null || !enrollment.isStandaloneClient() || GreenhousePlanCache.localCollector(context,enrollment) == enrollment)) {
+            "Phone setup changed. Open Backup again."
+        }
     }
 
     private fun rules(meta: JSONObject): ForecastRules = meta.getJSONObject("forecast").let {

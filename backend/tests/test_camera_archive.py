@@ -235,3 +235,73 @@ class ArchiveLifecycleTests(GreenhouseFixture):
         self.assertEqual(410, self.recordings("play", {"id": clip})[0])
         self.assertEqual(24, self.db.get_item(Key=quota)["Item"]["requests"])
         self.assertEqual([], self.recordings("list")[1]["clips"])
+
+    def test_remote_capture_from_viewer_through_server_to_durable_clip(self):
+        self.purchase()
+        ident = str(uuid.uuid4())
+        request = {"requestId": ident}
+        status = self.recordings("access")[1]
+        self.assertEqual((False, "offline"), (status["remoteRecordingAvailable"], status["remoteRecordingReason"]))
+        hb = {"sensorConnectionHealthy": True, "appVersionCode": 92, "remoteRecordingReady": True}
+        def beat(**data):
+            return self.api(f"/v1/device/devices/{self.server}/heartbeat", dict(hb, **data), server=True)
+        self.assertEqual(204, beat(appVersionCode=91)[0])
+        self.assertEqual("update_server", self.recordings("access")[1]["remoteRecordingReason"])
+        self.assertEqual(204, beat(remoteRecordingReady=False)[0])
+        self.assertEqual("camera_unavailable", self.recordings("access")[1]["remoteRecordingReason"])
+        self.assertEqual(204, beat()[0])
+        self.assertTrue(self.recordings("access")[1]["remoteRecordingAvailable"])
+        self.assertEqual(403, self.recordings("record", request, server=True)[0])
+        self.assertEqual(400, self.recordings("record", {"requestId": "bad"})[0])
+        self.assertEqual((200, dict(request, status="queued")), self.recordings("record", request))
+        self.assertEqual((200, dict(request, status="queued")), self.recordings("record", request))
+        self.assertEqual((409, {"error": "recording_busy"}), self.recordings("record", {"requestId": str(uuid.uuid4())}))
+        self.assertEqual((200, {"remoteRecordingPending": True}), beat())
+        self.assertEqual(403, self.recordings("poll-record", {})[0])
+        self.assertEqual((200, request), self.recordings("poll-record", {}, server=True))
+        self.assertEqual((200, {}), self.recordings("poll-record", {}, server=True))
+        self.assertEqual(204, beat()[0])
+        self.assertEqual("recording", self.recordings("record-status", request)[1]["status"])
+        self.assertEqual(409, self.recordings("finish-record", dict(request, status="uploaded"), server=True)[0])
+        movie = b"fixture-silent-clip"
+        body = dict(request, bytes=len(movie), md5=base64.b64encode(hashlib.md5(movie).digest()).decode())
+        code, permit = self.recordings("upload", body, server=True)
+        self.assertEqual(200, code)
+        object_key = urlparse(permit["url"]).path.lstrip("/")
+        self.s3.put_object(Bucket=self.bucket, Key=object_key, Body=movie, ContentMD5=body["md5"], ContentType="video/mp4")
+        self.assertEqual(204, beat(remoteRecordingReady=False)[0])  # Camera temporarily busy while finishing.
+        for _ in range(2):
+            self.assertEqual((200, dict(request, status="uploaded")),
+                             self.recordings("finish-record", dict(request, status="uploaded"), server=True))
+        self.assertEqual("uploaded", self.recordings("record-status", request)[1]["status"])
+        self.assertEqual(1, len(self.recordings("list")[1]["clips"]))
+        self.assertEqual(1, self.db.get_item(Key={"pk": self.grant_key["pk"],
+                         "sk": f"CAMERA_UPLOADS#{self.now//86400}"})["Item"]["requests"])
+
+    def test_remote_recording_expiry_generation_and_revocation(self):
+        ident = {"requestId": str(uuid.uuid4())}
+        key = {"pk": "DEVICE#" + self.server, "sk": "METADATA"}
+        self.db.update_item(Key=key, UpdateExpression="SET remoteRecordingReady=:yes,lastHeartbeat=:seen,appVersionCode=:build",
+                            ExpressionAttributeValues={":yes":True, ":seen":self.now, ":build":92})
+        self.assertEqual(403, self.recordings("record", ident)[0])
+        self.purchase()
+        self.assertEqual(200, self.recordings("record", ident)[0])
+        with patch("remote_recording.time.time", return_value=self.now+181):
+            self.assertEqual("expired", self.recordings("record-status", ident)[1]["status"])
+            self.assertEqual({}, self.recordings("poll-record", {}, server=True)[1])
+        self.age_grant(65)
+        self.verify.return_value["active"] = False
+        self.assertEqual((200, dict(ident, status="expired")), self.recordings("record-status", ident))
+        self.assertEqual(403, self.recordings("poll-record", {}, server=True)[0])
+        self.verify.return_value["active"] = True
+        self.purchase()
+        self.assertEqual(200, self.recordings("poll-record", {}, server=True)[0])
+        self.assertEqual(200, self.recordings("finish-record", dict(ident, status="failed"), server=True)[0])
+        self.assertEqual("failed", self.recordings("record-status", ident)[1]["status"])
+        new = {"requestId": str(uuid.uuid4())}
+        self.assertEqual(200, self.recordings("record", new)[0])
+        self.put("ACCOUNT#"+self.account, "GREENHOUSE_PLAN", tenantId="tenant-test", houses=[], revision=1)
+        self.assertEqual("expired", self.recordings("record-status", new)[1]["status"])
+        self.assertEqual(409, self.recordings("poll-record", {}, server=True)[0])
+        self.assertEqual(403, self.recordings("upload", dict(new, bytes=10, md5="A"*22+"=="), server=True)[0])
+        self.assertEqual(200, self.recordings("list")[0])

@@ -13,6 +13,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONObject
 import studio.junecity.greenhouse.cloud.ClientTemperatureAlarms
+import studio.junecity.greenhouse.cloud.GreenhousePlanWorker
 import studio.junecity.greenhouse.cloud.ManagedServerUpdate
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import java.util.UUID
@@ -93,6 +94,8 @@ class SecureSettingsStore(private val context: Context) {
             ManagedServerUpdate.forgetEnrollment(context)
         if (previous?.widgetScope() != value.widgetScope())
             context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
+        if (previous?.tenantId != value.tenantId || previous.deviceId != value.deviceId || previous.role != value.role)
+            GreenhousePlanWorker.clearNotices(context)
         saveEncrypted("cloud_enrollment", value.toJson())
         ClientTemperatureAlarms.forgetIfOwnerChanged(context, previous, value)
         ClimateWidget.changed(context)
@@ -110,6 +113,7 @@ class SecureSettingsStore(private val context: Context) {
         // Delayed widget or monitor work can start in a new process immediately after sign-out.
         check(prefs.edit().remove("cloud_enrollment").commit())
         ClientTemperatureAlarms.forget(context)
+        GreenhousePlanWorker.clearNotices(context)
         context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
         ClimateWidget.changed(context)
     }

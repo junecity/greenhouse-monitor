@@ -1,5 +1,13 @@
 package studio.junecity.greenhouse.ui
 
+import androidx.test.core.app.ActivityScenario
+import android.net.ConnectivityManager
+import android.os.ParcelFileDescriptor
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import studio.junecity.greenhouse.MainActivity
+import studio.junecity.greenhouse.settings.SecureSettingsStore
+import studio.junecity.greenhouse.settings.CloudEnrollment
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.MediaMetadataRetriever
@@ -91,10 +99,58 @@ class CloudArchiveDeviceTest {
         Unit
     }
 
+    @Test fun requestRemoteClipOnViewer() = runBlocking {
+        val (api, _) = connection(false)
+        withTimeout(45_000) {
+            while (!api.archiveRequest(house, "access").optBoolean("remoteRecordingAvailable")) delay(500)
+        }
+        val args = JSONObject().put("requestId", UUID.randomUUID().toString())
+        val accepted = api.archiveRequest(house, "record", args)
+        assertEquals(args.getString("requestId"), accepted.getString("requestId"))
+        assertEquals("queued", accepted.getString("status"))
+        instrumentation.sendStatus(0, Bundle().apply { putString("remoteOrder", accepted.getString("requestId")) })
+    }
+
+    @Test fun captureRemoteOrderOnServer() = runBlocking {
+        val (api, _) = connection(true)
+        val secure = SecureSettingsStore(app)
+        check(secure.cloudEnrollment() == null) { "Use a disposable server emulator with empty app enrollment" }
+        check(app.getSystemService(ConnectivityManager::class.java).activeNetwork == null) {
+            "Isolate the test enrollment from the Internet; the HTTPS API uses adb reverse."
+        }
+        val owner = CloudEnrollment("fixture-server", house, CloudDeviceRole.GreenhouseServer,
+            "local-fixture-server-credential-for-qa", tenantId = "fixture-tenant")
+        val scene = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            scene.onActivity { secure.saveCloudEnrollment(owner); CloudCameraServerService.sync(it, true) }
+            withTimeout(15_000) { while (!CloudCameraServerService.isRecordingReady(owner)) delay(100) }
+            ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand("input keyevent KEYCODE_HOME"))
+                .use { it.readBytes() }
+            val before = clips(api)
+            val health = MonitoringHealth(owner.deviceId, owner.greenhouseId, true, false, remoteRecordingReady = true)
+            withTimeout(45_000) {
+                while (!HeartbeatReporter(api).report(health).remoteRecordingPending) delay(1_000)
+            }
+            ServerArchiveRecorder(app, owner, api) {}.process(true)
+            val created = (clips(api) - before).single()
+            instrumentation.sendStatus(0, Bundle().apply { putString("archiveClip", created) })
+        } finally {
+            secure.clearCloudEnrollment()
+            CloudCameraServerService.sync(app, false)
+            CloudHeartbeatService.sync(app, false)
+            scene.close()
+        }
+    }
+
     @Test fun playAndDeleteOnViewer() = runBlocking {
         val (api, client) = connection(false)
         val id = requireNotNull(args.getString("archiveClip"))
         val expectedSha = requireNotNull(args.getString("archiveSha"))
+        args.getString("remoteOrder")?.let { order ->
+            val status = api.archiveRequest(house, "record-status", JSONObject().put("requestId", order))
+            assertEquals(order, status.getString("requestId"))
+            assertEquals("uploaded", status.getString("status"))
+        }
         assertTrue(id in clips(api))
         val request = JSONObject().put("id", id)
         val url = api.archiveRequest(house, "play", request).getString("url")

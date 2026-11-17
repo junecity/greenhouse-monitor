@@ -81,10 +81,12 @@ class AuthenticatedCloudGateway(
     suspend fun createServerInvitation(
         greenhouseId: String,
         greenhouseName: String,
-        replaceServerDeviceId: String? = null
+        replaceServerDeviceId: String? = null,
+        planHouseId: String? = null
     ): ServerPairingInvitation {
         val body = JSONObject().put("greenhouseId", greenhouseId).put("greenhouseName", greenhouseName)
         replaceServerDeviceId?.let { body.put("replaceServerDeviceId", it) }
+        planHouseId?.let { body.put("planHouseId", it) }
         return CloudJsonCodec.serverInvitation(request("POST", "/v1/server-pairing/invitations", body))
     }
 
@@ -107,6 +109,11 @@ class AuthenticatedCloudGateway(
     suspend fun archiveRequest(house: String, action: String, body: JSONObject? = null): JSONObject =
         request(if (body == null) "GET" else "POST", "/v1/greenhouses/${segment(house)}/recordings/${segment(action)}", body)
 
+    internal suspend fun greenhousePlanRequest(action: String? = null, body: JSONObject? = null): GreenhousePlanState {
+        val path = if (action == null) "/v1/greenhouse-plan" else "/v1/greenhouse-plan/${segment(action)}"
+        return GreenhousePlanState.parse(request(if (action == null) "GET" else "POST", path, body))
+    }
+
     suspend fun uploadMovie(house: String, file: java.io.File) = withContext(Dispatchers.IO) {
         val digest = java.security.MessageDigest.getInstance("MD5")
         file.inputStream().use { input ->
@@ -125,7 +132,9 @@ class AuthenticatedCloudGateway(
         val upload = Request.Builder().url(permit.getString("url")).header("Content-MD5", md5)
             .put(file.asRequestBody("video/mp4".toMediaType())).build()
         check(upload.url.isHttps)
-        client.newCall(upload).execute().use { check(it.isSuccessful) { "Upload failed. Retry in Playback." } }
+        client.newCall(upload).execute().use { response ->
+            if (!response.isSuccessful) throw CloudApiException(response.code, "Upload failed. Retry in Playback.")
+        }
     }
 
     suspend fun verifyArchivePurchase(house: String, token: String) {
@@ -195,6 +204,7 @@ class AuthenticatedCloudGateway(
                 .put("sensorCount", heartbeat.sensorCount)
                 .put("sensorProvider", heartbeat.sensorProvider)
                 .put("cameraStatus", heartbeat.cameraStatus)
+                .put("remoteRecordingReady", heartbeat.remoteRecordingReady)
                 .put("lastSensorSyncEpochMs", heartbeat.lastSensorSyncEpochMs)
                 .put("lastDataUploadEpochMs", heartbeat.lastDataUploadEpochMs)
                 .put("managedUpdates", heartbeat.managedUpdates)
@@ -208,7 +218,8 @@ class AuthenticatedCloudGateway(
                 ServerUpdateCommand(it, response.optString("requestedUpdateMode").takeUnless { response.isNull("requestedUpdateMode") },
                     response.optString("requestedUpdateId").takeUnless { response.isNull("requestedUpdateId") })
             }
-            HeartbeatReply(command, response.optJSONObject("alertRules")?.let(AlertRuleState::parse))
+            HeartbeatReply(command, response.optJSONObject("alertRules")?.let(AlertRuleState::parse),
+                response.optBoolean("remoteRecordingPending"))
         } ?: HeartbeatReply()
     }
 

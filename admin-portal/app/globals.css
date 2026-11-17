@@ -116,6 +116,10 @@ button:disabled { cursor: not-allowed; opacity: .48; transform: none !important;
 
 .table-scroll { width: 100%; overflow: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.billing-summary { min-width: 0; font-variant-numeric: tabular-nums; }
+.billing-summary th, .billing-summary td { padding: 10px 6px; }
+.billing-summary th:not(:first-child), .billing-summary td { text-align: right; }
+.billing-summary tbody th { font-size: 13px; text-transform: none; color: var(--text); letter-spacing: normal; }
 th { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 td { padding: 15px 16px; border-bottom: 1px solid rgba(48,53,61,.75); color: #d9dde3; font-size: 12px; vertical-align: middle; }
 tbody tr { transition: background .15s; }

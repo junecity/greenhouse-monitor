@@ -11,18 +11,43 @@ import studio.junecity.greenhouse.model.*
 
 class AppPreferencesStore(private val context:Context,private val suffix:String=""){
     private val prefs=context.getSharedPreferences("greenhouse_preferences_v2$suffix",Context.MODE_PRIVATE)
-    fun load():AppPreferences=runCatching{prefs.getString("state",null)?.let{decode(JSONObject(it))}?:AppPreferences()}.getOrElse{AppPreferences()}
+    private fun readStored():AppPreferences=runCatching{prefs.getString("state",null)?.let{decode(JSONObject(it))}?:AppPreferences()}.getOrElse{AppPreferences()}
+    private fun planOwner(): CloudEnrollment? =
+        SecureSettingsStore(context).cloudEnrollment()?.takeIf { suffix == if (it.isStandaloneClient()) "_standalone" else "" }
+
+    fun load(): AppPreferences = withPlan(readStored(), planOwner())
+
+    private fun withPlan(value: AppPreferences, owner: CloudEnrollment?): AppPreferences {
+        // Earlier enrollments receive their account ID during the existing authenticated bootstrap.
+        if (owner == null || owner.tenantId.isBlank() || suffix != if (owner.isStandaloneClient()) "_standalone" else "") return value
+        if (owner.isStandaloneClient()) {
+            val current = SecureSettingsStore(context).cloudEnrollment()
+            if (current == null || GreenhousePlanCache.localCollector(context,current) != owner)
+                return AppPreferences(greenhouses=listOf(GreenhouseConfig(monitoringUntilEpochMs=0,awaitingPlanCheck=true)))
+        }
+        val cache = GreenhousePlanCache(context, owner)
+        cache.rememberPreviousInstallation(value, prefs.contains("state"))
+        return cache.applyTo(value)
+    }
+
     internal fun loadForMonitoring(owner: CloudEnrollment?): AppPreferences {
-        val local = load()
+        val local = withPlan(readStored(), owner)
         if (owner?.role != CloudDeviceRole.GreenhouseServer || suffix.isNotEmpty()) return local
         return local.copy(serverAlertRules = AppliedAlertRules(context, owner).load()?.rules)
     }
 
+    private fun beforeImportOrEdit() {
+        val owner = planOwner()?.takeIf { it.tenantId.isNotBlank() } ?: return
+        val cache = GreenhousePlanCache(context, owner)
+        if (!cache.hasMigrationRecord()) cache.rememberPreviousInstallation(readStored(), prefs.contains("state"))
+    }
+
     fun save(value: AppPreferences) {
+        beforeImportOrEdit()
         prefs.edit().putString("state", encode(value).toString()).apply()
         ClimateWidget.changed(context)
     }
-    internal fun restore(value:AppPreferences){check(prefs.edit().putString("state",encode(value).toString()).commit())}
+    internal fun restore(value:AppPreferences){beforeImportOrEdit();check(prefs.edit().putString("state",encode(value).toString()).commit())}
     fun clear(){prefs.edit().clear().apply()}
     fun exportJson(owner: CloudEnrollment? = null): JSONObject {
         val p = loadForMonitoring(owner)
@@ -37,7 +62,7 @@ class AppPreferencesStore(private val context:Context,private val suffix:String=
         p.greenhouses.forEach{g->
             val positions=JSONObject();g.sensorPositions.forEach{(id,pos)->positions.put(id,JSONObject().put("x",pos.xFeet).put("y",pos.yFeet).put("z",pos.heightFeet).put("mountLevel",pos.level?.name).put("floorMount",pos.heightFeet == 0.0))}
             val preset = g.shape.takeIf { it == GreenhouseShape.Circle || it == GreenhouseShape.LShape }
-            greenhouses.put(JSONObject().put("id",g.id).put("name",g.name).put("length",if(preset!=null) g.planLengthFeet else g.lengthFeet).put("width",if(preset!=null) g.planWidthFeet else g.widthFeet).put("height",g.heightFeet).put("attachedHeight",g.attachedHeightFeet).put("circulationFans",encodeFans(g.circulationFans)).put("alertRules",g.alertRules?.toJson()).put("positions",positions).put("shape",if(preset!=null) GreenhouseShape.Drawn.name else g.shape.name).put("preset",preset?.name).put("sectionLength",if(preset!=null) g.lengthFeet else null).put("sectionWidth",if(preset!=null) g.widthFeet else null).put("vertices",JSONArray().also{points->(if(preset!=null) g.outline() else g.vertices).forEach{points.put(JSONArray().put(it.x).put(it.y))}}).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
+            greenhouses.put(JSONObject().put("id",g.id).put("billingHouseId",g.billingHouseId).put("name",g.name).put("length",if(preset!=null) g.planLengthFeet else g.lengthFeet).put("width",if(preset!=null) g.planWidthFeet else g.widthFeet).put("height",g.heightFeet).put("attachedHeight",g.attachedHeightFeet).put("circulationFans",encodeFans(g.circulationFans)).put("alertRules",g.alertRules?.toJson()).put("positions",positions).put("shape",if(preset!=null) GreenhouseShape.Drawn.name else g.shape.name).put("preset",preset?.name).put("sectionLength",if(preset!=null) g.lengthFeet else null).put("sectionWidth",if(preset!=null) g.widthFeet else null).put("vertices",JSONArray().also{points->(if(preset!=null) g.outline() else g.vertices).forEach{points.put(JSONArray().put(it.x).put(it.y))}}).put("attachedLength",g.attachedLengthFeet).put("attachedWidth",g.attachedWidthFeet).put("refreshMinutes",DataSyncIntervals.normalize(g.refreshMinutes)))
         }
         val assignments=JSONObject();p.sensorGreenhouseIds.forEach{(sensor,greenhouse)->assignments.put(sensor,greenhouse)}
         return JSONObject().put("zip",p.zipCode).put("fahrenheit",p.temperatureFahrenheit).put("refresh",p.refreshMinutes).put("retention",p.historyRetentionDays).put("screen",p.keepScreenOn).put("boot",p.autoStart).put("active",p.activeGreenhouseId).put("cameraMode",p.cameraMode.name).put("cameraStreamQuality",p.cameraStreamQuality.name).put("notifications",notifications).put("greenhouses",greenhouses).put("sensorGreenhouses",assignments)
@@ -92,7 +117,8 @@ class AppPreferencesStore(private val context:Context,private val suffix:String=
                 else -> null
             }?.takeIf { shape == GreenhouseShape.Drawn }
             val legacyRefresh=DataSyncIntervals.normalize(o.optInt("refresh",1))
-            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.dimension("sectionLength",16.0) else x.dimension("length",16.0),if(preset!=null) x.dimension("sectionWidth",8.0) else x.dimension("width",8.0),x.optDouble("height").takeIf{it in 0.1..480.0},positions,preset ?: shape,x.dimension("attachedLength",16.0),x.dimension("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points,x.optDouble("attachedHeight").takeIf{it in 0.1..480.0},decodeFans(x.optJSONArray("circulationFans")),x.optJSONObject("alertRules")?.let(AlertRules::parse))
+            val billingId = x.optString("billingHouseId").takeIf { it.isNotBlank() && it != "null" }
+            greenhouses+=GreenhouseConfig(x.optString("id","main"),x.optString("name","Main Greenhouse"),if(preset!=null) x.dimension("sectionLength",16.0) else x.dimension("length",16.0),if(preset!=null) x.dimension("sectionWidth",8.0) else x.dimension("width",8.0),x.optDouble("height").takeIf{it in 0.1..480.0},positions,preset ?: shape,x.dimension("attachedLength",16.0),x.dimension("attachedWidth",8.0),DataSyncIntervals.normalize(x.optInt("refreshMinutes",legacyRefresh)),if(preset!=null) emptyList() else points,x.optDouble("attachedHeight").takeIf{it in 0.1..480.0},decodeFans(x.optJSONArray("circulationFans")),x.optJSONObject("alertRules")?.let(AlertRules::parse),billingHouseId=billingId, monitoringUntilEpochMs=billingId?.let { 0L })
         }
         if(greenhouses.isEmpty())greenhouses+=GreenhouseConfig()
         val n=o.optJSONObject("notifications")?:JSONObject()

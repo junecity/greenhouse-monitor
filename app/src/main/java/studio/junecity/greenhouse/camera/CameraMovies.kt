@@ -51,6 +51,8 @@ class CameraMovies(root: File, enrollment: String, house: String) {
         frame: suspend () -> Bitmap?,
         progress: (Int) -> Unit,
         stop: () -> Boolean,
+        recordingId: UUID = UUID.randomUUID(),
+        recycleFrames: Boolean = false,
     ): File =
         withContext(Dispatchers.IO) {
             check(directory.isDirectory || directory.mkdirs()) { "Recording storage unavailable" }
@@ -63,7 +65,7 @@ class CameraMovies(root: File, enrollment: String, house: String) {
                 }
                 .forEach { it.delete() }
             check(directory.usableSpace > 24L * 1024 * 1024) { "Free up space on this phone" }
-            val name = "${System.currentTimeMillis()}-${kind.name}-${UUID.randomUUID()}"
+            val name = "${System.currentTimeMillis()}-${kind.name}-$recordingId"
             val stage = File(directory, "$name.part")
             try {
                 var count = 0
@@ -73,10 +75,11 @@ class CameraMovies(root: File, enrollment: String, house: String) {
                     while (!stop() && SystemClock.elapsedRealtime() - start < kind.durationMs) {
                         val image = frame() ?: break
                         val elapsed = SystemClock.elapsedRealtime() - start
-                        encoder.write(
-                            image,
-                            if (kind == MovieKind.Timelapse) count * 200_000L else elapsed * 1000,
-                        )
+                        try {
+                            encoder.write(image, if (kind == MovieKind.Timelapse) count * 200_000L else elapsed * 1000)
+                        } finally {
+                            if (recycleFrames) image.recycle()
+                        }
                         count++
                         withContext(Dispatchers.Main) {
                             progress(((kind.durationMs - elapsed).coerceAtLeast(0) / 1000).toInt())

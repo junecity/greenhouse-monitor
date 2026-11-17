@@ -19,14 +19,31 @@ function Role(): AdminRole | undefined {
   return useAdminQuery<Session>("/admin/v1/session").data?.role;
 }
 
+function BillingPanel({ billing }: { billing: Dashboard["billing"] }) {
+  const rows = [
+    ["Extra-greenhouse subscribers", "greenhouseAccounts"],
+    ["Additional greenhouse slots", "extraSlots"],
+    ["Greenhouse plans ending at renewal", "endingGreenhousePlans"],
+    ["Cloud recording subscribers", "recordingAccounts"],
+  ] as const;
+  return <Panel title="Google Play subscriptions" description="Verified access through the current billing period. Each greenhouse plan can cover multiple extra slots.">
+    {billing ? <table className="billing-summary" aria-label="Verified subscription counts">
+      <thead><tr><th scope="col">Subscription metric</th><th scope="col">Customer plans</th><th scope="col">License tests</th></tr></thead>
+      <tbody>{rows.map(([label, key]) => <tr key={key}>
+        <th scope="row">{label}</th><td>{formatNumber(billing.production[key])}</td><td>{formatNumber(billing.licenseTest[key])}</td>
+      </tr>)}</tbody>
+    </table> : <p className="data-note">Subscription counts are currently unavailable.</p>}
+  </Panel>;
+}
+
 export function DashboardPage() {
   const result = useAdminQuery<Dashboard>("/admin/v1/dashboard");
   const m = result.data?.metrics || {};
   const cards = [
     ["Total customers", m.totalCustomers, "Registered accounts", "default"],
     ["Active customers", m.activeCustomers, "Account access enabled", "positive"],
-    ["Free accounts", m.freeAccounts, "Core monitoring", "default"],
-    ["Premium subscribers", m.premiumSubscribers, "Verified paid access", "positive"],
+    ["Core monitoring plans", m.freeAccounts, "Base account plan", "default"],
+    ["Premium live-view plans", m.premiumSubscribers, "Verified live-view access", "positive"],
     ["Complimentary Premium", m.complimentaryPremium, "Backend grants", "info"],
     ["Active servers", m.activeServers, "Reporting on time", "positive"],
     ["Offline servers", m.offlineServers, "Past heartbeat threshold", m.offlineServers ? "warning" : "default"],
@@ -37,6 +54,7 @@ export function DashboardPage() {
     <QueryState {...result}>
       {result.data && <>
         <div className="metric-grid compact">{[cards[0], cards[5], cards[6], cards[8]].map(([label, value, hint, tone]) => <MetricCard key={label} label={label} value={formatNumber(value)} hint={hint} tone={tone} />)}</div>
+        <BillingPanel billing={result.data.billing} />
         <details className="disclosure"><summary>Account breakdown & trends</summary>
         <div className="metric-grid compact">{[cards[1], cards[2], cards[3], cards[4], cards[7]].map(([label, value, hint, tone]) => <MetricCard key={label} label={label} value={formatNumber(value)} hint={hint} tone={tone} />)}</div>
         <div className="content-grid three"><Panel><TrendChart label="Customer growth" points={result.data.trends.customerGrowth} /></Panel><Panel><TrendChart label="Premium subscriptions" points={result.data.trends.subscriptions} /></Panel><Panel><TrendChart label="Server reliability" points={result.data.trends.reliability} suffix="%" /></Panel></div>

@@ -8,7 +8,7 @@ import android.content.Intent
 import studio.junecity.greenhouse.MainActivity
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 
-internal data class AlertDestination(val greenhouse: String, val sensor: String?, val device: String?, val cloud: Boolean, val time: Long, val notificationId: Int?, val notificationTag: String? = null) {
+internal data class AlertDestination(val greenhouse: String, val sensor: String?, val device: String?, val cloud: Boolean, val time: Long, val notificationId: Int?, val notificationTag: String? = null, val standaloneTenant: String? = null) {
     /** Read the reason from the app's own posted alert after enrollment and house have been checked. */
     fun postedReason(context: Context): String? {
         if (!cloud || notificationId == null) return null
@@ -26,14 +26,17 @@ internal data class AlertDestination(val greenhouse: String, val sensor: String?
             val greenhouse = intent.getStringExtra("greenhouse") ?: return null
             return AlertDestination(greenhouse, intent.getStringExtra("sensor"), intent.getStringExtra("device"),
                 intent.getBooleanExtra("cloud", false), intent.getLongExtra("time", System.currentTimeMillis()),
-                if (intent.hasExtra("notificationId")) intent.getIntExtra("notificationId", 0) else null, intent.getStringExtra("notificationTag"))
+                if (intent.hasExtra("notificationId")) intent.getIntExtra("notificationId", 0) else null, intent.getStringExtra("notificationTag"),
+                intent.getStringExtra("standaloneTenant"))
         }
 
-        fun pending(context: Context, id: Int, greenhouse: String, sensor: String?, cloud: Boolean, time: Long, tag: String? = null): PendingIntent {
+        fun pending(context: Context, id: Int, greenhouse: String, sensor: String?, cloud: Boolean, time: Long, tag: String? = null,
+                    standaloneTenant: String? = null): PendingIntent {
             val intent = Intent(context, MainActivity::class.java).setAction(ACTION)
                 .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra("greenhouse", greenhouse).putExtra("sensor", sensor).putExtra("time", time).putExtra("notificationId", id)
                 .putExtra("device", SecureSettingsStore(context).cloudEnrollment()?.deviceId).putExtra("cloud", cloud)
+            if (standaloneTenant != null) intent.putExtra("standaloneTenant", standaloneTenant)
             if (tag != null) {
                 intent.data = android.net.Uri.Builder().scheme("greenhouse").authority("alarm").appendPath(tag).build()
                 intent.putExtra("notificationTag", tag)

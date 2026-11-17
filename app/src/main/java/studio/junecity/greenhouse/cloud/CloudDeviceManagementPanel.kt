@@ -40,6 +40,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import studio.junecity.greenhouse.model.DeviceStatus
 import studio.junecity.greenhouse.settings.SecureSettingsStore
+import studio.junecity.greenhouse.settings.CloudEnrollment
+import studio.junecity.greenhouse.settings.AppPreferencesStore
+import studio.junecity.greenhouse.settings.GreenhousePlanCache
+import studio.junecity.greenhouse.settings.isStandaloneClient
 import studio.junecity.greenhouse.ui.DashboardTokens
 import java.util.UUID
 
@@ -49,6 +53,17 @@ internal fun connectivityServerCandidates(devices: List<AccountDevice>, preferre
         servers.filter { it.device.greenhouseId == greenhouseId }
     }.orEmpty()
     return preferred.ifEmpty { servers }
+}
+
+internal suspend fun selectedStandalonePlanHouse(
+    context: android.content.Context, enrollment: CloudEnrollment?, api: AuthenticatedCloudGateway
+): PlanHouse? {
+    if (enrollment == null || !enrollment.isStandaloneClient()) return null
+    val plan = try { GreenhousePlanCache.refresh(context, enrollment, api) }
+        catch (error: CloudApiException) { if (error.statusCode == 404) return null else throw error }
+    val selected = AppPreferencesStore(context, "_standalone").load().activeGreenhouse
+    val id = GreenhousePlanCache(context, enrollment).canonicalId(selected, plan)
+    return plan.houses.firstOrNull { it.id == id && it.active && it.serverGreenhouseId == null && it.hostingGreenhouseId == null }
 }
 
 @Composable
@@ -63,6 +78,7 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit, report:
         }.getOrNull() else null
     }
     var devices by remember { mutableStateOf<List<AccountDevice>>(emptyList()) }
+    var pairingChoices by remember { mutableStateOf<List<PlanHouse>?>(null) }
     var requests by remember { mutableStateOf<List<ServerPairingRequest>>(emptyList()) }
     var invitation by remember { mutableStateOf<ServerPairingInvitation?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -150,9 +166,26 @@ fun CloudDeviceManagementPanel(d: (Float) -> Dp, t: (Float) -> TextUnit, report:
                 }
                 DeviceAction("Add Server", true, d, t, Modifier.fillMaxWidth()) {
                     perform {
-                        val greenhouseId = "greenhouse-${UUID.randomUUID()}"
-                        invitation = gateway.createServerInvitation(greenhouseId, "Greenhouse ${servers.count { it.device.enabled } + 1}")
+                        val plan = try { GreenhousePlanCache.refresh(context, enrollment, gateway) }
+                            catch (error: CloudApiException) { if (error.statusCode == 404) null else throw error }
+                        val available = plan?.houses.orEmpty().filter { it.active && it.serverGreenhouseId == null && it.hostingGreenhouseId == null }
+                        if (available.isNotEmpty()) pairingChoices = available
+                        else invitation = gateway.createServerInvitation("greenhouse-${UUID.randomUUID()}", "Greenhouse ${servers.count { it.device.enabled } + 1}")
                     }
+                }
+                pairingChoices?.let { choices ->
+                    Text("Where will this server collect readings?", color = Color.White, fontSize = t(16f))
+                    choices.forEach { house ->
+                        DeviceAction(house.name, false, d, t) { perform {
+                            invitation = gateway.createServerInvitation("greenhouse-${UUID.randomUUID()}", house.name, planHouseId = house.id)
+                            pairingChoices = null
+                        } }
+                    }
+                    DeviceAction("New greenhouse", false, d, t) { perform {
+                        invitation = gateway.createServerInvitation("greenhouse-${UUID.randomUUID()}", "Greenhouse ${servers.count { it.device.enabled } + 1}")
+                        pairingChoices = null
+                    } }
+                    DeviceAction("Cancel", false, d, t) { pairingChoices = null }
                 }
                 invitation?.let { invite ->
                     Row(
@@ -229,10 +262,11 @@ fun CloudServerPairingPanel(
         val api = requireNotNull(gateway)
         refreshDevices(api)
         val serverNumber = devices.count { it.device.role == CloudDeviceRole.GreenhouseServer && it.device.enabled } + 1
+        val attached = if (greenhouseId == null && replaceServerDeviceId == null) selectedStandalonePlanHouse(context, enrollment, api) else null
         invitation = api.createServerInvitation(
             greenhouseId = greenhouseId ?: "greenhouse-${UUID.randomUUID()}",
-            greenhouseName = greenhouseName ?: "Greenhouse $serverNumber",
-            replaceServerDeviceId = replaceServerDeviceId
+            greenhouseName = greenhouseName ?: attached?.name ?: "Greenhouse $serverNumber",
+            replaceServerDeviceId = replaceServerDeviceId, planHouseId = attached?.id
         )
         pendingRequest = null
         approved = false

@@ -32,6 +32,9 @@ class FakeTable:
         self.meta = SimpleNamespace(client=self.client)
         self.calls = 0
 
+    def get_item(self, **_kwargs):
+        return {}
+
     def query(self, **_kwargs):
         self.calls += 1
         if self.calls == 1:

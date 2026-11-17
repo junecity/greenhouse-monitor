@@ -199,6 +199,7 @@ import kotlin.math.roundToInt
     var overnight by remember { mutableStateOf(false) }
     if (overnight) InsightsDialog(Insight.Overnight,state,d,t){ overnight = false }
     var hours by remember { mutableIntStateOf(24) }
+    val exportHistory = historyExporter(state)
     var inspectDay by remember(hours, state.preferences.activeGreenhouseId) { mutableStateOf<Long?>(null) }
     val detail by produceState(emptyList<HistoryReading>(), inspectDay, state.history, state.dailyHistory) {
         value = emptyList()
@@ -247,6 +248,7 @@ import kotlin.math.roundToInt
                                 ranges.forEach { (value, label) ->
                                     DropdownMenuItem(text = { Text(label) }, onClick = { hours = value; inspectDay = null; choose = false })
                                 }
+                                DropdownMenuItem(text = { Text("Export saved readings") }, onClick = { choose = false; exportHistory() })
                             }
                         }
                     }
@@ -300,7 +302,7 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
 }
 
 @Composable private fun SettingsContent(state:GreenhouseUiState,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,onRefresh:()->Unit,onSaveKey:(String)->Unit,onAssignZone:(String,String)->Unit,onSaveZip:(String)->Unit,onWeather:()->Unit,onUpdateGreenhouse:(String,Double,Double)->Unit,onUpdatePreferences:((AppPreferences)->AppPreferences)->Unit,openSensors:Boolean=false,onRestored:()->Unit,onSensorsChanged:()->Unit){
-    var category by androidx.compose.runtime.saveable.rememberSaveable{mutableStateOf(if(openSensors || (state.standalone && state.sensors.isEmpty())) SettingsCategory.Devices else SettingsCategory.General)}
+    var category by androidx.compose.runtime.saveable.rememberSaveable{mutableStateOf(if(openSensors || (state.standalone && state.sensors.isEmpty() && state.preferences.activeGreenhouse.isMonitoring())) SettingsCategory.Devices else SettingsCategory.General)}
     BoxWithConstraints(Modifier.fillMaxSize()){
         val portrait=maxHeight>maxWidth
         if(portrait){
@@ -477,23 +479,8 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     val g=state.preferences.activeGreenhouse
     var zip by remember(state.preferences.zipCode){mutableStateOf(state.preferences.zipCode)}
     var layoutExpanded by remember(g.id){mutableStateOf(false)}
-    var greenhouseManagerExpanded by remember{mutableStateOf(false)}
-    var deleteId by remember { mutableStateOf<String?>(null) }
+    var greenhouseManagerExpanded by remember{mutableStateOf(!g.isMonitoring() || g.scheduledPauseAtEpochMs != null)}
     val editable=!viewer || state.standalone
-    val target = state.preferences.greenhouses.firstOrNull { it.id == deleteId }
-    if (editable && target != null && state.preferences.greenhouses.size > 1) {
-        AlertDialog(
-            onDismissRequest = { deleteId = null },
-            containerColor = DashboardTokens.PanelRaised,
-            title = { Text("Delete ${target.name}?", color = DashboardTokens.White) },
-            text = { Text("This removes its floor plan. You can assign its sensors to another greenhouse in Devices. Their reading history is kept.", color = DashboardTokens.Muted) },
-            confirmButton = { TextButton(onClick = {
-                onPrefs { it.removeFloorPlan(target.id,state.sensors) }
-                deleteId = null
-            }) { Text("Delete greenhouse", color = DashboardTokens.Danger) } },
-            dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Cancel", color = DashboardTokens.White) } }
-        )
-    }
     if (layoutExpanded && editable) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(d(20f)),
             verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -509,6 +496,13 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
                         sensorPositions=current.sensorPositions.mapValues { (_,position)->saved.reproject(position,current) } + saved.sensorPositions
                     )
                 }) }
+                if (saved.name != g.name) {
+                    val owner = SecureSettingsStore(context).cloudEnrollment()
+                    if (owner != null) {
+                        studio.junecity.greenhouse.settings.GreenhousePlanCache(context,owner).queueName(saved)
+                        studio.junecity.greenhouse.cloud.GreenhousePlanWorker.schedule(context)
+                    }
+                }
                 layoutExpanded=false
             }
         }
@@ -516,40 +510,16 @@ private enum class SettingsCategory(val icon:DashboardIcon){General(DashboardIco
     }
     LazyColumn(Modifier.fillMaxSize().padding(d(20f)),verticalArrangement=Arrangement.spacedBy(d(12f))){
         item{Text(g.name,color=Color.White,fontSize=t(27f),fontWeight=FontWeight.ExtraBold)}
-        if (editable && greenhouseManagerExpanded) item {
+        if (greenhouseManagerExpanded) item {
             SettingsRow("Greenhouses") {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    state.preferences.greenhouses.forEach { house ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = {
-                                onPrefs { it.copy(activeGreenhouseId = house.id) }
-                                greenhouseManagerExpanded = false
-                            }, modifier = Modifier.weight(1f)) {
-                                Text(house.name, modifier = Modifier.fillMaxWidth(), color = if (house.id == g.id) DashboardTokens.Amber else DashboardTokens.White,
-                                    fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            }
-                            if (state.preferences.greenhouses.size > 1) TextButton(onClick = { deleteId = house.id },
-                                modifier = Modifier.semantics { contentDescription = "Delete ${house.name}" }) {
-                                Text("Delete", color = DashboardTokens.Danger)
-                            }
-                        }
-                    }
-                    ActionButton("Add greenhouse",d,t) {
-                        val id = "greenhouse_${java.util.UUID.randomUUID()}"
-                        onPrefs { prefs ->
-                            val names = prefs.greenhouses.map { it.name }.toSet()
-                            val number = generateSequence(2) { it + 1 }.first { "Greenhouse $it" !in names }
-                            prefs.copy(greenhouses = prefs.greenhouses + GreenhouseConfig(id=id, name="Greenhouse $number"), activeGreenhouseId=id)
-                        }
-                        greenhouseManagerExpanded=false
-                        layoutExpanded=true
-                    }
-                }
+                GreenhouseManager(state.preferences, state.sensors, editable, onPrefs,
+                    onSelect = { greenhouseManagerExpanded = false },
+                    onCreated = { greenhouseManagerExpanded = false; layoutExpanded = true })
             }
         }
         if(editable)item{ResponsiveActionSetting("Floor plan","${g.dimensionsLabel()} · ${g.areaLabel()}","Edit layout",d,t){layoutExpanded=!layoutExpanded}}
         if(!editable)item{SettingsRow("Floor plan"){Text("${g.dimensionsLabel()} · ${g.areaLabel()} · Edit on the greenhouse phone",color=DashboardTokens.Muted)}}
-        if(editable)item{ActionButton(if(greenhouseManagerExpanded)"Close greenhouses" else "Manage greenhouses",d,t){greenhouseManagerExpanded=!greenhouseManagerExpanded}}
+        item{ActionButton(if(greenhouseManagerExpanded)"Close greenhouses" else "Manage greenhouses",d,t){greenhouseManagerExpanded=!greenhouseManagerExpanded}}
         item{RefreshIntervalSettingsRow(g.refreshMinutes,d,t){minutes->onPrefs{prefs->prefs.copy(greenhouses=prefs.greenhouses.map{if(it.id==g.id)it.copy(refreshMinutes=minutes)else it})}}}
         item{Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(d(10f))){OutdoorWeatherSetting(zip,{zip=it.filter(Char::isDigit).take(5)},d,t,{onSaveZip(zip)},onWeather)}}
     }

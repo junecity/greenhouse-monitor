@@ -61,6 +61,25 @@ private val ProEdge=DashboardTokens.PanelEdge
     LaunchedEffect(state.preferences.cameraMode,state.standalone){if(!state.standalone&&state.preferences.cameraMode==CameraMode.CameraServer&&!cameraPermission)cameraPermissionLauncher.launch(Manifest.permission.CAMERA)}
     ApprovedFrame(AppScreen.Dashboard,status,now,onNavigate,modifier,showTitle=false,state=state){d,t->
         val greenhouse=state.preferences.activeGreenhouse
+        if (!greenhouse.isMonitoring()) {
+            ProPanel(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(greenhouse.name, color = DashboardTokens.Muted, fontSize = 16.sp)
+                    Text(if (greenhouse.awaitingPlanCheck) "Verifying your greenhouse" else "Monitoring paused", color = ProAmber, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text(if (greenhouse.awaitingPlanCheck) "Connect to confirm your first included greenhouse or choose an existing one in Settings." else "Readings and alerts are paused. Your history and sensor setup are saved.",
+                        color = Color.White, textAlign = TextAlign.Center)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (greenhouse.awaitingPlanCheck) androidx.compose.material3.TextButton(onClick = {
+                            studio.junecity.greenhouse.cloud.GreenhousePlanWorker.schedule(context)
+                        }) { Text("Retry", color = ProAmber) }
+                        else androidx.compose.material3.TextButton(onClick = { onNavigate(AppScreen.History) }) { Text("View history", color = ProAmber) }
+                        androidx.compose.material3.TextButton(onClick = { onNavigate(AppScreen.Settings) }) { Text("Manage greenhouses", color = ProAmber) }
+                    }
+                }
+            }
+            return@ApprovedFrame
+        }
         var fanOpen by remember(greenhouse.id) { mutableStateOf(false) }
         if (fanOpen) FanAirflowDialog(greenhouse,
             onSaveFans.takeIf { state.standalone || state.preferences.cameraMode != CameraMode.ViewerClient },
@@ -71,6 +90,13 @@ private val ProEdge=DashboardTokens.PanelEdge
         val humidity=SpatialInterpolator.averageOfReadings(contributors, greenhouse, Metric.Humidity)
         val vpd=SpatialInterpolator.averageOfReadings(contributors, greenhouse, Metric.Vpd)
         val dewPoint=SpatialInterpolator.averageOfReadings(contributors, greenhouse, Metric.DewPoint)
+        Column(Modifier.fillMaxSize()) {
+        greenhouse.scheduledPauseAtEpochMs?.let { at ->
+            val date = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+                .format(java.util.Date(at))
+            Text("Monitoring and alerts pause on $date", color = ProAmber, fontSize = t(14f),
+                modifier = Modifier.fillMaxWidth().clickable { onNavigate(AppScreen.Settings) }.padding(vertical = d(4f)))
+        }
         Row(Modifier.fillMaxSize().alpha(contentAlpha).graphicsLayer{translationY=(1f-contentAlpha)*d(8f).toPx()},horizontalArrangement=Arrangement.spacedBy(d(14f))){
             Row(Modifier.weight(.59f).fillMaxHeight(),horizontalArrangement=Arrangement.spacedBy(d(14f))){
                 Column(Modifier.weight(.46f),verticalArrangement=Arrangement.spacedBy(d(12f))){
@@ -100,6 +126,7 @@ private val ProEdge=DashboardTokens.PanelEdge
                 SensorCard(assigned, emptyText, if (viewer) "Sync from server" else "Manage sensors",
                     if (viewer) onRefresh else onManageSensors, d, t, Modifier.weight(.44f).fillMaxWidth())
             }
+        }
         }
     }
 }

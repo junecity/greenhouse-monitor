@@ -53,11 +53,10 @@ internal object GoveeBattery {
     }
 }
 
-internal suspend fun collectGoveeBatteries(context: Context, owner: CloudEnrollment?, suffix: String) =
+internal suspend fun collectGoveeBatteries(context: Context, access: CollectorEnrollment, suffix: String) =
     withContext(Dispatchers.IO) {
         val store = CurrentSensorStore(context, suffix)
-        val secure = SecureSettingsStore(context)
-        while (isActive && secure.cloudEnrollment() == owner) {
+        while (isActive && access.isCurrent()) {
             if (!SensorBluetooth.allowed(context) || store.load().none { it.sku.equals("H5179", true) }) {
                 delay(5_000)
                 continue
@@ -66,8 +65,8 @@ internal suspend fun collectGoveeBatteries(context: Context, owner: CloudEnrollm
                 withTimeoutOrNull(45_000) {
                     val heard = mutableMapOf<String, Int>()
                     GoveeBattery.packets(context, false).collect { packet ->
-                        if (heard.put(packet.address, packet.percent) != packet.percent && secure.cloudEnrollment() == owner)
-                            store.update { GoveeBattery.apply(it, packet) }
+                        if (heard.put(packet.address, packet.percent) != packet.percent)
+                            access.whileCurrent { store.update { GoveeBattery.apply(it, packet) } }
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }

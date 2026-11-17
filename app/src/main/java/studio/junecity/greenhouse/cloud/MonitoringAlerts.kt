@@ -86,7 +86,8 @@ data class MonitoringHealth(
     val updateMode: String? = null, val updateStatusRequestId: String? = null,
     val temperatureEvaluated: Boolean? = null, val temperatureBreach: TemperatureBreach? = null,
     val alertRules: AlertRules? = null, val appliedAlertRulesRevision: Int? = null,
-    val temperatureObservations: List<TemperatureObservation>? = null
+    val temperatureObservations: List<TemperatureObservation>? = null,
+    val remoteRecordingReady: Boolean = false
 )
 
 class HeartbeatReporter(
@@ -109,7 +110,7 @@ class HeartbeatReporter(
             wifiSignalStrength = health.wifiSignalStrength,
             sensorCount = health.sensorCount,
             sensorProvider = health.sensorProvider,
-            cameraStatus = health.cameraStatus,
+            cameraStatus = health.cameraStatus, remoteRecordingReady = health.remoteRecordingReady,
             lastSensorSyncEpochMs = health.lastSensorSyncEpochMs,
             lastDataUploadEpochMs = health.lastDataUploadEpochMs,
             appVersion = health.appVersion, managedUpdates = health.managedUpdates, updateStatus = health.updateStatus,

@@ -1,5 +1,6 @@
 """Private, on-demand camera storage. Server enrollment writes; an authorized account reads."""
 import json
+import remote_recording
 import os
 import re
 import time
@@ -204,7 +205,7 @@ def upload_permission(s3, table, account_key, house_id, device_id, bucket, prefi
     return response(200, {"url": url})
 
 
-def archive(event, principal, house_id, action, method, *, device_authenticated, table, get_owned, checkout_for, catalog_for, response):
+def archive(event, principal, house_id, action, method, *, device_authenticated, table, get_owned, checkout_for, catalog_for, response, monitoring_enabled):
     device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
     house = get_owned("GREENHOUSE", house_id, principal.tenant_id)
     server = device.get("role") == "GREENHOUSE_SERVER" and house.get("serverDeviceId") == principal.device_id and device.get("greenhouseId") == house_id
@@ -228,15 +229,28 @@ def archive(event, principal, house_id, action, method, *, device_authenticated,
     purchasing = action == "verify" and method == "POST" and viewer
     through = paid_period(table, grant_key, catalog, not production, body.get("purchaseToken"), purchasing=purchasing)
     active = through > time.time()
+    commands = {"record", "poll-record", "record-status", "finish-record"}
+    if action in commands or action == "access":
+        host_id = house.get("serverDeviceId")
+        host = (device if server else table.get_item(Key={"pk": "DEVICE#" + host_id, "sk": "METADATA"},
+                                                    ConsistentRead=True).get("Item", {})) if host_id else {}
+        availability = remote_recording.reason(host, principal, house_id, monitoring_enabled(table, principal, house_id))
     if action == "access" and method == "GET":
         if catalog and viewer:
             register_checkout_binding(table, catalog, principal)
-        return response(200, {"active": active, "checkout": catalog if viewer else None})
+        return response(200, {"active": active, "checkout": catalog if viewer else None,
+                              "remoteRecordingAvailable": availability == "ready", "remoteRecordingReason": availability})
+    prefix = f"movies/{principal.tenant_id}/{house_id}/"
+    if action in commands and method == "POST":
+        if server and (not device_authenticated or not device.get("deviceSecretHash")):
+            raise AccessDenied("device_credential_required")
+        s3 = boto3.client("s3", config=Config(signature_version="s3v4")) if action == "finish-record" else None
+        return remote_recording.handle(table, s3, bucket, prefix, principal, house_id, host_id, host, server, viewer,
+                                       action, body, through, availability, recording_request, response)
     if not active:
         raise AccessDenied("camera_storage_required")
     if purchasing:
         return response(200, {"active": True})
-    prefix = f"movies/{principal.tenant_id}/{house_id}/"
     s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
     if action == "list" and method == "GET":
         clips = []
@@ -252,6 +266,14 @@ def archive(event, principal, house_id, action, method, *, device_authenticated,
             clips = [clip for clip in clips if clip["id"] not in removed]
         return response(200, {"clips": sorted(clips, key=lambda x: x["time"], reverse=True)})
     if action == "upload" and method == "POST" and server:
+        if not monitoring_enabled(table, principal, house_id):
+            raise AccessDenied("greenhouse_paused")
+        request_id = remote_recording.request_uuid(body.get("requestId"))
+        if request_id:
+            job = table.get_item(Key=remote_recording.command_key(grant_key["pk"], house_id, request_id), ConsistentRead=True).get("Item")
+            if job and (not device_authenticated or job.get("enrollment") != device.get("deviceSecretHash") or
+                        remote_recording.command_status(job, int(time.time())) != "recording"):
+                return response(409, {"error": "recording_inactive"})
         return upload_permission(s3, table, grant_key["pk"], house_id, principal.device_id, bucket,
                                  prefix, body, through, response)
     if action in {"play", "delete"} and method == "POST":

@@ -39,6 +39,7 @@ class DashboardClimateDetailsTest {
         val history = HistoryStore(app, suffix)
         try {
             secure.saveCloudEnrollment(owner)
+            studio.junecity.greenhouse.seedMonitoredPlan(app,owner,prefs)
             prefsStore.save(prefs)
             history.insert(bench.copy(temperatureF = 66.0, updatedAtEpochMs = now - 360_000L))
             history.insert(bench)

@@ -7,6 +7,17 @@ Parameters:
     Type: String
     Default: ''
     Description: Private deployment artifact bucket containing approved server APKs.
+  GreenhousePlanSalesMode:
+    Type: String
+    Default: 'Off'
+    AllowedValues: ['Off', LicenseTest, Production]
+    Description: Checkout availability for additional monitored greenhouses.
+  GreenhousePlanMaxExtras:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 999
+    Description: Highest configured greenhouse_extra_N product with an active monthly base plan.
   CameraArchiveSalesMode:
     Type: String
     Default: LicenseTest
@@ -51,6 +62,13 @@ Parameters:
     Description: Google service account authorized to deliver authenticated Play Pub/Sub push messages.
 
 Rules:
+  RequireProductionGreenhouseBilling:
+    RuleCondition: !Equals [!Ref GreenhousePlanSalesMode, Production]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref GooglePlayCredentialsSecretArn, '']]
+        AssertDescription: Monthly greenhouse plans require an Android Publisher credential.
+      - Assert: !Not [!Equals [!Ref GooglePlayPushServiceAccount, '']]
+        AssertDescription: Monthly greenhouse plans require a verified Play notification sender.
   RequireProductionRecordingBilling:
     RuleCondition: !And [!Equals [!Ref EnableCameraArchive, 'true'], !Equals [!Ref CameraArchiveSalesMode, Production]]
     Assertions:
@@ -278,6 +296,8 @@ Resources:
       Environment:
         Variables:
           GOOGLE_PLAY_CREDENTIALS_SECRET_ID: !Ref GooglePlayCredentialsSecretArn
+          GREENHOUSE_PLAN_SALES_MODE: !Ref GreenhousePlanSalesMode
+          GREENHOUSE_PLAN_MAX_EXTRAS: !Ref GreenhousePlanMaxExtras
           CAMERA_ARCHIVE_SALES_MODE: !Ref CameraArchiveSalesMode
           SERVER_RELEASE_BUCKET: !Ref ServerReleaseBucketName
           CAMERA_ARCHIVE_BUCKET: !If [CameraArchiveEnabled, !Ref CameraArchiveBucket, ""]
@@ -448,6 +468,11 @@ Resources:
       Environment:
         Variables:
           ALERT_TOPIC_ARN: !Ref CriticalAlertTopic
+          # Evaluate verified license-test capacity using the same eligibility as the API.
+          GREENHOUSE_PLAN_SALES_MODE: !Ref GreenhousePlanSalesMode
+          GOOGLE_PLAY_PACKAGE_NAME: !Ref GooglePlayPackageName
+          GOOGLE_PLAY_CREDENTIALS_SECRET_ID: !Ref GooglePlayCredentialsSecretArn
+          PLAY_TEST_ACCOUNT_IDS: !Ref PlayTestAccountIds
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable

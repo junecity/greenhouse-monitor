@@ -7,6 +7,7 @@ import re
 import time
 
 import camera_archive
+import greenhouse_plan
 from google_play_verifier import GooglePlayVerificationError, verify_google_play_purchase
 
 
@@ -50,7 +51,8 @@ def archive_token(notice):
         if not isinstance(change, dict):
             raise ValueError("invalid subscription")
         # Older payloads may contain a product ID. Current subscriptions are verified by token.
-        if change.get("subscriptionId") not in (None, camera_archive.PRODUCT):
+        if (change.get("subscriptionId") not in (None, camera_archive.PRODUCT) and
+                not greenhouse_plan.sku_slots(change.get("subscriptionId"))):
             return None
     elif "voidedPurchaseNotification" in notice:
         change = notice["voidedPurchaseNotification"]
@@ -93,6 +95,8 @@ def replaces_current(purchase, current_token):
 
 def reconcile(table, token, catalog_for, recently_purchased):
     purchase = lookup_purchase(token, recently_purchased=recently_purchased)
+    if not purchase:
+        return False
     binding = purchase.get("accountBinding")
     testing = os.environ.get("CAMERA_ARCHIVE_SALES_MODE") != "Production"
     if purchase.get("testPurchase") != testing or not isinstance(binding, str) or not re.fullmatch("[0-9a-f]{64}", binding):
@@ -137,7 +141,21 @@ def handle(event, *, table, catalog_for, response):
     if table.get_item(Key=delivery_key, ConsistentRead=True).get("Item"):
         return response(200, {})
     try:
-        reconcile(table, token, catalog_for, recently_purchased)
+        hint = (notice.get("subscriptionNotification") or {}).get("subscriptionId")
+        if greenhouse_plan.sku_slots(hint):
+            greenhouse_plan.reconcile_notice(table, token, catalog_for, recently_purchased)
+        else:
+            archive_seen = reconcile(table, token, catalog_for, recently_purchased)
+            if archive_seen is False and not hint and os.environ.get("GREENHOUSE_PLAN_SALES_MODE", "Off") != "Off":
+                greenhouse_plan.reconcile_notice(table, token, catalog_for, recently_purchased)
+    except greenhouse_plan.PlanError as error:
+        if str(error) == "greenhouse_plan_purchase_conflict":
+            # A second unrelated purchase cannot be acknowledged for this account.
+            pass
+        elif error.status == 409:
+            return response(503, {"error": "retry_play_notification"})
+        elif error.status != 403:
+            raise
     except camera_archive.ArchiveGrantChanged:
         # Redelivery makes a new decision using the latest purchase and grant revision.
         return response(503, {"error": "retry_play_notification"})

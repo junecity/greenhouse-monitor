@@ -24,6 +24,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import studio.junecity.greenhouse.data.AndroidDeviceStatusProvider
+import studio.junecity.greenhouse.model.withMonitoringAccess
 import studio.junecity.greenhouse.model.AppScreen
 import studio.junecity.greenhouse.ui.DashboardScreen
 import studio.junecity.greenhouse.ui.StageScreen
@@ -93,7 +94,9 @@ class MainActivity : ComponentActivity() {
         val device = AndroidDeviceStatusProvider(this)
 
         setContent {
-            val state by viewModel.state.collectAsStateWithLifecycle()
+            val observed by viewModel.state.collectAsStateWithLifecycle()
+            var now by remember { mutableStateOf(LocalDateTime.now()) }
+            val state = remember(observed, now) { observed.withMonitoringAccess(System.currentTimeMillis()) }
             val navigationDuration = accessibleMotionDuration(AppMotion.NavigationFadeMs)
             val cloudConfiguration = remember { runCatching { CloudRuntime.configurationOrNull() } }
             var cloudEnrollmentRevision by remember { mutableIntStateOf(0) }
@@ -104,7 +107,6 @@ class MainActivity : ComponentActivity() {
                 }
                 onDispose { stopWatching() }
             }
-            var now by remember { mutableStateOf(LocalDateTime.now()) }
             var status by remember { mutableStateOf(device.current()) }
 
             LaunchedEffect(Unit) {
@@ -148,6 +150,13 @@ class MainActivity : ComponentActivity() {
             val volume by viewModel.volumeVisible.collectAsStateWithLifecycle()
             val showingVolume = volume && state.screen == AppScreen.Zones
             val alarmOwner = remember(cloudEnrollmentRevision) { SecureSettingsStore(applicationContext).cloudEnrollment() }
+            DisposableEffect(alarmOwner) {
+                val stop = alarmOwner?.let { owner ->
+                    studio.junecity.greenhouse.settings.GreenhousePlanCache(applicationContext, owner)
+                        .watch { viewModel.updateMonitoringAccess(owner) }
+                }
+                onDispose { stop?.invoke() }
+            }
             val alarms = activeTemperatureAlarms(alarmOwner)
             CloudOnboardingGate(
                 configuration = cloudConfiguration.getOrNull(),
@@ -179,6 +188,7 @@ class MainActivity : ComponentActivity() {
                 }
             ) {
                 LaunchedEffect(cloudEnrollmentRevision) {
+                    studio.junecity.greenhouse.cloud.GreenhousePlanWorker.schedule(applicationContext)
                     studio.junecity.greenhouse.backup.LocalBackupWorker.schedule(applicationContext, SecureSettingsStore(applicationContext).cloudEnrollment())
                     lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                         viewModel.refreshWhileVisible()
@@ -187,7 +197,10 @@ class MainActivity : ComponentActivity() {
                 if (alarms.isEmpty()) alert?.let { target ->
                     val active = state.preferences.activeGreenhouse
                     val enrollment = SecureSettingsStore(applicationContext).cloudEnrollment()
-                    val matches = target.device == enrollment?.deviceId &&
+                    val localAlert = target.standaloneTenant != null && !target.cloud
+                    val local = enrollment?.takeIf { localAlert && target.standaloneTenant == it.tenantId && target.device == it.deviceId }
+                        ?.let { studio.junecity.greenhouse.settings.GreenhousePlanCache.localCollector(applicationContext, it) }
+                    val matches = (!localAlert || local == enrollment && local != null) && target.device == enrollment?.deviceId &&
                         target.greenhouse == (if (target.cloud) enrollment?.greenhouseId else active.id)
                     val dismiss = { alert = null; intent.action = null }
                     if (matches) {
@@ -196,6 +209,15 @@ class MainActivity : ComponentActivity() {
                             { it.sp }, target.sensor,
                             !state.standalone && enrollment?.role == CloudDeviceRole.ViewerClient,
                             target.time, remember(target) { target.postedReason(applicationContext) }, dismiss)
+                    } else if (local != null) {
+                        val house = studio.junecity.greenhouse.settings.AppPreferencesStore(applicationContext, "_standalone").loadForMonitoring(local)
+                            .greenhouses.firstOrNull { it.id == target.greenhouse }
+                        val message = studio.junecity.greenhouse.data.AlertNotifier(applicationContext, "_standalone")
+                            .recordedLocalMessage(target.sensor, target.greenhouse, target.time, local)
+                        androidx.compose.material3.AlertDialog(onDismissRequest = dismiss,
+                            title = { androidx.compose.material3.Text(house?.name ?: "Local greenhouse alert") },
+                            text = { androidx.compose.material3.Text(message ?: "This local alert has been updated.") },
+                            confirmButton = { androidx.compose.material3.TextButton(onClick = dismiss) { androidx.compose.material3.Text("Close") } })
                     } else {
                         androidx.compose.material3.AlertDialog(onDismissRequest = dismiss,
                             text = { androidx.compose.material3.Text("This alert belongs to another greenhouse or device registration.") },

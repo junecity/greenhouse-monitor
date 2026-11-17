@@ -2,6 +2,7 @@ package studio.junecity.greenhouse.cloud
 
 import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.model.sensorHouse
+import studio.junecity.greenhouse.model.monitorsSensor
 import studio.junecity.greenhouse.model.forAlertsIn
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -117,9 +118,9 @@ class CloudHeartbeatService : Service() {
             var rulesChanged = false
             val result = runCatching {
                 val context = this@CloudHeartbeatService
-                val prefs = AppPreferencesStore(context).load()
+                val prefs = AppPreferencesStore(context).loadForMonitoring(enrollment)
                 val house = prefs.activeGreenhouse.id
-                val sensors = CurrentSensorStore(context).load().filter { prefs.sensorHouse(it) == house }
+                val sensors = CurrentSensorStore(context).load().filter { prefs.sensorHouse(it) == house && prefs.monitorsSensor(it) }
                 val applied = appliedRules.load()
                 val rules = applied?.rules ?: AlertRules.from(prefs.forAlertsIn(house))
                 val limits = rules.applyTo(prefs.notifications)
@@ -136,6 +137,7 @@ class CloudHeartbeatService : Service() {
                 val reply = HeartbeatReporter(gateway).report(MonitoringHealth(
                     enrollment.deviceId, enrollment.greenhouseId, health.sensorConnectionHealthy, health.breach != null,
                     temperatureEvaluated = health.evaluated, temperatureBreach = health.breach,
+                    remoteRecordingReady = CloudCameraServerService.isRecordingReady(enrollment),
                     temperatureObservations = health.observations,
                     alertRules = rules.takeIf { it.valid() },
                     appliedAlertRulesRevision = applied?.revision ?: 0,
@@ -155,6 +157,7 @@ class CloudHeartbeatService : Service() {
                     lastDataUploadEpochMs=lastUpload.get()?.uploadedAtEpochMs, appVersion=BuildConfig.VERSION_NAME
                 ))
                 if (secure.cloudEnrollment() != enrollment) return@coroutineScope
+                if (reply.remoteRecordingPending) CloudCameraServerService.signalRecording(enrollment)
                 rulesChanged = reply.alertRules?.let(appliedRules::install) == true
                 val command = reply.update
                 incident.save(health.outstandingSensorIds)

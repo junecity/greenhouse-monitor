@@ -11,13 +11,20 @@ internal suspend fun SensorProvider.collectReadings(
     preferences: AppPreferences,
     previous: List<GoveeSensor>,
     excluded: Set<String> = emptySet(),
+    knownIds: Set<String>? = null,
     zoneFor: (String) -> String
 ): List<GoveeSensor> {
     val cached = previous.associateBy { it.id }
-    return discover(credential).distinctBy { it.deviceId }.filterNot { it.deviceId in excluded }.map { device ->
+    return discover(credential).distinctBy { it.deviceId }.filter {
+        it.deviceId !in excluded && (knownIds == null || it.deviceId in knownIds)
+    }.map { device ->
         val old = cached[device.deviceId]
         val house = preferences.sensorGreenhouseIds[device.deviceId] ?: old?.greenhouseId ?: preferences.activeGreenhouse.id
         val zone = zoneFor(device.deviceId).takeUnless { it == "Unassigned" } ?: old?.zone ?: "Unassigned"
+        if (preferences.greenhouses.find { it.id == house }?.isMonitoring() == false) {
+            return@map (old ?: GoveeSensor(device.deviceId, device.model, device.displayName))
+                .copy(greenhouseId = house, zone = zone, online = false)
+        }
         val measurement = try {
             read(credential, device)
         } catch (cancelled: CancellationException) {

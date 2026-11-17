@@ -43,6 +43,17 @@ class GooglePlayVerifierTests(unittest.TestCase):
             http.post.assert_not_called()
             self.assertTrue(verify()["active"])
             self.assertTrue(http.post.call_args.args[0].endswith(":acknowledge"))
+            self.assertEqual({}, http.post.call_args.kwargs["json"])
+            repurchase = {"expiredPurchaseToken": "old-token", "expiredExternalAccountIdentifiers": {"obfuscatedExternalAccountId": "owner"}}
+            with patch.dict(payload, {"outOfAppPurchaseContext": repurchase, "externalAccountIdentifiers": {}}):
+                restored = verify()
+                self.assertEqual(("owner", "old-token"), (restored["accountBinding"], restored["linkedPurchaseToken"]))
+                self.assertEqual({"externalAccountIds": {"obfuscatedAccountId": "owner"}}, http.post.call_args.kwargs["json"])
+                http.post.reset_mock()
+                with patch.dict(payload, {"externalAccountIdentifiers": {"obfuscatedExternalAccountId": "other"}}):
+                    with self.assertRaisesRegex(GooglePlayVerificationError, "purchase_not_eligible"):
+                        verify()
+                http.post.assert_not_called()
             http.post.return_value.ok = False
             with self.assertRaisesRegex(GooglePlayVerificationError, "acknowledgement_failed"):
                 verify()

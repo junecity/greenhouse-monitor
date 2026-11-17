@@ -24,6 +24,7 @@ internal data class ViewerReadingCheck(val readings: List<ServerTemperatures>, v
 internal fun temperatureSnapshot(
     context: Context, source: AccountDevice, snapshot: JSONObject, now: Long
 ): ServerTemperatures? {
+    if (snapshot.optBoolean("monitoringPaused")) return null
     val house = source.device.greenhouseId ?: return null
     val health = snapshot.serverHealth(house) ?: return null
     if (health.sourceDeviceId != source.device.id || health.reportedAt < source.enrollmentEpochMs ||

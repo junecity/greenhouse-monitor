@@ -35,8 +35,17 @@ def event(path="/admin/v1/dashboard", method="GET", role="Owner", exp=None, body
 
 
 class FakeClient:
-    def __init__(self):
+    def __init__(self, table):
+        self.table = table
         self.transactions = []
+        self.batch_reads = []
+
+    def batch_get_item(self, RequestItems):
+        request = RequestItems[self.table.name]
+        self.batch_reads.append(request)
+        found = [self.table.get_item(key)["Item"] for key in request["Keys"]
+                 if (key["pk"], key["sk"]) in self.table.items]
+        return {"Responses": {self.table.name: found}}
 
     def transact_write_items(self, **kwargs):
         self.transactions.append(kwargs["TransactItems"])
@@ -50,7 +59,7 @@ class FakeTable:
         self.query_items = []
         self.updates = []
         self.puts = []
-        self.meta = SimpleNamespace(client=FakeClient())
+        self.meta = SimpleNamespace(client=FakeClient(self))
 
     def get_item(self, Key, **_kwargs):
         item = self.items.get((Key["pk"], Key["sk"]))
@@ -205,6 +214,40 @@ class AdminDataTests(unittest.TestCase):
         self.assertEqual(1, result["metrics"]["totalCustomers"])
         self.assertEqual(1, result["metrics"]["activeCustomers"])
         self.assertEqual(1, result["metrics"]["freeAccounts"])
+        self.assertEqual({"ACCOUNT#account-real"},
+                         {key["pk"] for key in self.fake.meta.client.batch_reads[0]["Keys"]})
+
+    def test_dashboard_counts_paid_slots_and_recording_memberships_separately_from_test_plans(self):
+        now = 1700000000000
+        customers = [{"tenantId": "tenant", "accountId": str(i)} for i in range(51)]
+        plan = {"sk": "GREENHOUSE_PLAN", "tenantId": "tenant", "testPurchase": False, "checkedAt": 99,
+                "paidThroughEpochMs": now + 1, "productId": "greenhouse_extra_3", "renews": False}
+        storage = {"sk": "CAMERA_STORAGE", "testPurchase": False, "checkedAt": 99, "paidThrough": now // 1000 + 1}
+        for ident, row in [(0, plan), (0, storage), (1, dict(plan, testPurchase=True, renews=True)),
+                           (2, dict(storage, testPurchase=True)), (3, dict(plan, paidThroughEpochMs=now)),
+                           (4, dict(storage, paidThrough=now // 1000)), (5, dict(plan, productId="camera_storage_monthly")),
+                           (6, dict(plan, tenantId="different")), (7, dict(plan, checkedAt=None)),
+                           (8, dict(plan, testPurchase=None)), (51, storage)]:
+            pk = f"ACCOUNT#{ident}"
+            self.fake.items[pk, row["sk"]] = dict(row, pk=pk, purchaseToken="secret")
+        result = admin_api.billing_counts(customers, now)
+        self.assertEqual({"production": {"greenhouseAccounts": 1, "extraSlots": 3, "endingGreenhousePlans": 1, "recordingAccounts": 1},
+                          "licenseTest": {"greenhouseAccounts": 1, "extraSlots": 3, "endingGreenhousePlans": 0, "recordingAccounts": 1}}, result)
+        self.assertEqual([100, 2], [len(batch["Keys"]) for batch in self.fake.meta.client.batch_reads])
+        self.assertNotIn("purchaseToken", self.fake.meta.client.batch_reads[0]["ProjectionExpression"])
+
+    def test_unprocessed_billing_rows_are_retried_and_partial_totals_never_display(self):
+        customers = [{"tenantId": "tenant", "accountId": "a"}]
+        pending = {self.fake.name: {"Keys": [{"pk": "ACCOUNT#a", "sk": "CAMERA_STORAGE"}]}}
+        partial = {"Responses": {}, "UnprocessedKeys": pending}
+        complete = {"Responses": {self.fake.name: [{"pk": "ACCOUNT#a", "sk": "CAMERA_STORAGE", "testPurchase": False,
+                                                    "checkedAt": 1, "paidThrough": 20}]}}
+        with patch.object(self.fake.meta.client, "batch_get_item", side_effect=[partial, complete]) as get, \
+             patch.object(admin_api.time, "sleep"):
+            self.assertEqual(1, admin_api.billing_counts(customers, 19000)["production"]["recordingAccounts"])
+            self.assertEqual({"RequestItems": pending}, get.call_args.kwargs)
+        with patch.object(self.fake.meta.client, "batch_get_item", return_value=partial), patch.object(admin_api.time, "sleep"):
+            self.assertIsNone(admin_api.billing_counts(customers, 19000))
 
     def test_pending_customer_detail_has_no_privileged_account_controls(self):
         identity = {
