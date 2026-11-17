@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.RemoteViews
+import android.util.Log
 import studio.junecity.greenhouse.MainActivity
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.settings.*
@@ -147,12 +148,15 @@ class ClimateWidget : AppWidgetProvider() {
         @Synchronized internal fun changed(context: Context) {
             if (pending) return
             val component = ComponentName(context, ClimateWidget::class.java)
-            if (AppWidgetManager.getInstance(context).getAppWidgetIds(component).isEmpty()) return
-            // Hand the update to Android before a short-lived worker finishes. The receiver
-            // keeps its broadcast alive while coalescing writes and publishing the RemoteViews.
-            // This private, user-visible redraw should not sit behind the background broadcast queue.
-            context.sendBroadcast(Intent(READINGS_CHANGED).setComponent(component).addFlags(Intent.FLAG_RECEIVER_FOREGROUND))
-            pending = true
+            try {
+                if (AppWidgetManager.getInstance(context).getAppWidgetIds(component).isEmpty()) return
+                // Hand the update to Android before the sensor or alarm worker finishes.
+                context.sendBroadcast(Intent(READINGS_CHANGED).setComponent(component).addFlags(Intent.FLAG_RECEIVER_FOREGROUND))
+                pending = true
+            } catch (failure: RuntimeException) {
+                // A launcher service failure must not interrupt alarm delivery or an offline Stop.
+                Log.w("ClimateWidget", "Could not request a widget redraw", failure)
+            }
         }
 
         internal fun render(context: Context, id: Int) {

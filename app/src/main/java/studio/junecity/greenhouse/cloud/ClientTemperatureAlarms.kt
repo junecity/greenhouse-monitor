@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import org.json.JSONObject
 import studio.junecity.greenhouse.settings.CloudEnrollment
 import studio.junecity.greenhouse.settings.SecureSettingsStore
+import studio.junecity.greenhouse.widget.ClimateWidget
 
 /**
  * Receipt and human acknowledgement are independent of whether the server still reports a breach.
@@ -113,11 +114,13 @@ internal object ClientTemperatureAlarms {
         val previousOwner = prefs.getString(OWNER, null) ?: return
         val notifications = context.getSystemService(NotificationManager::class.java)
         CriticalAlarm.stopIncident(context)
-        for (incident in incidents(prefs)) notifications.cancel(tag(previousOwner, incident.id), incident.id.hashCode())
+        val active = incidents(prefs)
+        for (incident in active) notifications.cancel(tag(previousOwner, incident.id), incident.id.hashCode())
         // Individual removals notify an open alert dialog on Android 10 as well as newer releases.
         val edit = prefs.edit()
         prefs.all.keys.forEach { edit.remove(it) }
         edit.commit()
+        if (active.isNotEmpty()) ClimateWidget.changed(context)
     }
 
     private fun tag(owner: String, id: String) = "greenhouse.temperature/$owner/$id"
@@ -147,18 +150,23 @@ internal object ClientTemperatureAlarms {
             val encoded = ledger.encode()
             if (encoded != prefs.getString(READINGS, null)) edit.putString(READINGS, encoded)
             if (update.acknowledge.isNotEmpty()) edit.putStringSet(ACK_QUEUE, pending)
+            var incidentsChanged = false
             for (alert in update.deliver) {
                 if (alert.id in stopped) continue
                 val entry = JSONObject().put("house", alert.greenhouseId).put("time", alert.occurredAtEpochMs)
                     .put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId)
                     .put("resolvedAt", alert.resolvedAtEpochMs).toString()
-                if (entry != prefs.getString(LIVE + alert.id, null)) edit.putString(LIVE + alert.id, entry)
+                if (entry != prefs.getString(LIVE + alert.id, null)) {
+                    edit.putString(LIVE + alert.id, entry)
+                    incidentsChanged = true
+                }
             }
             val suppressed = stopped + update.acknowledge
             if (inbox?.complete == true && inbox.criticalIncidentsVerified) {
                 edit.putStringSet(STOPPED, suppressed.intersect(critical.map { it.id }.toSet() + pending))
             } else if (suppressed != stopped) edit.putStringSet(STOPPED, suppressed)
             edit.commit()
+            if (incidentsChanged) ClimateWidget.changed(context)
         }
         val active = incidents(prefs)
         if (active.isEmpty()) {
@@ -195,6 +203,7 @@ internal object ClientTemperatureAlarms {
             .putStringSet(ACK_QUEUE, prefs.getStringSet(ACK_QUEUE, emptySet()).orEmpty() + remote)
         targets.forEach { edit.remove(LIVE + it) }
         edit.commit()
+        ClimateWidget.changed(context)
         if (targets.size == active.size) CriticalAlarm.stopIncident(context)
         val notifications = context.getSystemService(NotificationManager::class.java)
         for (id in targets) notifications.cancel(tag(requireNotNull(owner(enrollment)), id), id.hashCode())

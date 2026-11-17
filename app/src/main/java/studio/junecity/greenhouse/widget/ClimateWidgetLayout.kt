@@ -45,6 +45,14 @@ internal fun climateRemoteViews(
     fun visible(id: Int, show: Boolean) = views.setViewVisibility(id, if (show) View.VISIBLE else View.GONE)
     fun size(id: Int, value: Float) = views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, value)
 
+    // A launcher can reapply these actions to the same views when an alarm clears.
+    fun surface(id: Int, normal: Int, alarm: Int) =
+        views.setInt(id, "setBackgroundResource", if (data.alarmActive) alarm else normal)
+    surface(R.id.widget_body, R.drawable.widget_surface, R.drawable.widget_alarm_surface)
+    surface(R.id.widget_temperature_column, R.drawable.widget_metric_tile, R.drawable.widget_alarm_tile)
+    surface(R.id.widget_humidity_column, R.drawable.widget_humidity_tile, R.drawable.widget_alarm_tile)
+    if (!compact) surface(R.id.widget_chart_panel, R.drawable.widget_chart_tile, R.drawable.widget_alarm_tile)
+
     val padding = when {
         strip -> (12 * stripScale).roundToInt()
         tiny -> 6
@@ -59,14 +67,20 @@ internal fun climateRemoteViews(
     }
     views.setViewPadding(R.id.widget_body, dp(padding), dp(verticalPadding), dp(padding), dp(verticalPadding))
     text(R.id.widget_title, data.title)
-    text(R.id.widget_status, "●  ${data.status.label}")
-    val statusColor = when (data.status) {
+    val statusText = when {
+        !data.alarmActive -> "●  ${data.status.label}"
+        tiny || data.status == WidgetFeedStatus.Live -> context.getString(R.string.widget_alarm_label)
+        else -> context.getString(R.string.widget_alarm_feed_status, data.status.label)
+    }
+    text(R.id.widget_status, statusText)
+    val statusColor = if (data.alarmActive) R.color.climate_primary else when (data.status) {
         WidgetFeedStatus.Live -> R.color.widget_live
         WidgetFeedStatus.Delayed -> R.color.climate_warning
         WidgetFeedStatus.Error, WidgetFeedStatus.Permission -> R.color.climate_critical
         else -> R.color.climate_secondary
     }
     views.setTextColor(R.id.widget_status, context.getColor(statusColor))
+    views.setImageViewResource(R.id.widget_house_icon, if (data.alarmActive) R.drawable.ic_climate_alert_triangle else R.drawable.ic_widget_house)
     visible(R.id.widget_house_icon, !tiny)
     size(R.id.widget_title, when { strip -> 14f * stripScale; tiny -> 12f; short -> 14f; compact -> 16f; else -> 20f })
     size(R.id.widget_status, if (strip) 10f * stripScale else if (tiny) 9f else 11f)
@@ -142,7 +156,8 @@ internal fun climateRemoteViews(
     }
     val message = data.statusMessage
     text(R.id.widget_time, if (data.measuredAt == null && message != null) message else data.updatedText)
-    views.setContentDescription(R.id.widget_status, listOfNotNull(data.status.label, message).joinToString(". "))
+    val alarmDescription = if (data.alarmActive) context.getString(R.string.widget_alarm_description) else null
+    views.setContentDescription(R.id.widget_status, listOfNotNull(alarmDescription, data.status.label, message).joinToString(". "))
     if (!compact) {
         val outsideLabel = if (data.outdoorFreshness == OutdoorStatus.Delayed) {
             if ((width - padding * 2) / ((if (strip) 5.2f else 3f) * font) >= 115) "Outside · delayed" else "Outside · old"

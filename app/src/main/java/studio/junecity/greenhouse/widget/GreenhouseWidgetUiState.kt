@@ -49,7 +49,8 @@ internal data class GreenhouseWidgetUiState(
     val warning: Boolean = false,
     val outdoorFreshness: OutdoorStatus = OutdoorStatus.Unavailable,
     val sensorId: String? = null,
-    val nextStatusAt: Long? = null
+    val nextStatusAt: Long? = null,
+    val alarmActive: Boolean = false
 ) {
     fun degrees(f: Double?) = f?.let {
         whole(if (celsius) (it - 32) / 1.8 else it) + if (celsius) "°C" else "°F"

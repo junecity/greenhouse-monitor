@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.44.2 (94) · Home widget alarm colors
+
+- ClimateCardRepository scopes alarmActive to the pin, selected greenhouse and current enrollment. A paired critical temperature incident uses ClientTemperatureAlarms and stays red through recovery until Stop. Standalone and server temperature/humidity alarms use the posted condition in AlertNotifier, matched by collector, greenhouse and sensor. A legacy greenhouse-wide incident belongs on the greenhouse pin.
+- ClimateWidgetLayout explicitly sets both the red and normal rounded surfaces on every RemoteViews update, including compact pins. Use the existing coalesced widget broadcast on changes to stored incidents, settings or local conditions. A launcher failure must not interrupt alarm delivery or stopping.
+- Passed 209 JVM tests, 20 focused instrumentation cases each on Android 10 and 15, and lint with zero errors. The host tests exercised two simultaneous alarms, offline stops, sign-out and collector recoveries. The signed development APK is in build-out/2.44.2-widget-alarm/. Physical OEM launcher delivery timing remains unverified.
+
 ## 2026-11-17 · Greenhouse Studio 2.44.1 (93) · Stable climate details and widget trends
 
 - HistoryStore and ClimateTrend reconstruct the six-hour graph at observation time from the selected greenhouse’s sensors. Use the same ten-minute validity window and currently saved floor-plan weights as the Dashboard. ClimateBucket records the contributing sensor IDs. MonitoringTrend and WidgetSparkline break the line on sensor changes or long gaps and end it at the last observation. The slope uses the latest continuous segment.

@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONObject
 import studio.junecity.greenhouse.model.NotificationPreferences
 import studio.junecity.greenhouse.settings.CloudEnrollment
+import studio.junecity.greenhouse.widget.ClimateWidget
 
 /** These fields travel with the greenhouse. Alarm audio, snooze and delivery remain phone preferences. */
 data class AlertRules(
@@ -45,7 +46,7 @@ data class AlertRuleState(val revision: Int, val rules: AlertRules?, val applied
 }
 
 /** Only the server whose monitoring loop applied this revision may acknowledge it to the backend. */
-internal class AppliedAlertRules(context: Context, owner: CloudEnrollment) {
+internal class AppliedAlertRules(private val context: Context, owner: CloudEnrollment) {
     private val store = context.getSharedPreferences("applied_greenhouse_alert_rules", Context.MODE_PRIVATE)
     private val key = "${owner.tenantId}/${owner.deviceId}/${owner.greenhouseId}"
 
@@ -59,6 +60,7 @@ internal class AppliedAlertRules(context: Context, owner: CloudEnrollment) {
         if (current != null && current.revision == state.revision && current.rules == rules) return false
         val data = JSONObject().put("revision", state.revision).put("appliedRevision", state.revision).put("rules", rules.toJson())
         check(store.edit().putString(key, data.toString()).commit()) { "Could not save greenhouse alert rules." }
+        ClimateWidget.changed(context)
         return true
     }
 }

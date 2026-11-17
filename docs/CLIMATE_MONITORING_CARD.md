@@ -16,6 +16,12 @@ The widget asks the launcher for five columns and two rows. At normal text size 
 - Local observations and authenticated server snapshots trigger a launcher redraw. A paired phone’s existing background monitor checks the server’s upload timestamp and schedules a fetch when it changes. It retries transient failures. A widget configured for a specific remote greenhouse or sensor waits when another source is selected. The unconfigured current-greenhouse selection follows the active source.
 - Placing or configuring a widget also requests current data. The widget can refresh the outside temperature for its configured ZIP without opening the weather screen. Reading age, weather age and sync time are distinct. [Android schedules widget updates](https://developer.android.com/develop/ui/views/appwidgets/advanced#update-frequency) and can defer background work while the phone sleeps; a disconnected or force-stopped phone cannot guarantee live delivery. A redraw does not by itself poll Govee or create a new observation.
 
+## Alarm colors
+
+A red widget with an **ALARM** badge means a sensor it monitors has an active alert. A greenhouse widget stays red until its last relevant alert clears. A widget pinned to one sensor responds to that sensor alone.
+
+On a paired client, a critical temperature alarm stays red until you press **Stop alarm**, even if the sensor has recovered. Stopping it offline clears that phone’s widget and queues the acknowledgement. On a standalone or server phone, a local temperature or humidity alert clears when a fresh reading returns within the configured limits. A delayed feed can still show an active alarm, and the reading time remains visible.
+
 ## Checking on a Galaxy A71 and Pixel
 
 1. Update both phones in place. On the collecting phone, verify a sensor and its reading under Devices. Tap the Dashboard gauge and note the greenhouse, reading and time.

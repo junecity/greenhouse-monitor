@@ -71,4 +71,7 @@
     <string name="widget_target">Target</string>
     <string name="widget_dew_point">Dew point</string>
     <string name="widget_no_history">Not enough history</string>
+    <string name="widget_alarm_label">ALARM</string>
+    <string name="widget_alarm_feed_status">ALARM · %1$s</string>
+    <string name="widget_alarm_description">Active greenhouse alarm</string>
 </resources>
