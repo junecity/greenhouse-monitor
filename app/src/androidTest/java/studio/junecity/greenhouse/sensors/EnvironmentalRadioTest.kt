@@ -154,7 +154,7 @@ class EnvironmentalRadioTest {
             }
             val withGap = rows.filterIndexed { index, _ -> index !in 31..36 }
             db.importReadings(withGap + rows.map { it.copy(sensorId = "another-house", temperatureF = 150.0) })
-            val points = db.widgetTrend(setOf(sample.id), now)
+            val points = db.widgetTrend(listOf(sample), prefs.activeGreenhouse, now)
             assertEquals(withGap.size, points.size)
             assertTrue(points.maxOf { it.temperatureF } < 75)
             assertTrue(points.zipWithNext().any { (a,b) -> b.at - a.at > 600_000 })

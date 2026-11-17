@@ -4,6 +4,8 @@ import android.Manifest
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.content.pm.ActivityInfo
+import android.os.Bundle
 import android.os.Build
 import android.widget.TextView
 import androidx.activity.compose.setContent
@@ -21,8 +23,10 @@ import org.junit.rules.TestRule
 import studio.junecity.greenhouse.MainActivity
 import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
+import studio.junecity.greenhouse.data.HistoryStore
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.*
+import studio.junecity.greenhouse.ui.DashboardClimateDetails
 import studio.junecity.greenhouse.ui.DashboardScreen
 import java.time.LocalDateTime
 
@@ -71,6 +75,84 @@ class WidgetDashboardAverageTest {
             }
         } catch (timeout: ComposeTimeoutException) {
             throw AssertionError("Dashboard = $dashboard, greenhouse widget = $lastWhole, sensor widget = ${widgetTemperature(sensor)}", timeout)
+        }
+    }
+
+    @Test fun detailsAndLauncherKeepTheSameEndpointWhenOnlyTheCoolerSensorReports() {
+        val secure = SecureSettingsStore(app)
+        val prefsStore = AppPreferencesStore(app, "_standalone")
+        val sensors = CurrentSensorStore(app, "_standalone")
+        assumeTrue("Requires an isolated emulator", Build.MODEL.contains("sdk", true) &&
+            secure.cloudEnrollment() == null && sensors.load().isEmpty())
+        val original = prefsStore.load()
+        val owner = CloudEnrollment("chart-fixture", "", CloudDeviceRole.ViewerClient,
+            localSensors = true, tenantId = "chart-fixture")
+        val house = GreenhouseConfig(id = "chart-house", name = "Test greenhouse")
+        val prefs = AppPreferences(greenhouses = listOf(house), activeGreenhouseId = house.id)
+        val minute = 60_000L
+        val boundary = System.currentTimeMillis() / (5 * minute) * (5 * minute)
+        val cool = GoveeSensor("chart-bench", "H5179", "Bench", 58.0, 80.0, true, boundary, house.id)
+        val warm = cool.copy(id = "chart-roof", name = "Roof", temperatureF = 74.0, updatedAtEpochMs = boundary - minute)
+        val history = HistoryStore(app, "_standalone")
+        try {
+            secure.saveCloudEnrollment(owner)
+            studio.junecity.greenhouse.seedMonitoredPlan(app, owner, prefs)
+            prefsStore.save(prefs)
+            val whole = pin(owner)
+            manager.updateAppWidgetOptions(whole, Bundle().apply {
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 386)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 386)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 156)
+                putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 156)
+            })
+            val first = boundary - 8 * minute
+            history.insert(cool.copy(updatedAtEpochMs = first))
+            history.insert(warm.copy(temperatureF = 64.0, updatedAtEpochMs = first))
+            history.insert(cool.copy(updatedAtEpochMs = warm.updatedAtEpochMs))
+            history.insert(warm)
+            history.insert(cool)
+            sensors.save(listOf(cool, warm))
+            val dashboard = GreenhouseUiState(preferences = prefs, sensors = sensors.load(), standalone = true)
+            compose.activityRule.scenario.onActivity { activity ->
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                activity.setContent {
+                    DashboardClimateDetails(owner, house.id, {}) { open ->
+                        DashboardScreen(dashboard, DeviceStatus(80, true, true), LocalDateTime.now(), {}, onMonitoring = open)
+                    }
+                }
+            }
+            compose.onNodeWithText("Climate details ›").performClick()
+            compose.waitUntil(8_000) {
+                compose.onAllNodes(hasText("61°F → 66°F") and hasAnyAncestor(isDialog()),
+                    useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            ClimateWidget.refresh(app, whole)
+            compose.waitUntil(8_000) {
+                var matches = false
+                instrumentation.runOnMainSync {
+                    val view = host.createView(app, whole, manager.getAppWidgetInfo(whole))
+                    matches = view.findViewById<TextView>(R.id.widget_temperature)?.text == "66°F" &&
+                        view.findViewById<TextView>(R.id.widget_chart_range)?.text == "61° → 66°"
+                }
+                matches
+            }
+            val repo = ClimateCardRepository(app)
+            val live = repo.load(owner, now = boundary)
+            val aged = repo.load(owner, now = boundary + 30 * minute)
+            assertEquals(66.0, live.trend.last().temperatureF, 0.001)
+            assertEquals(boundary, live.trend.last().at)
+            assertEquals(live.trend, aged.trend)
+            assertNotEquals(WidgetFeedStatus.Live, aged.status)
+        } finally {
+            host.deleteHost()
+            secure.clearCloudEnrollment()
+            sensors.clear()
+            prefsStore.save(original)
+            history.use {
+                for (table in listOf("readings", "daily_last")) {
+                    it.writableDatabase.delete(table, "sensor_id IN (?, ?)", arrayOf(cool.id, warm.id))
+                }
+            }
         }
     }
 

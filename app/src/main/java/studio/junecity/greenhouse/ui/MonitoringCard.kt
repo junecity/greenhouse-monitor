@@ -1,8 +1,6 @@
 package studio.junecity.greenhouse.ui
 
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -47,7 +45,7 @@ import studio.junecity.greenhouse.widget.WidgetFeedStatus
 
 @Composable
 internal fun MonitoringCardDialog(state: GreenhouseWidgetUiState, onRefresh: () -> Unit, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val view = LocalView.current
         DisposableEffect(view) {
             val window = (view.parent as? DialogWindowProvider)?.window
@@ -59,10 +57,19 @@ internal fun MonitoringCardDialog(state: GreenhouseWidgetUiState, onRefresh: () 
             }
             onDispose { }
         }
-        MonitoringCard(state, onRefresh, onDismiss, Modifier
+        BoxWithConstraints(Modifier
             .windowInsetsPadding(WindowInsets.displayCutout)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .widthIn(max = 900.dp).fillMaxWidth().heightIn(max = 640.dp))
+            .widthIn(max = 900.dp).fillMaxWidth()) {
+            // The Android window centers this surface. Keep its bounds independent of incoming readings.
+            val baseHeight = when {
+                maxWidth < 340.dp -> 300.dp
+                maxWidth >= 620.dp -> 330.dp
+                else -> 490.dp
+            }
+            val height = (baseHeight * LocalDensity.current.fontScale.coerceAtLeast(1f)).coerceAtMost(maxHeight)
+            MonitoringCard(state, onRefresh, onDismiss, Modifier.fillMaxWidth().height(height))
+        }
     }
 }
 
@@ -86,7 +93,7 @@ internal fun MonitoringCard(
         val gap = if (compact) 8.dp else 12.dp
         Column(
             Modifier.fillMaxWidth().testTag("monitor-" + if (wide) "wide" else if (compact) "compact" else "standard")
-                .verticalScroll(rememberScrollState()).animateContentSize(tween(180))
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = pad, vertical = if (compact || wide) 8.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(gap)
         ) {
@@ -94,7 +101,7 @@ internal fun MonitoringCard(
                 Icon(painterResource(R.drawable.ic_climate_greenhouse), null, Modifier.size(24.dp),
                     tint = colorResource(R.color.climate_primary))
                 Spacer(Modifier.width(8.dp))
-                ReadingText(state.title, Modifier.weight(1f).semantics { heading() }, size = 20, weight = FontWeight.SemiBold)
+                ReadingText(state.title, Modifier.weight(1f).semantics { heading() }, size = 20, weight = FontWeight.SemiBold, maxLines = 1)
                 Spacer(Modifier.width(6.dp))
                 FeedStatus(state.status)
                 IconButton(onDismiss, Modifier.size(48.dp).semantics { contentDescription = "Close live readings" }) {
@@ -104,14 +111,6 @@ internal fun MonitoringCard(
                         val b = size.minDimension - a
                         drawLine(ink, Offset(a, a), Offset(b, b), 1.8.dp.toPx(), StrokeCap.Round)
                         drawLine(ink, Offset(b, a), Offset(a, b), 1.8.dp.toPx(), StrokeCap.Round)
-                    }
-                }
-            }
-            state.statusMessage?.let { message ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ReadingText(message, Modifier.weight(1f), size = 13, color = colorResource(R.color.climate_secondary))
-                    if (state.status in setOf(WidgetFeedStatus.Delayed, WidgetFeedStatus.Offline, WidgetFeedStatus.Error, WidgetFeedStatus.Permission)) {
-                        TextButton(onClick = onRefresh) { ReadingText("Retry", size = 14, color = colorResource(R.color.climate_temperature)) }
                     }
                 }
             }
@@ -138,7 +137,15 @@ internal fun MonitoringCard(
             }
             Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                if (compact) {
+                if (state.statusMessage != null) {
+                    Column(Modifier.weight(1f)) {
+                        ReadingText(state.statusMessage, size = 13, color = colorResource(R.color.climate_secondary))
+                        if (compact) ReadingText("Target ${state.targetText}", size = 12, color = colorResource(R.color.climate_secondary))
+                    }
+                    if (state.status in setOf(WidgetFeedStatus.Delayed, WidgetFeedStatus.Offline, WidgetFeedStatus.Error, WidgetFeedStatus.Permission)) {
+                        TextButton(onClick = onRefresh) { ReadingText("Retry", size = 14, color = colorResource(R.color.climate_temperature)) }
+                    }
+                } else if (compact) {
                     Column(Modifier.weight(1f)) {
                         ReadingText("Target ${state.targetText}", size = 12, color = colorResource(R.color.climate_secondary))
                         if (state.warning) TargetCondition(state)
@@ -176,18 +183,15 @@ private fun MetricPair(state: GreenhouseWidgetUiState, compact: Boolean, modifie
         val humidity = colorResource(R.color.climate_humidity)
         val secondary = colorResource(R.color.climate_secondary)
         val size = if (compact) 32 else 40
-        // A unit or source switch must never crossfade from a different unit or greenhouse.
-        key(state.title, state.sensorId, state.celsius) {
-            if (stack) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MetricTile("Temperature", state.temperatureText, state.rateText, temp, temp, size, Modifier.fillMaxWidth())
-                    MetricTile("Humidity", state.humidityText, state.humidityRangeText, humidity, secondary, size, Modifier.fillMaxWidth())
-                }
-            } else {
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MetricTile("Temperature", state.temperatureText, state.rateText, temp, temp, size, Modifier.weight(1f).fillMaxHeight())
-                    MetricTile("Humidity", state.humidityText, state.humidityRangeText, humidity, secondary, size, Modifier.weight(1f).fillMaxHeight())
-                }
+        if (stack) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricTile("Temperature", state.temperatureText, state.rateText, temp, temp, size, Modifier.fillMaxWidth())
+                MetricTile("Humidity", state.humidityText, state.humidityRangeText, humidity, secondary, size, Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricTile("Temperature", state.temperatureText, state.rateText, temp, temp, size, Modifier.weight(1f).fillMaxHeight())
+                MetricTile("Humidity", state.humidityText, state.humidityRangeText, humidity, secondary, size, Modifier.weight(1f).fillMaxHeight())
             }
         }
     }
@@ -199,10 +203,8 @@ private fun MetricTile(label: String, value: String, caption: String, accent: Co
         .semantics(mergeDescendants = true) {}.padding(horizontal = 12.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         ReadingText(label, size = 13, color = accent, weight = FontWeight.SemiBold)
-        Crossfade(value, animationSpec = tween(220), label = label) { reading ->
-            ReadingText(reading, size = numberSize, weight = FontWeight.Bold)
-        }
-        ReadingText(caption, size = 11, color = captionColor)
+        ReadingText(value, size = numberSize, weight = FontWeight.Bold, maxLines = 1)
+        ReadingText(caption, size = 11, color = captionColor, minLines = 2, maxLines = 2)
     }
 }
 
@@ -230,8 +232,8 @@ private fun TargetCondition(state: GreenhouseWidgetUiState, modifier: Modifier =
 
 @Composable
 internal fun ReadingText(text: String, modifier: Modifier = Modifier, size: Int, color: Color = colorResource(R.color.climate_primary),
-    weight: FontWeight = FontWeight.Normal, maxLines: Int = Int.MAX_VALUE) {
-    Text(text = text, modifier = modifier, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis,
+    weight: FontWeight = FontWeight.Normal, maxLines: Int = Int.MAX_VALUE, minLines: Int = 1) {
+    Text(text = text, modifier = modifier, color = color, maxLines = maxLines, minLines = minLines, overflow = TextOverflow.Ellipsis,
         style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = weight, fontSize = size.sp,
             lineHeight = (size * 1.22f).sp, fontFeatureSettings = "tnum"))
 }

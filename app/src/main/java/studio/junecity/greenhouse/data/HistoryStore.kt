@@ -6,13 +6,12 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import studio.junecity.greenhouse.model.CURRENT_READING_MAX_AGE_MS
+import studio.junecity.greenhouse.model.GreenhouseConfig
 import studio.junecity.greenhouse.model.GoveeSensor
 import studio.junecity.greenhouse.model.HistoryReading
 import studio.junecity.greenhouse.model.DAY_MS
 import studio.junecity.greenhouse.model.HISTORY_DAYS
-
-internal const val WIDGET_WINDOW_MS = 6 * 3_600_000L
-internal data class ClimateBucket(val at: Long, val temperatureF: Double, val humidity: Double)
 
 class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOpenHelper(context, "greenhouse_history$suffix.db", null, 4) {
     companion object {
@@ -88,24 +87,27 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
     internal fun sensorReadingsSince(id: String, since: Long) =
         readRows("sensor_id = ? AND recorded_at >= ?", arrayOf(id, since.toString()), null).asReversed()
 
-    /** One contribution per sensor per five-minute bucket, even for mixed reporting rates. */
-    internal fun widgetTrend(sensorIds: Set<String>, now: Long): List<ClimateBucket> {
-        if (sensorIds.isEmpty()) return emptyList()
-        data class Bin(var latest: Long = 0, var temperature: Double = 0.0, var rh: Double = 0.0, var count: Int = 0)
-        val bins = sortedMapOf<Long, Bin>()
-        val sql = """SELECT recorded_at / 300000, sensor_id, MAX(recorded_at), AVG(temperature), AVG(humidity)
-            FROM readings WHERE recorded_at BETWEEN ? AND ? GROUP BY 1, 2"""
-        readableDatabase.rawQuery(sql, arrayOf((now - WIDGET_WINDOW_MS).toString(), now.toString())).use { cursor ->
-            while (cursor.moveToNext()) {
-                if (cursor.getString(1) !in sensorIds) continue
-                val bin = bins.getOrPut(cursor.getLong(0)) { Bin() }
-                bin.latest = maxOf(bin.latest, cursor.getLong(2))
-                bin.temperature += cursor.getDouble(3)
-                bin.rh += cursor.getDouble(4)
-                bin.count++
+    internal fun widgetTrend(sensors: List<GoveeSensor>, house: GreenhouseConfig, now: Long): List<ClimateBucket> {
+        val ids = sensors.filter { it.greenhouseId == house.id }.map { it.id }.distinct()
+        val history = mutableListOf<HistoryReading>()
+        // Seed the left edge with readings still within the Dashboard's freshness window.
+        val start = now - WIDGET_WINDOW_MS - CURRENT_READING_MAX_AGE_MS
+        for (batch in ids.chunked(500)) {
+            val placeholders = batch.joinToString(",") { "?" }
+            // SQLite's single MAX picks the other columns from that same row. The
+            // (sensor_id, recorded_at) unique index resolves the timestamp per sensor.
+            val query = """SELECT sensor_id, MAX(recorded_at), temperature, humidity FROM readings
+                WHERE sensor_id IN ($placeholders) AND recorded_at BETWEEN ? AND ?
+                AND humidity BETWEEN 0 AND 100 AND abs(temperature) <= 1.7976931348623157e308
+                GROUP BY sensor_id, recorded_at / $WIDGET_BUCKET_MS"""
+            val args = (batch + listOf(start.toString(), now.toString())).toTypedArray()
+            readableDatabase.rawQuery(query, args).use { cursor ->
+                while (cursor.moveToNext()) {
+                    history += HistoryReading(cursor.getString(0), "", cursor.getDouble(2), cursor.getDouble(3), cursor.getLong(1))
+                }
             }
         }
-        return bins.values.map { ClimateBucket(it.latest, it.temperature / it.count, it.rh / it.count) }
+        return climateTrend(sensors, house, history, now)
     }
 
     fun weekReadings():List<HistoryReading> = readRows("recorded_at >= ?",

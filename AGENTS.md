@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.44.1 (93) · Stable climate details and widget trends
+
+- HistoryStore and ClimateTrend reconstruct the six-hour graph at observation time from the selected greenhouse’s sensors. Use the same ten-minute validity window and currently saved floor-plan weights as the Dashboard. ClimateBucket records the contributing sensor IDs. MonitoringTrend and WidgetSparkline break the line on sensor changes or long gaps and end it at the last observation. The slope uses the latest continuous segment.
+- MonitoringCardDialog keeps its bounds independent of incoming data. The readings and graph keep their positions during loading, delays and recovery. Existing stored history works with this fix.
+- The previous APK reproduced the staggered-sensor endpoint bug. Build 93 passed 209 JVM tests, 14 Android 10 and 10 Android 15 instrumentation cases. Lint reported zero errors. Physical handset and launcher behavior remain to be checked. The signed development APK is in build-out/2.44.1-climate-trend/.
+
 ## 2026-11-17 · Greenhouse Studio 2.44.0 (92) · Greenhouse subscriptions and multi-camera recording
 
 - Settings → General → Manage greenhouses uses an account-wide first free greenhouse and one monthly Play capacity subscription for additional active houses. A standalone and a paired greenhouse can coexist. Attaching a server to the same house reuses its slot. Preserve pre-upgrade floor plans, scoped local sensors, backup ownership and retained readings across source changes. History → time range → Export saved readings exports the selected house to CSV.

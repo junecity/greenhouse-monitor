@@ -19,7 +19,6 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
 
-internal const val WIDGET_CHART_GAP_MS = 10 * 60_000L
 private const val HOUR_MS = 3_600_000L
 
 internal enum class WidgetFeedStatus(val label: String) {
@@ -68,6 +67,13 @@ internal data class GreenhouseWidgetUiState(
     }
     val humidityRangeText: String get() = if (trend.size < 2) "Not enough history" else
         "${whole(trend.minOf { it.humidity })}–${whole(trend.maxOf { it.humidity })}% range"
+    fun trendEndpoints(label: (ClimateBucket) -> String): String? {
+        if (trend.size < 2) return null
+        val first = trend.first()
+        val last = trend.last()
+        return if (first.contributors == last.contributors) "${label(first)} → ${label(last)}"
+            else "Latest ${label(last)}"
+    }
     val updatedText get() = measuredAt?.let {
         "${if (status == WidgetFeedStatus.Live) "Updated" else "Last updated"} ${widgetDate(it, now)}"
     } ?: "No reading yet"
@@ -196,7 +202,7 @@ internal fun climateCardState(
 private fun recentRate(history: List<ClimateBucket>, now: Long, freshFor: Long): Double? {
     if (history.isEmpty() || now - history.last().at > maxOf(freshFor, 5 * 60_000L)) return null
     val recent = history.takeLastWhile { it.at >= now - HOUR_MS }
-    val lastGap = (1 until recent.size).lastOrNull { recent[it].at - recent[it - 1].at > WIDGET_CHART_GAP_MS } ?: 0
+    val lastGap = (1 until recent.size).lastOrNull { !recent[it].continuesFrom(recent[it - 1]) } ?: 0
     val points = recent.drop(lastGap)
     if (points.size < 4 || points.last().at - points.first().at < HOUR_MS / 2) return null
     val times = points.map { (it.at - points.first().at).toDouble() / HOUR_MS }

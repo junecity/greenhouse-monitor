@@ -7,7 +7,44 @@ data class SpatialSample(val xFeet:Double,val yFeet:Double,val value:Double)
 object SpatialInterpolator{
     fun estimate(samples:List<SpatialSample>,xFeet:Double,yFeet:Double,power:Double=2.0):Double?{if(samples.isEmpty())return null;samples.firstOrNull{hypot(it.xFeet-xFeet,it.yFeet-yFeet)<.01}?.let{return it.value};var total=0.0;var weights=0.0;samples.forEach{val d=hypot(it.xFeet-xFeet,it.yFeet-yFeet).coerceAtLeast(.05);val w=1.0/Math.pow(d,power);total+=it.value*w;weights+=w};return total/weights}
     fun center(samples:List<SpatialSample>,g:GreenhouseConfig)=estimate(samples,g.planLengthFeet/2,g.planWidthFeet/2)
-    fun areaAverage(samples:List<SpatialSample>,g:GreenhouseConfig,columns:Int=40,rows:Int=20):Double?{if(samples.isEmpty())return null;var total=0.0;var count=0;for(y in 0 until rows)for(x in 0 until columns){val px=(x+.5)*g.planLengthFeet/columns;val py=(y+.5)*g.planWidthFeet/rows;if(g.containsPoint(px,py))estimate(samples,px,py)?.let{total+=it;count++}};return if(count==0)null else total/count}
+    /** Integrate the normalized inverse-distance weights once for a fixed set of positions. */
+    internal fun areaWeights(positions: List<SensorPosition>, g: GreenhouseConfig,
+                             columns: Int = 40, rows: Int = 20): DoubleArray? {
+        if (positions.isEmpty()) return null
+        val totals = DoubleArray(positions.size)
+        val cell = DoubleArray(positions.size)
+        var count = 0
+        for (y in 0 until rows) for (x in 0 until columns) {
+            val px = (x + .5) * g.planLengthFeet / columns
+            val py = (y + .5) * g.planWidthFeet / rows
+            if (!g.containsPoint(px, py)) continue
+            count++
+            var weightSum = 0.0
+            var exact = -1
+            for (i in positions.indices) {
+                val dx = positions[i].xFeet - px
+                val dy = positions[i].yFeet - py
+                val squaredDistance = dx * dx + dy * dy
+                if (squaredDistance < .01 * .01) {
+                    exact = i
+                    break
+                }
+                cell[i] = 1.0 / squaredDistance.coerceAtLeast(.05 * .05)
+                weightSum += cell[i]
+            }
+            if (exact >= 0) totals[exact] += 1.0
+            else for (i in totals.indices) totals[i] += cell[i] / weightSum
+        }
+        if (count == 0) return null
+        for (i in totals.indices) totals[i] /= count.toDouble()
+        return totals
+    }
+
+    fun areaAverage(samples: List<SpatialSample>, g: GreenhouseConfig, columns: Int = 40, rows: Int = 20): Double? {
+        val weights = areaWeights(samples.map { SensorPosition(it.xFeet, it.yFeet) }, g, columns, rows) ?: return null
+        return samples.indices.sumOf { samples[it].value * weights[it] }
+    }
+
     internal fun value(sensor: GoveeSensor, metric: Metric) = when(metric) {
         Metric.Temperature -> sensor.temperatureF
         Metric.Humidity -> sensor.humidityPercent

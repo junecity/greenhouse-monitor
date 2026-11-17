@@ -61,7 +61,7 @@ internal class ClimateCardRepository(context: Context) {
                 metadata.getBoolean(failureKey(owner), false))
             val archive = if (paired) viewerHistorySuffix(owner) else suffix
             val trend = if (selected.isEmpty()) emptyList() else HistoryStore(app, archive).use {
-                it.widgetTrend(selected.map { sensor -> sensor.id }.toSet(), now)
+                it.widgetTrend(selected, house, now)
             }
             val training = HeatingStore(app, owner, house.id)
             val target = training.widgetTarget(prefs.zipCode, all.map { it.id }.toSet(), now)

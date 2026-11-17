@@ -62,7 +62,7 @@ internal fun widgetSparkline(
         val fraction = (1.0 - (now - point.at).toDouble() / WIDGET_WINDOW_MS).coerceIn(0.0, 1.0).toFloat()
         val x = edge + (width - 2 * edge) * fraction
         val y = edge + (bottom - edge) * (.5f - ((value(point) - mid) / span).toFloat())
-        if (index == 0 || point.at - points[index - 1].at > WIDGET_CHART_GAP_MS) {
+        if (index == 0 || !point.continuesFrom(points[index - 1])) {
             if (index > 0) drawRun()
             startX = x
             line.reset()

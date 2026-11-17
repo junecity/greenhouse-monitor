@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.semantics.contentDescription
@@ -25,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.data.WIDGET_WINDOW_MS
 import studio.junecity.greenhouse.widget.GreenhouseWidgetUiState
-import studio.junecity.greenhouse.widget.WIDGET_CHART_GAP_MS
+import studio.junecity.greenhouse.widget.WidgetFeedStatus
 
 @Composable
 internal fun MonitoringTrend(state: GreenhouseWidgetUiState, modifier: Modifier, height: Dp) {
@@ -34,8 +33,7 @@ internal fun MonitoringTrend(state: GreenhouseWidgetUiState, modifier: Modifier,
     val divider = colorResource(R.color.climate_divider)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val samples = state.trend
-        val bookends = if (samples.size >= 2)
-            "${state.degrees(samples.first().temperatureF)} → ${state.degrees(samples.last().temperatureF)}" else null
+        val bookends = state.trendEndpoints { state.degrees(it.temperatureF) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
             ReadingText("Temperature · 6h", Modifier.weight(1f), size = 13, color = muted)
@@ -51,21 +49,18 @@ internal fun MonitoringTrend(state: GreenhouseWidgetUiState, modifier: Modifier,
             return@Column
         }
 
-        val first = samples.first().at
         val last = samples.last().at
         val start = state.now - WIDGET_WINDOW_MS
         fun fraction(at: Long) = ((at - start).toDouble() / WIDGET_WINDOW_MS).toFloat().coerceIn(0f, 1f)
-        val reveal = remember(state.title, state.sensorId) { Animatable(0f) }
-        var previousLast by remember(state.title, state.sensorId) { mutableStateOf<Long?>(null) }
-        // Compose's animation clock observes the system animation duration scale (including zero).
-        LaunchedEffect(state.title, state.sensorId, last) {
-            val previous = previousLast?.takeIf { it in first..last }
+        val pulse = remember(state.title, state.sensorId) { Animatable(0f) }
+        var previousLast by remember(state.title, state.sensorId) { mutableLongStateOf(last) }
+        LaunchedEffect(state.title, state.sensorId, last, state.status) {
+            val newObservation = last > previousLast && state.status == WidgetFeedStatus.Live
             previousLast = last
-            val baseFraction = fraction(previous ?: first)
-            // The reveal ends at the most recent sample, even if it is hours old.
-            val endFraction = fraction(last)
-            reveal.snapTo(if (endFraction > 0f) baseFraction / endFraction else 0f)
-            reveal.animateTo(1f, tween(if (previous == null) 500 else 350, easing = LinearOutSlowInEasing))
+            if (newObservation) {
+                pulse.snapTo(1f)
+                pulse.animateTo(0f, tween(350, easing = LinearOutSlowInEasing))
+            } else pulse.snapTo(0f)
         }
 
         val min = samples.minOf { it.temperatureF }
@@ -87,7 +82,7 @@ internal fun MonitoringTrend(state: GreenhouseWidgetUiState, modifier: Modifier,
                 val isolated = mutableListOf<Offset>()
                 var segmentStart = 0
                 for (index in coords.indices) {
-                    if (index != coords.lastIndex && samples[index + 1].at - samples[index].at <= WIDGET_CHART_GAP_MS) continue
+                    if (index != coords.lastIndex && samples[index + 1].continuesFrom(samples[index])) continue
                     if (segmentStart == index) isolated.add(coords[index])
                     else {
                         val line = Path().apply {
@@ -110,12 +105,11 @@ internal fun MonitoringTrend(state: GreenhouseWidgetUiState, modifier: Modifier,
                 onDrawBehind {
                     drawLine(divider, Offset(margin, bottom), Offset(size.width - margin, bottom), 1.dp.toPx())
                     val end = coords.last()
-                    clipRect(right = margin + (end.x - margin) * reveal.value + 4.dp.toPx()) {
-                        fills.forEach { drawPath(it, wash) }
-                        traces.forEach { drawPath(it, amber, style = pen) }
-                        isolated.forEach { drawCircle(amber, 2.dp.toPx(), it) }
-                        drawCircle(amber, 3.8.dp.toPx(), end)
-                    }
+                    fills.forEach { drawPath(it, wash) }
+                    traces.forEach { drawPath(it, amber, style = pen) }
+                    isolated.forEach { drawCircle(amber, 2.dp.toPx(), it) }
+                    if (pulse.value > 0f) drawCircle(amber.copy(alpha = .35f * pulse.value), margin, end)
+                    drawCircle(amber, 3.8.dp.toPx(), end)
                 }
             })
     }

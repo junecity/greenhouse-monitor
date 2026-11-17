@@ -165,12 +165,12 @@ internal fun climateRemoteViews(
         fun value(point: studio.junecity.greenhouse.data.ClimateBucket) = if (humidity) point.humidity else point.temperatureF
         fun label(v: Double) = if (humidity) "${v.roundToInt()}%" else data.degrees(v)
         val trend = data.trend
-        val plot = trend.size >= 2
+        val endpoints = data.trendEndpoints { label(value(it)) }
+        val plot = endpoints != null
         text(R.id.widget_period, "$chartTitle · 6h")
         visible(R.id.widget_chart_empty, !plot)
         visible(R.id.widget_temperature_plot, plot)
-        if (plot) {
-            val endpoints = "${label(value(trend.first()))} → ${label(value(trend.last()))}"
+        if (endpoints != null) {
             val displayedEndpoints = if (strip && !humidity) endpoints.replace("°F", "°").replace("°C", "°") else endpoints
             text(R.id.widget_chart_range, displayedEndpoints)
             views.setTextColor(R.id.widget_chart_range, color)
