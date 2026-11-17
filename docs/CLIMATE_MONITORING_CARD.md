@@ -1,0 +1,26 @@
+# Climate details and home-screen widgets
+
+Open **Dashboard → Climate details** on the central greenhouse gauge. On an Android home screen, long-press a free area, open **Widgets → Greenhouse Studio**, and select a greenhouse or an individual sensor. Existing pins keep their selections. **Settings → Display** also offers pinning on supported launchers.
+
+The compact layout prioritizes the two readings. With sufficient height, a widget at least 340 dp wide adds history and secondary metrics. At 620 dp the chart can sit beside the tiles. Larger system text or a short slot favors the compact layout. The in-app card animates real reading changes; the launcher redraws static native views. The Dashboard camera stays on demand.
+
+## What the readings mean
+
+- The card observes the same enrollment, greenhouse, stored sensor inventory and SQLite history that the app already uses. A standalone phone reads its own collector. A paired phone reads the authenticated server snapshot and its enrollment-specific history. Losing the network retains eligible cached readings with their time; signing out clears access. No new backend route, permission, or database migration.
+- The H5179 collector polls Govee over HTTPS, using its existing stored API key for [discovery](https://developer.govee.com/reference/get-you-devices) and [device state](https://developer.govee.com/reference/get-devices-status). It normally polls about once a minute in the foreground. The provider returns its latest state; a successful collection time is not proof the thermometer took a new physical measurement at that instant. Failed reads aren't new observations. BLE uses the existing local collection path. A viewer's snapshot interval remains configurable per greenhouse.
+- **LIVE** means the selected feed has a recent, available observation. **DELAYED** marks aging data, and **OFFLINE** marks unavailable or expired data. There are distinct setup, permission and error states. The update time refers to the readings, not when the widget was drawn. Rendering never triggers temperature alarms. Manual retry uses the app's existing sync, with a one-minute retry cooldown per enrollment and greenhouse.
+- The chart covers six elapsed hours with real timestamps. The current whole-house reading uses the Dashboard’s floor-plan calculation. In the historical five-minute buckets each contributing sensor has equal weight, because historical positions aren't recorded. The start and end labels are the first and last available plotted values. Fewer than two points produces “Not enough history.” Gaps over ten minutes break the line. The temperature change per hour is fitted to the most recent continuous observations; it needs at least four points spanning thirty minutes. Sparse data gets no invented trend.
+- **Outside** uses the current weather service's temperature for the configured ZIP and its own timestamp. It can be unavailable while indoor readings are live. **Target** is Energy's learned overnight temperature for this greenhouse when it has enough eligible data; it is not the alarm limit. A reading within 1°F of the target is shown as at target. **Dew point** requires fresh, valid indoor temperature and humidity. A dash means unavailable, including on first use.
+- Pinned widgets redraw after local observations and synced snapshots. Android can defer the launcher's periodic update, network work and non-waking freshness redraws while the phone sleeps. A redraw does not contact Govee or create a new data point.
+
+## Checking on a Galaxy A71 and Pixel
+
+1. Update both phones in place. On the collecting phone, verify a sensor and its reading under Devices. Tap the Dashboard gauge and note the greenhouse, reading and time.
+2. Open the same greenhouse on the paired phone after a successful sync. Check the reading time against the server. Repeated syncs with no newer readings should not move the timestamp forward.
+3. Place a widget on each home screen. Resize from narrow to wide/tall. Try a single sensor pin and Celsius; the selection and unit should survive reopening the app. If your launcher cannot give the pin enough space, use the Dashboard card for the chart.
+4. Temporarily disconnect the viewer from the internet. Open Climate details and check that cached readings are marked unavailable or stale. Reconnect and retry; confirm a new reading appears after the server supplies it.
+5. Check at larger Android font sizes and with animations disabled. Without enough accumulated history or overnight training, the graph or target can legitimately be absent.
+
+## Android render examples
+
+These are Android emulator captures from test readings. [Dashboard card](images/climate-card/dashboard-wide.png) · [Standard home widget](images/climate-card/launcher-standard.png) · [Compact home widget](images/climate-card/launcher-compact.png).

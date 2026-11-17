@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.*
+import studio.junecity.greenhouse.ui.DashboardClimateDetails
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
@@ -255,12 +256,17 @@ class MainActivity : ComponentActivity() {
                     studio.junecity.greenhouse.ui.ZoneVolumeScreen(state, viewModel::updatePreferences) { viewModel.setVolumeOpen(false) }
                 } else Crossfade(state.screen, animationSpec = tween(navigationDuration), label = "screen navigation") { screen ->
                     if (screen == AppScreen.Dashboard) {
-                        DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
-                            onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
-                            onSaveFans = viewModel::saveCirculationFans,
-                            onCool = { viewModel.selectMetric(Metric.Temperature); navigate(AppScreen.Zones) },
-                            heatingSummary = heatingSummary, onHeating = { navigate(AppScreen.Energy) },
-                            onRefresh = { viewModel.syncFromServer() }, onForecast = { forecastOpen = true; viewModel.refreshWeather(true) })
+                        DashboardClimateDetails(alarmOwner, state.preferences.activeGreenhouseId,
+                            onRefresh = viewModel::retryClimateMonitoring) { openDetails ->
+                            DashboardScreen(state, status, now, navigate, Modifier.fillMaxSize(),
+                                onMonitoring = openDetails,
+                                onManageSensors = { openSensors = true; viewModel.navigate(AppScreen.Settings) },
+                                onSaveFans = viewModel::saveCirculationFans,
+                                onCool = { viewModel.selectMetric(Metric.Temperature); navigate(AppScreen.Zones) },
+                                heatingSummary = heatingSummary, onHeating = { navigate(AppScreen.Energy) },
+                                onRefresh = { viewModel.syncFromServer() },
+                                onForecast = { forecastOpen = true; viewModel.refreshWeather(true) })
+                        }
                     } else if (screen == AppScreen.Energy) {
                         studio.junecity.greenhouse.ui.ApprovedFrame(screen, status, now, navigate, Modifier.fillMaxSize(), state = state) { _, _ ->
                             studio.junecity.greenhouse.ui.NightHeatingContent(state, heatingStore, { viewModel.refreshWeather() }, heatingPoints)

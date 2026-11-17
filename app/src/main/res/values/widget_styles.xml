@@ -3,17 +3,48 @@
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textSize">11sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/climate_secondary</item>
+        <item name="android:fontFamily">sans-serif</item>
         <item name="android:includeFontPadding">false</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
     </style>
     <style name="WidgetValue" parent="WidgetCaption">
-        <item name="android:textSize">27sp</item>
-        <item name="android:textColor">#F7F7F6</item>
+        <item name="android:textSize">40sp</item>
+        <item name="android:textColor">@color/climate_primary</item>
         <item name="android:textStyle">bold</item>
+        <item name="android:fontFeatureSettings">tnum</item>
     </style>
-    <string name="widget_trend">6h trend</string>
+    <style name="WidgetTile">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">@drawable/widget_metric_tile</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:padding">12dp</item>
+    </style>
+    <style name="WidgetMeta">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+    <style name="WidgetMetaValue" parent="WidgetValue">
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:textSize">20sp</item>
+    </style>
+    <style name="WidgetBody">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:background">@drawable/widget_surface</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">16dp</item>
+    </style>
     <string name="widget_temperature">Temperature</string>
     <string name="widget_humidity">Humidity</string>
+    <string name="widget_outside">Outside</string>
+    <string name="widget_target">Target</string>
+    <string name="widget_dew_point">Dew point</string>
+    <string name="widget_no_history">Not enough history</string>
 </resources>

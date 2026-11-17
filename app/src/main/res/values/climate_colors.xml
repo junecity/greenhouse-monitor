@@ -1,0 +1,14 @@
+<resources>
+    <color name="climate_canvas">#11171B</color>
+    <color name="climate_surface">#171C20</color>
+    <color name="climate_tile">#24282B</color>
+    <color name="climate_divider">#363D43</color>
+    <color name="climate_primary">#FFFFFF</color>
+    <color name="climate_secondary">#B0B7BB</color>
+    <color name="climate_muted">#9BA5AB</color>
+    <color name="climate_temperature">#FFB45B</color>
+    <color name="climate_humidity">#74D5F4</color>
+    <color name="climate_healthy">#54D79A</color>
+    <color name="climate_warning">#F8C06D</color>
+    <color name="climate_critical">#F27474</color>
+</resources>

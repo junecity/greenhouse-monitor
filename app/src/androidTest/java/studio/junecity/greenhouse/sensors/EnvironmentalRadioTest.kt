@@ -129,9 +129,22 @@ class EnvironmentalRadioTest {
         val manager = AppWidgetManager.getInstance(context)
         val suffix = studio.junecity.greenhouse.data.viewerHistorySuffix(owner)
         val db = studio.junecity.greenhouse.data.HistoryStore(context, suffix)
+        val training = studio.junecity.greenhouse.data.HeatingStore(context, owner, prefs.activeGreenhouse.id)
+        val weatherStore = context.getSharedPreferences("climate_card_sources", 0)
+        val weatherPrefix = "weather.${prefs.zipCode}."
+        val originalWeather = weatherStore.all.filterKeys { it.startsWith(weatherPrefix) }
         try {
             secure.saveCloudEnrollment(owner)
             sensorStore.save(listOf(sample))
+            val trainingDate = java.time.LocalDate.now().minusDays(1)
+            training.update(prefs.zipCode, (0..4).map {
+                studio.junecity.greenhouse.data.ThermalPoint(trainingDate, now - 90_000_000L + it * 900_000L,
+                    61.0, 30.0, listOf(sample.id))
+            }, now)
+            weatherStore.edit().apply { originalWeather.keys.forEach { remove(it) } }.commit()
+            ClimateCardRepository.weatherResult(context, prefs.zipCode,
+                studio.junecity.greenhouse.model.WeatherReading(prefs.zipCode, "Weather fixture", 29.0, "Clear",
+                    currentTimeMs = now - 35 * 60_000))
             val rows = (0..71).filter { it !in 31..36 }.map {
                 val t = it / 71.0
                 studio.junecity.greenhouse.model.HistoryReading(sample.id, sample.name,
@@ -169,20 +182,40 @@ class EnvironmentalRadioTest {
                     body.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, 1073741824),
                         android.view.View.MeasureSpec.makeMeasureSpec(height, 1073741824))
                     body.layout(0, 0, width, height)
-                    for (plot in listOf(R.id.widget_temperature_plot, R.id.widget_humidity_plot)) {
-                        val image = body.findViewById<android.widget.ImageView>(plot)
+                    val image = body.findViewById<android.widget.ImageView>(R.id.widget_temperature_plot)
+                    if (launcherCard(w, hintHeight, context.resources.configuration.fontScale) == LauncherCard.Compact) {
+                        assertNull("Compact widgets omit the full-size chart", image)
+                    } else {
                         assertNotNull(image.drawable)
                         val matrix = FloatArray(9)
                         image.imageMatrix.getValues(matrix)
                         assertEquals("Preserve chart proportions", matrix[0], matrix[4], 0.001f)
-                        assertTrue("Plot fits in ${w}x${h}", image.height >= 7 * density)
+                        assertTrue("Plot fits in ${w}x${h}", image.height >= 24 * density)
+                        assertTrue(body.findViewById<android.widget.TextView>(R.id.widget_chart_range).text.contains("→"))
+                        val outsideLabel = body.findViewById<android.widget.TextView>(R.id.widget_outside_label).text.toString()
+                        assertTrue(outsideLabel == "Outside · delayed" || outsideLabel == "Outside · old")
+                        assertEquals("29°F", body.findViewById<android.widget.TextView>(R.id.widget_outside).text)
+                        assertEquals("61°F", body.findViewById<android.widget.TextView>(R.id.widget_target).text)
+                        assertEquals("DEW POINT", body.findViewById<android.widget.TextView>(R.id.widget_dew_point)
+                            .let { (it.parent as android.widget.LinearLayout).getChildAt(0) as android.widget.TextView }
+                            .text.toString().uppercase())
+                    }
+                    val status = body.findViewById<android.widget.TextView>(R.id.widget_status)
+                    assertTrue("Real recent sensor data is marked live", status.text.contains("LIVE"))
+                    val rect = android.graphics.Rect()
+                    for (textId in listOf(R.id.widget_title, R.id.widget_temperature, R.id.widget_humidity, R.id.widget_time)) {
+                        val field = body.findViewById<android.widget.TextView>(textId)
+                        assertTrue(field.text.isNotBlank())
+                        field.getDrawingRect(rect)
+                        (body as android.view.ViewGroup).offsetDescendantRectToMyCoords(field, rect)
+                        assertTrue("Widget text fits at ${w}x${h}: ${field.text} $rect", rect.top >= 0 && rect.bottom <= height && rect.right <= width)
                     }
                     bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
                     body.draw(android.graphics.Canvas(bitmap))
                 }
                 return bitmap
             }
-            for ((w,h) in listOf(160 to 96, 284 to 195)) {
+            for ((w,h) in listOf(160 to 96, 284 to 195, 390 to 360, 680 to 280)) {
                 val image = capture(w,h)
                 java.io.File(context.cacheDir, "widget-${w}x${h}.png").outputStream().use {
                     image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
@@ -201,6 +234,7 @@ class EnvironmentalRadioTest {
                 }
                 return image
             }
+            capture(390, 360)
             val before = temperaturePlot()
             val newReading = sample.copy(temperatureF = 80.0, updatedAtEpochMs = System.currentTimeMillis())
             db.insert(newReading)
@@ -219,6 +253,17 @@ class EnvironmentalRadioTest {
             host.deleteHost()
             db.close()
             context.deleteDatabase("greenhouse_history$suffix.db")
+            context.getSharedPreferences("night_heating", 0).edit().remove("${training.namespace}.${prefs.zipCode}.points").commit()
+            weatherStore.edit().apply {
+                weatherStore.all.keys.filter { it.startsWith(weatherPrefix) }.forEach { remove(it) }
+                originalWeather.forEach { (key, value) ->
+                    when (value) {
+                        is String -> putString(key, value)
+                        is Boolean -> putBoolean(key, value)
+                        is Long -> putLong(key, value)
+                    }
+                }
+            }.commit()
             sensorStore.save(saved)
             if (original == null) secure.clearCloudEnrollment() else secure.saveCloudEnrollment(original)
         }
@@ -252,8 +297,16 @@ class EnvironmentalRadioTest {
         val now = System.currentTimeMillis()
         fun sample(suffix: String, temp: Double) = GoveeSensor("widget-fixture", "H5179", "Bench", temp, 50.0,
             true, now, AppPreferencesStore(context, suffix).load().activeGreenhouse.id)
-        fun assertWidget(field: Int, expected: String) {
-            compose.waitUntil(5_000) { widgetText(hostId, id, field) == expected }
+        fun assertWidget(field: Int, vararg expected: String) {
+            var actual = ""
+            try {
+                compose.waitUntil(5_000) {
+                    actual = widgetText(hostId, id, field)
+                    actual in expected
+                }
+            } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError("Expected ${expected.toList()}, received '$actual'", timeout)
+            }
         }
         try {
             secure.clearCloudEnrollment()
@@ -268,7 +321,7 @@ class EnvironmentalRadioTest {
                     .appendQueryParameter("scope", owner.widgetScope()).build())
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             ClimateWidget().onReceive(context, callback)
-            assertWidget(R.id.widget_time, "Waiting for server readings")
+            assertWidget(R.id.widget_time, "Waiting for server readings", "Server readings could not refresh")
             assertEquals(owner.widgetScope(), ClimateWidget.settings(context, id).getString("scope", null))
             val intent = Intent(context, WidgetSettingsActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             ActivityScenario.launch<WidgetSettingsActivity>(intent).use {
@@ -276,18 +329,18 @@ class EnvironmentalRadioTest {
                 compose.onNodeWithText("Save widget").performClick()
                 instrumentation.waitForIdleSync()
             }
-            assertWidget(R.id.widget_time, "Waiting for server readings")
+            assertWidget(R.id.widget_time, "Waiting for server readings", "Server readings could not refresh")
             assertWidget(R.id.widget_temperature, "—")
             paired.save(listOf(sample("", 72.0)))
             ClimateWidget.viewerSynced(context, owner)
             assertWidget(R.id.widget_temperature, "72°F")
             standalone.save(emptyList())
             secure.saveCloudEnrollment(local)
-            assertWidget(R.id.widget_time, "Waiting for greenhouse readings")
+            assertWidget(R.id.widget_time, "No sensors selected")
             standalone.save(listOf(sample("_standalone", 65.0)))
             assertWidget(R.id.widget_temperature, "65°F")
             secure.saveCloudEnrollment(owner)
-            assertWidget(R.id.widget_time, "Waiting for server readings")
+            assertWidget(R.id.widget_time, "Waiting for server readings", "Server readings could not refresh")
             ClimateWidget.viewerSynced(context, owner)
             assertWidget(R.id.widget_temperature, "72°F")
             secure.saveCloudEnrollment(owner.copy(tenantId = "another-account"))

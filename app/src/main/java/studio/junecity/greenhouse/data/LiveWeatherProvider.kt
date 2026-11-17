@@ -75,7 +75,7 @@ class LiveWeatherProvider{
         }
         return WeatherReading(zip, location, current.optDouble("temperature_2m").takeIf(Double::isFinite),
             condition(current.optInt("weather_code", -1)), System.currentTimeMillis(), days = days,
-            zone = zone, hourlyOutdoorF = hourlyF, solarDays = solar)
+            zone = zone, hourlyOutdoorF = hourlyF, solarDays = solar, currentTimeMs = instant(current.optString("time")))
     }
     private fun get(url:String):String{val c=URL(url).openConnection() as HttpURLConnection;return try{c.connectTimeout=12_000;c.readTimeout=12_000;if(c.responseCode !in 200..299)error("Weather HTTP ${c.responseCode}");c.inputStream.bufferedReader().use{it.readText()}}finally{c.disconnect()}}
     private fun condition(code:Int)=when(code){0->"Clear Sky";1->"Mainly Clear";2->"Partly Cloudy";3->"Overcast";45,48->"Fog";51,53,55,56,57->"Drizzle";61,63,65,66,67,80,81,82->"Rain";71,73,75,77,85,86->"Snow";95,96,97,99->"Thunderstorm";else->"Unavailable"}

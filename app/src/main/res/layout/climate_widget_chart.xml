@@ -1,0 +1,14 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+    <LinearLayout android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+        <TextView android:id="@+id/widget_period" style="@style/WidgetCaption" android:layout_width="0dp" android:layout_weight="1" />
+        <TextView android:id="@+id/widget_chart_range" style="@style/WidgetCaption"
+            android:layout_width="wrap_content" android:textColor="@color/climate_temperature" android:layout_marginStart="4dp" />
+    </LinearLayout>
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="4dp">
+        <ImageView android:id="@+id/widget_temperature_plot" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:scaleType="fitCenter" />
+        <TextView android:id="@+id/widget_chart_empty" style="@style/WidgetCaption" android:layout_gravity="center"
+            android:gravity="center" android:text="@string/widget_no_history" android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>

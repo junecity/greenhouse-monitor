@@ -28,7 +28,7 @@ internal fun stationHours(response: JSONObject, now: Long): Map<Long, StationHou
     }
 }
 
-internal class StationWeather(context: Context) {
+internal class StationWeather(private val context: Context) {
     private val cache = context.getSharedPreferences("heating_station_weather", Context.MODE_PRIVATE)
     internal fun cachedTemperatures(zip: String): Pair<java.time.ZoneId, Map<Long, Double>>? {
         val saved = cache.getString(zip, null)?.let(::JSONObject) ?: return null
@@ -59,6 +59,7 @@ internal class StationWeather(context: Context) {
     }
 
     suspend fun update(weather: WeatherReading): WeatherReading = withContext(Dispatchers.IO) {
+        studio.junecity.greenhouse.widget.ClimateCardRepository.weatherResult(context, weather.zipCode, weather)
         val lat = weather.latitude ?: return@withContext weather
         val lon = weather.longitude ?: return@withContext weather
         val key = weather.zipCode

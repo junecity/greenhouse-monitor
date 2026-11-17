@@ -1,0 +1,19 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+    <LinearLayout android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/climate_divider" />
+    <LinearLayout android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingVertical="6dp">
+        <LinearLayout style="@style/WidgetMeta">
+            <TextView android:id="@+id/widget_outside_label" style="@style/WidgetCaption" android:textAllCaps="true" android:text="@string/widget_outside" />
+            <TextView android:id="@+id/widget_outside" style="@style/WidgetMetaValue" />
+        </LinearLayout>
+        <LinearLayout style="@style/WidgetMeta">
+            <TextView style="@style/WidgetCaption" android:textAllCaps="true" android:text="@string/widget_target" />
+            <TextView android:id="@+id/widget_target" style="@style/WidgetMetaValue" />
+        </LinearLayout>
+        <LinearLayout style="@style/WidgetMeta">
+            <TextView style="@style/WidgetCaption" android:textAllCaps="true" android:text="@string/widget_dew_point" />
+            <TextView android:id="@+id/widget_dew_point" style="@style/WidgetMetaValue" />
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/climate_divider" />
+</LinearLayout>

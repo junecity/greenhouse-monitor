@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import studio.junecity.greenhouse.data.*
 import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.*
+import studio.junecity.greenhouse.widget.ClimateCardRepository
 import studio.junecity.greenhouse.sensors.*
 import studio.junecity.greenhouse.cloud.*
 
@@ -142,6 +143,17 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
     }
     fun testConnection() = refreshSensors()
 
+    private var climateRetry: Pair<Pair<CloudEnrollment, String>, Long>? = null
+    fun retryClimateMonitoring() {
+        val owner = secure.cloudEnrollment() ?: return
+        val scope = owner to _state.value.preferences.activeGreenhouseId
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (climateRetry?.let { (previous, at) -> previous == scope && now - at < 60_000L } == true) return
+        climateRetry = scope to now
+        refreshSensors(true)
+        refreshWeather(true)
+    }
+
     fun refreshSensors(silent: Boolean = false) {
         selectStores()
         val owner = secure.cloudEnrollment()
@@ -161,6 +173,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 if (secure.cloudEnrollment() != owner || secure.sensorKey(owner) != key) return@launch
                 val latest = _state.value.preferences
                 val sensors = storage.sensors.replaceGovee(collected.withCurrentAssignments(latest, storage.zones::zone))
+                ClimateCardRepository.feedResult(getApplication(), owner, failed = false)
                 ensurePositions(sensors)
                 _state.value = _state.value.copy(sensors = sensors, sensorColorSlots = storage.sensors.colorSlots(), goveeConnected = true, message = "Updated ${sensors.size} sensors")
                 withContext(Dispatchers.IO) {
@@ -169,7 +182,10 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 if (stores != storage) return@launch
                 loadHistory()
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (error: Exception) { _state.value = _state.value.copy(message = error.message ?: "Sensor refresh failed") }
+            catch (error: Exception) {
+                ClimateCardRepository.feedResult(getApplication(), owner, failed = true)
+                if (stores == storage) _state.value = _state.value.copy(message = error.message ?: "Sensor refresh failed")
+            }
             finally { if (stores == storage) _state.value = _state.value.copy(refreshing = false) }
         }
     }
@@ -335,6 +351,7 @@ class GreenhouseViewModel internal constructor(app:Application, private val gove
                 throw e
             } catch (e: Exception) {
                 if (_state.value.preferences.zipCode == zip) {
+                    ClimateCardRepository.weatherResult(getApplication(), zip, null)
                     _state.value = _state.value.copy(weather = _state.value.weather.copy(stale = true),
                         message = if (silent) _state.value.message else "Outdoor weather is unavailable. Try again.")
                 }

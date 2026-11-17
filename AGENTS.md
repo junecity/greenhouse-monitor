@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-16 · Greenhouse Studio 2.42.0 (88) · Dashboard climate card and home widget
+
+- Dashboard → Climate details and each native home widget share ClimateCardRepository and GreenhouseWidgetUiState. Preserve per-enrollment, greenhouse, sensor and unit scope. Keep current spatial averages aligned with the Dashboard, timestamps tied to real observations and six-hour plots split across gaps. Outdoor weather and the learned Energy target are optional and have separate provenance.
+- MonitoringCard, MonitoringTrend and the responsive RemoteViews consume that state. Small pins prioritize the readings; taller/wider layouts add the trend and metadata. Ordinary launcher redraws do not collect sensor readings or trigger alarms. See docs/CLIMATE_MONITORING_CARD.md for field semantics, render captures and the physical-device checklist.
+- Passed 197 JVM tests, six Dashboard integration/render cases on each of Android 10 and 15 and five Android 15 launcher-host test executions including enlarged font. Lint: zero errors. Published the signed build to the existing Drive download and private development update catalog. No backend deployment or database migration. Physical launcher layouts and fresh physical sensor delivery remain to be checked.
+
 ## 2026-11-16 · Greenhouse Studio 2.41.2 (87) · Persistent per-sensor temperature alarms
 
 - A fresh reading at or beyond a temperature limit opens that sensor’s incident. The server publishes crossings and recoveries independently of the dashboard refresh interval. A paired viewer retains the alarm until the user stops it. Each notification has its own Stop alarm action, and the in-app alarm list can stop several together. Keep the owner and incident identity on every action.

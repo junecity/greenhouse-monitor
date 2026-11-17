@@ -100,7 +100,8 @@ data class WeatherReading(
     val hourlyOutdoorF: Map<Long, Double> = emptyMap(),
     val solarDays: Map<java.time.LocalDate, SolarDay> = emptyMap(),
     val stateCode: String? = null, val latitude: Double? = null, val longitude: Double? = null,
-    val stationHours: Map<Long, StationHour> = emptyMap(), val stationId: String? = null
+    val stationHours: Map<Long, StationHour> = emptyMap(), val stationId: String? = null,
+    val currentTimeMs: Long? = null // Provider valid time. updatedAtEpochMs is the fetch time.
 )
 data class DeviceStatus(
     val batteryPercent: Int?, val charging: Boolean?, val wifiConnected: Boolean,

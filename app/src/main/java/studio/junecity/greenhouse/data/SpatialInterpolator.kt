@@ -22,9 +22,18 @@ object SpatialInterpolator{
         }
 
     fun greenhouseAverage(sensors: List<GoveeSensor>, g: GreenhouseConfig, metric: Metric, at: Long=System.currentTimeMillis()): Double? {
-        val mapped = samples(sensors, g, metric, at)
+        return averageOfReadings(sensors.filter { it.greenhouseId == g.id && it.isFresh(at) }, g, metric)
+    }
+
+    /** Callers supply their authorized, freshness-filtered observations; the geometry is shared. */
+    internal fun averageOfReadings(sensors: List<GoveeSensor>, g: GreenhouseConfig, metric: Metric): Double? {
+        val mapped = sensors.mapNotNull { sensor ->
+            val position = g.sensorPositions[sensor.id] ?: return@mapNotNull null
+            value(sensor, metric)?.let { SpatialSample(position.xFeet, position.yFeet, it) }
+        }
+        if (mapped.size == 1) return mapped.first().value
         if (mapped.isNotEmpty()) return areaAverage(mapped, g)
-        val readings = sensors.filter { it.greenhouseId == g.id && it.isFresh(at) }.mapNotNull { value(it, metric) }
+        val readings = sensors.mapNotNull { value(it, metric) }
         return readings.takeIf { it.isNotEmpty() }?.average()
     }
 }

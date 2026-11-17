@@ -2,7 +2,6 @@ package studio.junecity.greenhouse.widget
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
@@ -10,62 +9,75 @@ import android.graphics.Shader
 import studio.junecity.greenhouse.data.ClimateBucket
 import studio.junecity.greenhouse.data.WIDGET_WINDOW_MS
 
+/** Draw a six-hour trace at its intended aspect ratio. A gap starts a separate stroke and fill. */
 internal fun widgetSparkline(
     points: List<ClimateBucket>, now: Long, width: Int, height: Int,
     color: Int, value: (ClimateBucket) -> Double
 ): Bitmap {
     val image = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    if (points.size < 2) return image
     val canvas = Canvas(image)
-    val scale = width / 180f
-    val margin = 3f * scale
-    val bottom = height - margin
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        strokeWidth = scale
-        this.color = Color.argb(24, 170, 181, 193)
-    }
-    canvas.drawLine(margin, bottom, width - margin, bottom, paint)
-    if (points.isEmpty()) return image
-    val min = points.minOf(value)
-    val max = points.maxOf(value)
-    val center = (min + max) / 2
-    val span = (max - min).coerceAtLeast(2.0) * 1.16
+    val stroke = (width / 170f).coerceIn(1.5f, 4f)
+    val radius = stroke * 1.5f
+    val edge = radius + 1f
+    val bottom = height - edge
+    val minimum = points.minOf(value)
+    val maximum = points.maxOf(value)
+    val mid = (minimum + maximum) / 2
+    val span = (maximum - minimum).coerceAtLeast(2.0) * 1.08
     val line = Path()
     val fill = Path()
-    var firstX = 0f
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = stroke
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+    }
+    val gradient = LinearGradient(0f, 0f, 0f, height.toFloat(),
+        (color and 0x00ffffff) or 0x48000000, color and 0x00ffffff, Shader.TileMode.CLAMP)
+    var startX = 0f
     var lastX = 0f
     var lastY = 0f
-    fun flush() {
-        fill.set(line)
-        fill.lineTo(lastX, bottom)
-        fill.lineTo(firstX, bottom)
-        fill.close()
-        paint.style = Paint.Style.FILL
-        paint.color = Color.WHITE
-        paint.shader = LinearGradient(0f, margin, 0f, bottom,
-            (color and 0x00ffffff) or 0x2e000000, color and 0x00ffffff, Shader.TileMode.CLAMP)
-        canvas.drawPath(fill, paint)
-        paint.shader = null
-        paint.color = color
-        paint.style = Paint.Style.STROKE
-        paint.strokeJoin = Paint.Join.ROUND
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeWidth = 1.35f * scale
-        canvas.drawPath(line, paint)
-        paint.style = Paint.Style.FILL
-        canvas.drawCircle(lastX, lastY, 2.2f * scale, paint)
+    var count = 0
+    fun drawRun() {
+        if (count > 1) {
+            fill.set(line)
+            fill.lineTo(lastX, bottom)
+            fill.lineTo(startX, bottom)
+            fill.close()
+            paint.style = Paint.Style.FILL
+            paint.color = -1
+            paint.shader = gradient
+            canvas.drawPath(fill, paint)
+            paint.shader = null
+            paint.color = color
+            paint.style = Paint.Style.STROKE
+            canvas.drawPath(line, paint)
+        } else {
+            paint.style = Paint.Style.FILL
+            paint.color = color
+            canvas.drawCircle(lastX, lastY, stroke * .75f, paint)
+        }
     }
     points.forEachIndexed { index, point ->
-        val x = margin + (width - 2 * margin) * (1f - (now - point.at).toFloat() / WIDGET_WINDOW_MS)
-        val y = margin + (bottom - margin) * (.5f - ((value(point) - center) / span).toFloat())
-        if (index == 0 || point.at - points[index - 1].at > 600_000L) {
-            if (index > 0) flush()
-            firstX = x
+        val fraction = (1.0 - (now - point.at).toDouble() / WIDGET_WINDOW_MS).coerceIn(0.0, 1.0).toFloat()
+        val x = edge + (width - 2 * edge) * fraction
+        val y = edge + (bottom - edge) * (.5f - ((value(point) - mid) / span).toFloat())
+        if (index == 0 || point.at - points[index - 1].at > WIDGET_CHART_GAP_MS) {
+            if (index > 0) drawRun()
+            startX = x
             line.reset()
             line.moveTo(x, y)
-        } else line.lineTo(x, y)
+            count = 1
+        } else {
+            line.lineTo(x, y)
+            count++
+        }
         lastX = x
         lastY = y
     }
-    flush()
+    drawRun()
+    paint.style = Paint.Style.FILL
+    paint.color = color
+    canvas.drawCircle(lastX, lastY, radius, paint)
     return image
 }

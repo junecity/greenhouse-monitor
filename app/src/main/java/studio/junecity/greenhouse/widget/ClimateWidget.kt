@@ -1,5 +1,6 @@
 package studio.junecity.greenhouse.widget
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -7,20 +8,15 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.view.View
-import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
 import android.widget.RemoteViews
 import studio.junecity.greenhouse.MainActivity
-import studio.junecity.greenhouse.R
 import studio.junecity.greenhouse.cloud.CloudDeviceRole
-import studio.junecity.greenhouse.model.*
 import studio.junecity.greenhouse.settings.*
-import studio.junecity.greenhouse.data.*
 import java.util.concurrent.Executors
-import java.text.DateFormat
-import java.util.Date
+import android.util.SizeF
+import android.os.Build
 import kotlin.math.roundToInt
 
 private fun CloudEnrollment.widgetOwner() = "$tenantId|$deviceId|${role.name}"
@@ -31,22 +27,6 @@ internal fun CloudEnrollment.ownsWidget(savedScope: String?): Boolean {
 }
 
 internal enum class WidgetMetric(val title: String) { Both("Temperature and humidity"), Temperature("Temperature"), Humidity("Humidity") }
-internal data class WidgetReading(val temperature: String, val humidity: String, val at: Long?, val stale: Boolean)
-
-private fun displayDegrees(fahrenheit: Double, celsius: Boolean): String =
-    if (celsius) "${((fahrenheit - 32) / 1.8).roundToInt()}°C" else "${fahrenheit.roundToInt()}°F"
-
-internal fun widgetReading(rows: List<GoveeSensor>, celsius: Boolean, now: Long): WidgetReading {
-    val fresh = rows.filter { it.updatedAtEpochMs in 1..now && it.isFresh(now) }
-    if (fresh.isEmpty()) {
-        val last = rows.map { it.updatedAtEpochMs }.filter { it in 1..now }.maxOrNull()
-        return WidgetReading("—", "—", last, last != null)
-    }
-    val temp = displayDegrees(fresh.mapNotNull { it.temperatureF }.average(), celsius)
-    val rh = "${fresh.mapNotNull { it.humidityPercent }.average().roundToInt()}%"
-    return WidgetReading(temp, rh, fresh.minOf { it.updatedAtEpochMs }, false)
-}
-
 class ClimateWidget : AppWidgetProvider() {
     private fun deliver(context: Context, ids: IntArray) {
         val pendingResult = goAsync()
@@ -65,9 +45,18 @@ class ClimateWidget : AppWidgetProvider() {
         deliver(context, intArrayOf(id))
 
     override fun onDeleted(context: Context, ids: IntArray) {
-        ids.forEach { context.deleteSharedPreferences("climate_widget_$it") }
+        ids.forEach {
+            scheduleFreshnessCheck(context, it, null)
+            context.deleteSharedPreferences("climate_widget_$it")
+        }
     }
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == CHECK_AGE) {
+            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id)?.provider == ComponentName(context, ClimateWidget::class.java))
+                deliver(context, intArrayOf(id))
+            return
+        }
         if (intent.action != PINNED) {
             super.onReceive(context, intent)
             return
@@ -83,6 +72,18 @@ class ClimateWidget : AppWidgetProvider() {
     }
 
     companion object {
+        private const val CHECK_AGE = "studio.junecity.greenhouse.widget.CHECK_AGE"
+
+        // A sleeping phone need not wake to recolor the launcher. Android may batch this
+        // local redraw. Keep the real reading time visible even while delivery is deferred.
+        private fun scheduleFreshnessCheck(context: Context, id: Int, next: Long?) {
+            val manager = context.getSystemService(AlarmManager::class.java)
+            val intent = Intent(context, ClimateWidget::class.java).setAction(CHECK_AGE)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            val job = PendingIntent.getBroadcast(context, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            if (next == null) manager.cancel(job) else manager.set(AlarmManager.RTC, next, job)
+        }
+
         private const val PINNED = "studio.junecity.greenhouse.widget.PINNED"
 
         internal fun requestPin(context: Context): Boolean {
@@ -131,90 +132,43 @@ class ClimateWidget : AppWidgetProvider() {
 
         internal fun render(context: Context, id: Int) {
             val options = settings(context, id)
-            val views = RemoteViews(context.packageName, R.layout.greenhouse_widget)
             val owner = SecureSettingsStore(context).cloudEnrollment()
-            var title = "Greenhouse Studio"
-            val now = System.currentTimeMillis()
-            val celsius = options.getBoolean("celsius", false)
-            val metric = WidgetMetric.entries.find { it.name == options.getString("metric", "") } ?: WidgetMetric.Both
-            var reading = WidgetReading("—", "—", null, false)
-            var trend = emptyList<ClimateBucket>()
-            var status = "Open Greenhouse Studio to set up"
             val savedScope = options.getString("scope", null)
-            if (owner != null && owner.ownsWidget(savedScope)) {
-                status = "Waiting for greenhouse readings"
-                if (viewerReady(context, owner)) {
-                    val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
-                    val prefs = AppPreferencesStore(context, suffix).load()
-                    val sameSource = owner.widgetScope() == savedScope
-                    val houseId = if (sameSource) options.getString("house", "") else ""
-                    val house = if (houseId.isNullOrEmpty()) prefs.activeGreenhouse else prefs.greenhouses.find { it.id == houseId }
-                    if (house != null) {
-                        val sensor = if (sameSource) options.getString("sensor", "") else ""
-                        val rows = CurrentSensorStore(context, suffix).load().filter { prefs.sensorHouse(it) == house.id && (sensor.isNullOrEmpty() || it.id == sensor) }
-                        title = if (sensor.isNullOrEmpty()) house.name else rows.firstOrNull()?.name ?: house.name
-                        reading = widgetReading(rows, celsius, now)
-                        val paired = owner.role == CloudDeviceRole.ViewerClient && !owner.isStandaloneClient()
-                        val archive = if (paired) viewerHistorySuffix(owner) else suffix
-                        if (rows.isNotEmpty()) {
-                            trend = HistoryStore(context, archive).use { db -> db.widgetTrend(rows.map { it.id }.toSet(), now) }
-                        }
-                        reading.at?.let { at ->
-                            val sameDay = android.text.format.DateUtils.isToday(at)
-                            val date = if (sameDay) DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at))
-                                else DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(at))
-                            status = if (reading.stale) "Last reading · $date" else "Updated $date"
-                        }
-                    } else status = "Choose a greenhouse in widget settings"
-                } else status = "Waiting for server readings"
-            }
-            views.setTextViewText(R.id.widget_title, title)
+            val data = if (owner != null && owner.ownsWidget(savedScope)) {
+                val sameSource = savedScope == owner.widgetScope()
+                ClimateCardRepository(context).load(
+                    owner = owner,
+                    houseId = options.getString("house", null)?.takeIf { sameSource && it.isNotBlank() },
+                    sensorId = options.getString("sensor", null)?.takeIf { sameSource && it.isNotBlank() },
+                    celsius = options.takeIf { it.contains("celsius") }?.getBoolean("celsius", false)
+                )
+            } else GreenhouseWidgetUiState(title = "Greenhouse Studio", status = WidgetFeedStatus.Empty,
+                statusMessage = "Open Greenhouse Studio to set up")
+            scheduleFreshnessCheck(context, id, data.nextStatusAt)
+            val metric = WidgetMetric.entries.find { it.name == options.getString("metric", "") } ?: WidgetMetric.Both
+            val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val open = PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val manager = AppWidgetManager.getInstance(context)
-            val size = manager.getAppWidgetOptions(id)
-            val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-            val widthDp = size.getInt(if (landscape) AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH else AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 260)
-            val heightDp = size.getInt(if (landscape) AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT else AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 150)
-            val compact = heightDp < 128
-            val pad = ((if (compact) 6 else 12) * context.resources.displayMetrics.density).roundToInt()
-            val sidePad = ((if (widthDp < 200) 7 else 13) * context.resources.displayMetrics.density).roundToInt()
-            views.setViewPadding(R.id.widget_body, sidePad, pad, sidePad, pad)
-            views.setTextViewText(R.id.widget_temperature_label, if (widthDp < 210) "Temp." else "Temperature")
-            fun visible(view: Int, show: Boolean) = views.setViewVisibility(view, if (show) View.VISIBLE else View.GONE)
-            visible(R.id.widget_temperature_column, metric != WidgetMetric.Humidity)
-            visible(R.id.widget_humidity_column, metric != WidgetMetric.Temperature)
-            visible(R.id.widget_divider, metric == WidgetMetric.Both)
-            visible(R.id.widget_period, widthDp >= 200 && trend.isNotEmpty())
-            // Draw a high-density, fixed-aspect trace. Launcher size hints can describe a
-            // different orientation or grid than the actual host; fitCenter preserves its shape.
-            val chartWidth = (widthDp.coerceIn(160, 640) * context.resources.displayMetrics.density * .60f)
-                .roundToInt().coerceIn(480, 1080)
-            val chartHeight = chartWidth / 4
-            fun metricPanel(valueId: Int, chartId: Int, rangeId: Int, text: String, color: Int,
-                            format: (Double) -> String, measure: (ClimateBucket) -> Double) {
-                views.setTextViewText(valueId, text)
-                val hasData = trend.isNotEmpty()
-                visible(chartId, hasData)
-                visible(rangeId, hasData && heightDp >= 148)
-                if (hasData) {
-                    val range = "${format(trend.minOf(measure))} – ${format(trend.maxOf(measure))}"
-                    views.setTextViewText(rangeId, "Range  $range")
-                    views.setContentDescription(chartId, "Past 6 hours, $range")
-                    views.setImageViewBitmap(chartId, widgetSparkline(trend, now, chartWidth, chartHeight, color, measure))
-                } else {
-                    views.setImageViewResource(chartId, 0)
-                    views.setTextViewText(rangeId, "")
-                    views.setContentDescription(chartId, null)
+            val bounds = manager.getAppWidgetOptions(id)
+            fun view(width: Int, height: Int) = climateRemoteViews(context, width.coerceIn(100, 2000), height.coerceIn(76, 1200), data, metric, open)
+            if (Build.VERSION.SDK_INT >= 31) {
+                @Suppress("DEPRECATION")
+                val sizes = bounds.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+                    .orEmpty().filter { it.width.isFinite() && it.height.isFinite() && it.width > 0 && it.height > 0 }.distinct()
+                if (sizes.isNotEmpty() && sizes.size <= 4) {
+                    val layouts = sizes.associateWith { view(it.width.roundToInt(), it.height.roundToInt()) }
+                    manager.updateAppWidget(id, if (layouts.size == 1) layouts.values.single() else RemoteViews(layouts))
+                    return
                 }
             }
-            if (metric != WidgetMetric.Humidity) metricPanel(R.id.widget_temperature, R.id.widget_temperature_plot,
-                R.id.widget_temperature_range, reading.temperature, 0xffffb75e.toInt(), { displayDegrees(it, celsius) }) { it.temperatureF }
-            if (metric != WidgetMetric.Temperature) metricPanel(R.id.widget_humidity, R.id.widget_humidity_plot,
-                R.id.widget_humidity_range, reading.humidity, 0xff63caff.toInt(), { "${it.roundToInt()}%" }) { it.humidity }
-            if (trend.isEmpty() && reading.at != null && !reading.stale) status += " · Gathering history"
-            views.setTextViewText(R.id.widget_time, status)
-            val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            views.setOnClickPendingIntent(R.id.widget_body, PendingIntent.getActivity(context, id, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            AppWidgetManager.getInstance(context).updateAppWidget(id, views)
+            val minWidth = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 260)
+            val maxHeight = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 150)
+            val maxWidth = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth)
+            val minHeight = bounds.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, maxHeight)
+            val portrait = view(minWidth, maxHeight)
+            val views = if (minWidth == maxWidth && minHeight == maxHeight) portrait
+                else RemoteViews(view(maxWidth, minHeight), portrait)
+            manager.updateAppWidget(id, views)
         }
     }
 }

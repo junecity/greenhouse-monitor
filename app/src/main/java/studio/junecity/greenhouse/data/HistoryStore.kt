@@ -4,6 +4,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import studio.junecity.greenhouse.model.GoveeSensor
 import studio.junecity.greenhouse.model.HistoryReading
 import studio.junecity.greenhouse.model.DAY_MS
@@ -13,6 +15,10 @@ internal const val WIDGET_WINDOW_MS = 6 * 3_600_000L
 internal data class ClimateBucket(val at: Long, val temperatureF: Double, val humidity: Double)
 
 class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOpenHelper(context, "greenhouse_history$suffix.db", null, 4) {
+    companion object {
+        internal val changes = MutableSharedFlow<String>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE readings(id INTEGER PRIMARY KEY AUTOINCREMENT, sensor_id TEXT NOT NULL, sensor_name TEXT NOT NULL, temperature REAL NOT NULL, humidity REAL NOT NULL, recorded_at INTEGER NOT NULL, light TEXT)")
         db.execSQL("CREATE INDEX readings_time ON readings(recorded_at DESC)")
@@ -63,8 +69,9 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
 
     fun insert(sensor: GoveeSensor) {
         val temperature=sensor.temperatureF ?: return; val humidity=sensor.humidityPercent ?: return
-        writableDatabase.insertWithOnConflict("readings",null,ContentValues().apply{put("sensor_id",sensor.id);put("sensor_name",sensor.name);put("temperature",temperature);put("humidity",humidity);put("light",sensor.lightLevel);put("recorded_at",sensor.updatedAtEpochMs)},SQLiteDatabase.CONFLICT_IGNORE)
+        val inserted = writableDatabase.insertWithOnConflict("readings",null,ContentValues().apply{put("sensor_id",sensor.id);put("sensor_name",sensor.name);put("temperature",temperature);put("humidity",humidity);put("light",sensor.lightLevel);put("recorded_at",sensor.updatedAtEpochMs)},SQLiteDatabase.CONFLICT_IGNORE)
         prune(writableDatabase)
+        if (inserted != -1L) changes.tryEmit(suffix)
     }
     fun recent(limit:Int=200):List<HistoryReading> = readRows(null, null, limit.toString())
 
@@ -122,6 +129,7 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
             if (merge) prune(db)
             db.setTransactionSuccessful()
         }finally{db.endTransaction()}
+        changes.tryEmit(suffix)
     }
     fun visitReadings(visit: (HistoryReading) -> Unit) {
         readableDatabase.rawQuery("SELECT sensor_id,sensor_name,temperature,humidity,recorded_at,light FROM readings ORDER BY id", null).use { rows ->
@@ -159,6 +167,7 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
         } finally {
             db.endTransaction()
         }
+        changes.tryEmit(suffix)
     }
 
     internal fun pendingRestore(): String? {
@@ -174,5 +183,6 @@ class HistoryStore(context: Context, private val suffix: String = "") : SQLiteOp
         writableDatabase.delete("daily_last",null,null)
         writableDatabase.delete("readings",null,null)
         finishRestore()
+        changes.tryEmit(suffix)
     }
 }

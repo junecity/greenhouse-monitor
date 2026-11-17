@@ -50,7 +50,7 @@ private val ProGreen=DashboardTokens.Green
 private val ProPanel=DashboardTokens.Panel
 private val ProEdge=DashboardTokens.PanelEdge
 
-@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,onManageSensors:()->Unit={onNavigate(AppScreen.Settings)},onRefresh:()->Unit={},onForecast:()->Unit={},heatingSummary:String?=null,onHeating:(()->Unit)?=null,onCool:()->Unit={onNavigate(AppScreen.Zones)},onSaveFans:((String,List<CirculationFan>)->Unit)?=null){
+@Composable fun DashboardScreen(state:GreenhouseUiState,status:DeviceStatus,now:LocalDateTime,onNavigate:(AppScreen)->Unit,modifier:Modifier=Modifier,onManageSensors:()->Unit={onNavigate(AppScreen.Settings)},onRefresh:()->Unit={},onForecast:()->Unit={},heatingSummary:String?=null,onHeating:(()->Unit)?=null,onCool:()->Unit={onNavigate(AppScreen.Zones)},onSaveFans:((String,List<CirculationFan>)->Unit)?=null,onMonitoring: (() -> Unit)? = null){
     val context=LocalContext.current
     val cardEntranceDuration=accessibleMotionDuration(AppMotion.CardEntranceMs)
     var entered by remember{mutableStateOf(false)}
@@ -79,7 +79,7 @@ private val ProEdge=DashboardTokens.PanelEdge
                     Row(Modifier.weight(.31f),horizontalArrangement=Arrangement.spacedBy(d(12f))){MiniMetric("VPD",vpd?.let{"%.1f kPa".format(it)}?:"—",DashboardIcon.Gauge,Color(0xFF8EEB75),d,t,Modifier.weight(1f));MiniMetric("Dew Point",formatTemp(dewPoint),DashboardIcon.Droplet,ProBlue,d,t,Modifier.weight(1f))}
                 }
                 ClimateGauge(greenhouse.name,temperature,humidity,d,t,Modifier.weight(.54f).fillMaxHeight(),
-                    onHeating ?: { onNavigate(AppScreen.Energy) }, onCool, { fanOpen = true })
+                    onHeating ?: { onNavigate(AppScreen.Energy) }, onCool, { fanOpen = true }, onMonitoring)
             }
             Column(Modifier.weight(.41f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(d(14f))){
                 ProPanel(Modifier.weight(.56f).fillMaxWidth()){Box(Modifier.fillMaxSize().dashboardLensClearance(curved=true)){
@@ -162,10 +162,42 @@ private val ProEdge=DashboardTokens.PanelEdge
     }
 }
 
-@Composable private fun ClimateGauge(name:String,temp:Double?,humidity:Double?,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,modifier:Modifier,onHeat:()->Unit,onCool:()->Unit,onFan:()->Unit){
+@Composable private fun ClimateGauge(
+    name:String, temp:Double?, humidity:Double?, d:(Float)->androidx.compose.ui.unit.Dp,
+    t:(Float)->androidx.compose.ui.unit.TextUnit, modifier:Modifier, onHeat:()->Unit,
+    onCool:()->Unit, onFan:()->Unit, onMonitoring:(()->Unit)?
+) {
     val target=(((temp?:40.0)-40)/60).coerceIn(0.0,1.0).toFloat()
     val progress by animateFloatAsState(target,tween(accessibleMotionDuration(AppMotion.GaugeSweepMs),easing=FastOutSlowInEasing),label="temperature gauge")
-    ProPanel(modifier){Column(Modifier.fillMaxSize().padding(d(16f)),horizontalAlignment=Alignment.CenterHorizontally){Box(Modifier.weight(1f).aspectRatio(1f)){Canvas(Modifier.fillMaxSize()){val stroke=size.minDimension*.055f;drawArc(Color(0xFF292C30),135f,270f,false,style=Stroke(stroke,cap=StrokeCap.Round));drawArc(ProAmber.copy(alpha=.10f),135f,270f*progress,false,style=Stroke(stroke*2.5f,cap=StrokeCap.Round));drawArc(DashboardTokens.AmberBright,135f,270f*progress,false,style=Stroke(stroke,cap=StrokeCap.Round))};Column(Modifier.align(Alignment.Center),horizontalAlignment=Alignment.CenterHorizontally){DashboardIconView(DashboardIcon.House,Color(0xFF8EEB75),Modifier.size(d(30f)));Text(name,color=Color.White,fontSize=t(18f),fontWeight=FontWeight.ExtraBold,maxLines=1);Text(formatTemp(temp),color=Color.White,fontSize=t(60f),fontWeight=FontWeight.Black,maxLines=1);Text("${formatHumidity(humidity)} RH",color=Color.White,fontSize=t(21f),fontWeight=FontWeight.Bold,maxLines=1)}};Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly){ClimateMode(DashboardIcon.Flame,"HEAT",d,t,"Open heating forecast",onHeat);ClimateMode(DashboardIcon.Snowflake,"COOL",d,t,"Open temperature map",onCool);ClimateMode(DashboardIcon.Fan,"FAN",d,t,"Estimate fan airflow",onFan)}}}
+    ProPanel(modifier) {
+        Column(Modifier.fillMaxSize().padding(d(16f)),horizontalAlignment=Alignment.CenterHorizontally) {
+            val openDetails = if (onMonitoring == null) Modifier else Modifier.clickable(
+                role=androidx.compose.ui.semantics.Role.Button,
+                onClickLabel="Open climate details", onClick=onMonitoring
+            )
+            Box(Modifier.weight(1f).aspectRatio(1f).then(openDetails)) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val stroke=size.minDimension*.055f
+                    drawArc(Color(0xFF292C30),135f,270f,false,style=Stroke(stroke,cap=StrokeCap.Round))
+                    drawArc(ProAmber.copy(alpha=.10f),135f,270f*progress,false,style=Stroke(stroke*2.5f,cap=StrokeCap.Round))
+                    drawArc(DashboardTokens.AmberBright,135f,270f*progress,false,style=Stroke(stroke,cap=StrokeCap.Round))
+                }
+                Column(Modifier.align(Alignment.Center),horizontalAlignment=Alignment.CenterHorizontally) {
+                    DashboardIconView(DashboardIcon.House,Color(0xFF8EEB75),Modifier.size(d(30f)))
+                    Text(name,color=Color.White,fontSize=t(18f),fontWeight=FontWeight.ExtraBold,maxLines=1)
+                    Text(formatTemp(temp),color=Color.White,fontSize=t(60f),fontWeight=FontWeight.Black,maxLines=1)
+                    Text("${formatHumidity(humidity)} RH",color=Color.White,fontSize=t(21f),fontWeight=FontWeight.Bold,maxLines=1)
+                }
+                if (onMonitoring != null) Text("Climate details ›", Modifier.align(Alignment.BottomCenter),
+                    color=ProAmber, fontSize=t(13f),fontWeight=FontWeight.SemiBold, maxLines=1)
+            }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
+                ClimateMode(DashboardIcon.Flame,"HEAT",d,t,"Open heating forecast",onHeat)
+                ClimateMode(DashboardIcon.Snowflake,"COOL",d,t,"Open temperature map",onCool)
+                ClimateMode(DashboardIcon.Fan,"FAN",d,t,"Estimate fan airflow",onFan)
+            }
+        }
+    }
 }
 
 @Composable private fun ClimateMode(icon:DashboardIcon,label:String,d:(Float)->androidx.compose.ui.unit.Dp,t:(Float)->androidx.compose.ui.unit.TextUnit,action:String,onClick:()->Unit){Column(Modifier.clickable(role=androidx.compose.ui.semantics.Role.Button,onClickLabel=action,onClick=onClick).widthIn(min=48.dp),horizontalAlignment=Alignment.CenterHorizontally){Box(Modifier.size(d(48f)).background(Color(0xFF202327),CircleShape).border(d(1f),ProEdge,CircleShape),contentAlignment=Alignment.Center){DashboardIconView(icon,if(icon==DashboardIcon.Fan) ProAmber else DashboardTokens.Muted,Modifier.size(d(24f)))};Text(label,color=if(icon==DashboardIcon.Fan) ProAmber else DashboardTokens.Muted,fontSize=t(11f),fontWeight=FontWeight.Bold)}}

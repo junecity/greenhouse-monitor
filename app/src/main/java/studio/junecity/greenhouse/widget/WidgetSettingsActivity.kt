@@ -29,7 +29,7 @@ class WidgetSettingsActivity : ComponentActivity() {
         val options = ClimateWidget.settings(this, id)
         val ready = owner != null && ClimateWidget.viewerReady(this, owner)
         val suffix = if (owner.isStandaloneClient()) "_standalone" else ""
-        val prefs = if (ready) AppPreferencesStore(this, suffix).load() else null
+        val prefs = if (ready) AppPreferencesStore(this, suffix).loadForMonitoring(owner) else null
         val rows = if (ready) CurrentSensorStore(this, suffix).load() else emptyList()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFFB347))) {
@@ -50,7 +50,10 @@ class WidgetSettingsActivity : ComponentActivity() {
                             val sensors = rows.filter { prefs?.sensorHouse(it) == selectedHouse }
                             var sensor by rememberSaveable(house) { mutableStateOf(sensors.find { sameSource && it.id == options.getString("sensor", "") }?.id.orEmpty()) }
                             var metric by rememberSaveable { mutableStateOf(WidgetMetric.entries.find { ours && it.name == options.getString("metric","") } ?: WidgetMetric.Both) }
-                            var celsius by rememberSaveable { mutableStateOf(ours && options.getBoolean("celsius", false)) }
+                            var celsius by rememberSaveable {
+                                mutableStateOf(if (ours && options.contains("celsius")) options.getBoolean("celsius", false)
+                                    else prefs?.temperatureFahrenheit == false)
+                            }
                             if (!ready) Text("Your widget will show readings when the greenhouse server syncs.")
                             Choice("Greenhouse", houses.find { it.id == house }?.name ?: "Current greenhouse",
                                 listOf("" to "Current greenhouse") + houses.map { it.id to it.name }) { house = it }

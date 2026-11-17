@@ -47,6 +47,25 @@ internal class HeatingStore(context: Context, owner: CloudEnrollment?, greenhous
         prefs.edit().putFloat("$namespace.waterGallons", gallons.toFloat()).putString("$namespace.waterSensor", sensorId).apply()
     }
 
+    /** Reuse the Energy screen's training, including current house membership and retention.
+     * The same immutable preferences string is returned until new training is written. */
+    fun widgetTarget(zip: String, sensorIds: Set<String>, now: Long): Double? = synchronized(trainingLock) {
+        if (sensorIds.isEmpty()) return@synchronized null
+        val key = "$namespace.$zip.points"
+        val raw = prefs.getString(key, null) ?: return@synchronized null
+        val today = now / (24 * HEATING_HOUR)
+        val cached = targetCache[key]
+        if (cached != null && cached.raw === raw && cached.day == today && cached.ids == sensorIds) {
+            return@synchronized cached.value
+        }
+        val cutoff = now - TRAINING_DAYS * 24 * HEATING_HOUR
+        val points = history(zip).filter { it.time in cutoff..now && it.sensors.all(sensorIds::contains) }
+        val result = learnedTemperature(points)?.fahrenheit
+        targetCache[key] = CachedTarget(raw, today, sensorIds, result)
+        if (targetCache.size > 4) targetCache.remove(targetCache.keys.first())
+        result
+    }
+
     fun history(zip: String): List<ThermalPoint> {
         val raw = prefs.getString("$namespace.$zip.points", null) ?: return emptyList()
         return runCatching {
@@ -73,7 +92,10 @@ internal class HeatingStore(context: Context, owner: CloudEnrollment?, greenhous
         merged
     }
 
+    private data class CachedTarget(val raw: String, val day: Long, val ids: Set<String>, val value: Double?)
+
     companion object {
+        private val targetCache = linkedMapOf<String, CachedTarget>()
         private val trainingLock = Any()
         const val TRAINING_DAYS = 90L
     }

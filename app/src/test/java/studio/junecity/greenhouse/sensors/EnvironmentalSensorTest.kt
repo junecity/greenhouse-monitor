@@ -3,6 +3,7 @@ package studio.junecity.greenhouse.sensors
 import org.junit.Assert.*
 import org.junit.Test
 import studio.junecity.greenhouse.model.GoveeSensor
+import studio.junecity.greenhouse.model.NotificationPreferences
 import studio.junecity.greenhouse.widget.*
 
 class EnvironmentalSensorTest {
@@ -17,14 +18,26 @@ class EnvironmentalSensorTest {
         assertTrue(runCatching { EnvironmentalBluetooth.humidityPercent(byteArrayOf(-1, -1)) }.isFailure)
         assertTrue(runCatching { EnvironmentalBluetooth.temperatureF(byteArrayOf(5)) }.isFailure)
     }
-    @Test fun widgetAveragesFreshSensorsAndRespectsUnits() {
+    @Test fun widgetAveragesFreshSensorsAndKeepsAgingReadingsMarked() {
         val now = 9_000_000L
         val row = GoveeSensor("a", "BLE ESS", "North", 50.0, 50.0, true, now)
-        val rows = listOf(row, row.copy(id="b",temperatureF=86.0,humidityPercent=70.0,updatedAtEpochMs=now-100),row.copy(id="c",updatedAtEpochMs=1))
-        assertEquals(WidgetReading("20°C", "60%",now-100,false),widgetReading(rows,true,now))
-        assertEquals("50°F",widgetReading(listOf(row),false,now).temperature)
-        assertEquals("50%",widgetReading(listOf(row),false,now).humidity)
-        assertEquals(WidgetReading("—","—",now,true),widgetReading(rows,false,now+700000))
-        assertEquals(WidgetReading("—","—",null,false),widgetReading(emptyList(),true,now))
+        val rows = listOf(row, row.copy(id = "b", temperatureF = 86.0, humidityPercent = 70.0, updatedAtEpochMs = now - 100),
+            row.copy(id = "c", updatedAtEpochMs = 1L))
+        fun model(samples: List<GoveeSensor>, at: Long, celsius: Boolean) =
+            climateCardState("House", samples, emptyList(), at, 1, celsius, null, null, NotificationPreferences())
+        assertEquals("20°C", model(rows, now, true).temperatureText)
+        assertEquals("60%", model(rows, now, false).humidityText)
+        assertEquals("50°F", model(listOf(row), now, false).temperatureText)
+        assertEquals(WidgetFeedStatus.Offline, model(listOf(row), now + 700_000, false).status)
+        assertEquals("50°F", model(listOf(row), now + 700_000, false).temperatureText)
+        assertEquals("—", model(emptyList(), now, true).temperatureText)
+    }
+    @Test fun launcherUsesWidthHeightAndFontScaleBeforeOfferingAChart() {
+        assertEquals(LauncherCard.Compact, launcherCard(339, 420, 1f))
+        assertEquals(LauncherCard.Standard, launcherCard(340, 280, 1f))
+        assertEquals(LauncherCard.Wide, launcherCard(620, 220, 1f))
+        assertEquals(LauncherCard.Compact, launcherCard(620, 100, 1f))
+        assertEquals(LauncherCard.Compact, launcherCard(390, 250, 1.3f))
+        assertEquals(LauncherCard.Standard, launcherCard(390, 360, 1.3f))
     }
 }

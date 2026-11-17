@@ -14,6 +14,7 @@ import studio.junecity.greenhouse.sensors.collectReadings
 import studio.junecity.greenhouse.sensors.GoveeSensorProvider
 import studio.junecity.greenhouse.sensors.SensorProviderCredential
 import java.util.concurrent.TimeUnit
+import studio.junecity.greenhouse.widget.ClimateCardRepository
 
 class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(context,params){
     override suspend fun doWork():Result{
@@ -29,8 +30,13 @@ class SensorSyncWorker(context:Context,params:WorkerParameters):CoroutineWorker(
             val sensors = collected.withCurrentAssignments(prefs.load(), zones::zone)
             val active = store.replaceGovee(sensors)
             active.filter{it.online && !it.isLocalRadio()}.forEach{history.insert(it);notifier.evaluate(it, owner)}
+            ClimateCardRepository.feedResult(applicationContext, owner, failed = false)
             Result.success()
-        }.getOrElse{Result.retry()}
+        }.getOrElse {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            ClimateCardRepository.feedResult(applicationContext, owner, failed = true)
+            Result.retry()
+        }
     }
     companion object{
         fun schedule(context:Context){

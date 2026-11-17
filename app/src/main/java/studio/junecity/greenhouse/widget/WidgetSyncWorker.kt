@@ -26,12 +26,26 @@ internal suspend fun syncViewerReadings(context: Context, owner: CloudEnrollment
         val sync = context.getSharedPreferences("widget_sync", 0)
         if (skipRecent && sync.getString("scope", "") == owner.widgetScope() &&
             System.currentTimeMillis() - sync.getLong("updatedAt", 0) in 0L..60_000L) return@withContext null
-        val snapshot = fetch() ?: return@withContext null
-        if (secure.cloudEnrollment() != owner) return@withContext null
-        GreenhouseBackupStore(context, viewerHistorySuffix(owner)).restore(snapshot, CameraMode.ViewerClient)
-        if (secure.cloudEnrollment() != owner) return@withContext null
-        ClimateWidget.viewerSynced(context, owner)
-        snapshot
+        try {
+            val snapshot = fetch()
+            if (secure.cloudEnrollment() != owner) return@withContext null
+            if (snapshot == null) {
+                // A server that has never supplied a snapshot is still setting up. When a
+                // previously available source disappears, mark its retained readings stale.
+                ClimateCardRepository.feedResult(context, owner, failed = ClimateWidget.viewerReady(context, owner))
+                return@withContext null
+            }
+            GreenhouseBackupStore(context, viewerHistorySuffix(owner)).restore(snapshot, CameraMode.ViewerClient)
+            if (secure.cloudEnrollment() != owner) return@withContext null
+            ClimateCardRepository.feedResult(context, owner, failed = false)
+            ClimateWidget.viewerSynced(context, owner)
+            snapshot
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ClimateCardRepository.feedResult(context, owner, failed = true)
+            throw e
+        }
     }
 }
 
