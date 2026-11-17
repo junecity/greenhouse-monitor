@@ -1,15 +1,27 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Least-privilege deployment bootstrap for the Greenhouse Monitor development stack.
+Description: Deployment roles and a private artifact bucket for one Greenhouse Monitor environment.
 
 Parameters:
   ApplicationStackName:
     Type: String
     Default: greenhouse-monitor-dev
-    AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
+    AllowedPattern: '[a-z][-a-z0-9]*'
   AdminStackName:
     Type: String
     Default: greenhouse-monitor-admin-dev
-    AllowedPattern: '[a-zA-Z][-a-zA-Z0-9]*'
+    AllowedPattern: '[a-z][-a-z0-9]*'
+
+Rules:
+  SeparateAdminEnvironment:
+    RuleCondition: !Not [!Equals [!Ref ApplicationStackName, greenhouse-monitor-dev]]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AdminStackName, greenhouse-monitor-admin-dev]]
+        AssertDescription: Select the admin stack in this environment.
+      - Assert: !Not [!Equals [!Ref AdminStackName, !Ref ApplicationStackName]]
+        AssertDescription: Select distinct admin and application stack names.
+
+Conditions:
+  ExistingDevAdmin: !And [!Equals [!Ref ApplicationStackName, greenhouse-monitor-dev], !Equals [!Ref AdminStackName, greenhouse-monitor-admin-dev]]
 
 Resources:
   ArtifactBucket:
@@ -17,7 +29,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub greenhouse-monitor-dev-artifacts-${AWS::AccountId}-${AWS::Region}
+      BucketName: !Sub ${ApplicationStackName}-artifacts-${AWS::AccountId}-${AWS::Region}
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -39,8 +51,8 @@ Resources:
   CloudFormationServiceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: greenhouse-monitor-dev-cloudformation
-      Description: Creates and updates only the dedicated Greenhouse Monitor development resources.
+      RoleName: !Sub ${ApplicationStackName}-cloudformation
+      Description: Provisions resources for the named Greenhouse Monitor stacks.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -199,6 +211,30 @@ Resources:
                   - s3:PutBucketVersioning
                   - s3:PutLifecycleConfiguration
                 Resource: !Sub arn:${AWS::Partition}:s3:::${AdminStackName}-*
+              - Sid: ConfigureCameraArchiveBucket
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:DeleteBucketPolicy
+                  - s3:GetBucketLocation
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:ListBucket
+                  - s3:ListTagsForResource
+                  - s3:PutBucketOwnershipControls
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketTagging
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutLifecycleConfiguration
+                  - s3:TagResource
+                  - s3:UntagResource
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ApplicationStackName}-clips-${AWS::AccountId}-${AWS::Region}
               - Sid: ManageAdminPortalCloudFront
                 Effect: Allow
                 Action:
@@ -262,9 +298,18 @@ Resources:
                   - iam:PutRolePolicy
                   - iam:TagRole
                   - iam:UntagRole
-                # SAM truncates long generated role names before appending its hash, so scope
-                # to the dedicated admin product prefix instead of the full stack name.
-                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/greenhouse-monitor-admin-*
+                # Old auto-named admin Lambda roles can truncate "dev" before the logical ID.
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AdminStackName}-*
+                  - !If [ExistingDevAdmin, !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/greenhouse-monitor-admin-Admin*', !Ref AWS::NoValue]
+                  - !If [ExistingDevAdmin, !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/greenhouse-monitor-admin-d-Admin*', !Ref AWS::NoValue]
+                  - !If [ExistingDevAdmin, !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/greenhouse-monitor-admin-de-Admin*', !Ref AWS::NoValue]
+              - Sid: ProtectDeploymentRoles
+                Effect: Deny
+                Action: iam:*
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackName}-cloudformation
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ApplicationStackName}-deployer
               - Sid: ReadBuildArtifacts
                 Effect: Allow
                 Action: s3:GetObject
@@ -273,8 +318,8 @@ Resources:
   DeploymentCallerRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: greenhouse-monitor-dev-deployer
-      Description: Uploads artifacts and manages only the Greenhouse Monitor development stack.
+      RoleName: !Sub ${ApplicationStackName}-deployer
+      Description: Uploads artifacts and deploys the named Greenhouse Monitor stacks.
       MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: '2012-10-17'

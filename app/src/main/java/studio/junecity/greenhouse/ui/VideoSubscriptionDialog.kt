@@ -8,17 +8,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.android.billingclient.api.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import studio.junecity.greenhouse.cloud.AuthenticatedCloudGateway
 import studio.junecity.greenhouse.cloud.PlayCatalog
+import studio.junecity.greenhouse.cloud.ArchivePurchaseWorker
+import studio.junecity.greenhouse.cloud.VideoCheckout
+import studio.junecity.greenhouse.cloud.purchaseFor
 
 /** The camera owner remains outside the dialog. Returning from Play never starts a stream. */
 @Composable
 internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHouse: String? = null, onDismiss: () -> Unit) {
     val activity = LocalActivity.current ?: return
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     var catalog by remember { mutableStateOf<PlayCatalog?>(null) }
     var details by remember { mutableStateOf<ProductDetails?>(null) }
     var offer by remember { mutableStateOf<ProductDetails.SubscriptionOfferDetails?>(null) }
@@ -28,12 +35,19 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHous
     var reconnect by remember { mutableIntStateOf(0) }
     var client by remember { mutableStateOf<BillingClient?>(null) }
 
-    LaunchedEffect(api) {
+    LaunchedEffect(api, archiveHouse) {
         try {
             val access = if (archiveHouse == null) api.videoCheckout() else {
-                val offer = api.archiveRequest(archiveHouse, "access").optJSONObject("checkout")
-                studio.junecity.greenhouse.cloud.VideoCheckout(false, offer?.let {
-                    PlayCatalog(it.getString("productId"), it.getString("basePlanId"), it.getString("accountBinding"))
+                val access = api.archiveRequest(archiveHouse, "access")
+                if (access.optBoolean("active")) {
+                    verified = true
+                    busy = false
+                    message = "Cloud recording is active for your account."
+                    return@LaunchedEffect
+                }
+                val offer = access.optJSONObject("checkout")
+                VideoCheckout(false, offer?.let {
+                    PlayCatalog(it.getString("productId"), it.getString("basePlanId"), it.getString("accountBinding"), it.optBoolean("licenseTest"))
                 })
             }
             catalog = access.catalog.takeUnless { access.disabled }
@@ -46,25 +60,28 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHous
         catch (_: Exception) { message = "Could not check your account. Close and try again."; busy = false }
     }
 
-    DisposableEffect(catalog, reconnect) {
+    DisposableEffect(catalog, reconnect, lifecycle) {
         val plan = catalog
         if (plan == null) return@DisposableEffect onDispose {}
         var closed = false
         lateinit var billing: BillingClient
         val work = kotlinx.coroutines.CoroutineScope(scope.coroutineContext + kotlinx.coroutines.SupervisorJob(scope.coroutineContext[kotlinx.coroutines.Job]))
         suspend fun reconcile(purchase: Purchase) {
+            details = null
+            offer = null
             if (purchase.purchaseState == Purchase.PurchaseState.PENDING) {
-                message = "Payment is pending in Google Play."
+                archiveHouse?.let { ArchivePurchaseWorker.schedule(activity, it, plan.accountBinding) }
+                message = "Payment is pending in Google Play. Access starts when payment clears."
                 return
             }
             if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return
             try {
-                if (purchase.accountIdentifiers?.obfuscatedAccountId != plan.accountBinding) {
-                    message = "This purchase belongs to a different greenhouse account."
-                    return
-                }
                 if (archiveHouse == null) api.verifyVideoPurchase(plan.productId, purchase.purchaseToken)
-                else check(api.archiveRequest(archiveHouse, "verify", org.json.JSONObject().put("purchaseToken", purchase.purchaseToken)).getBoolean("active"))
+                else {
+                    ArchivePurchaseWorker.schedule(activity, archiveHouse, plan.accountBinding)
+                    api.verifyArchivePurchase(archiveHouse, purchase.purchaseToken)
+                    ArchivePurchaseWorker.finish(activity, plan.accountBinding)
+                }
                 verified = true
                 message = if (archiveHouse == null) "Purchase verified. Close to start Live View." else "Cloud recording is available for this greenhouse."
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -76,9 +93,12 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHous
             .setListener { result, purchases ->
                 if (!closed) work.launch {
                     when (result.responseCode) {
-                        BillingClient.BillingResponseCode.OK -> purchases.orEmpty()
-                            .firstOrNull { plan.productId in it.products }?.let { reconcile(it) }
+                        BillingClient.BillingResponseCode.OK -> {
+                            val purchase = purchases.orEmpty().purchaseFor(plan.productId, plan.accountBinding)
+                            if (purchase != null) reconcile(purchase) else reconnect++
+                        }
                         BillingClient.BillingResponseCode.USER_CANCELED -> message = "Purchase canceled."
+                        BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> reconnect++
                         else -> message = "Google Play could not complete checkout. Try Restore purchase."
                     }
                     busy = false
@@ -107,12 +127,20 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHous
                             message = "Could not check purchases. Tap Restore purchase to retry."
                             return@launch
                         }
-                        val purchase = owned.purchasesList.firstOrNull { plan.productId in it.products }
+                        val purchase = owned.purchasesList.purchaseFor(plan.productId, plan.accountBinding)
                         if (purchase != null) { reconcile(purchase); return@launch }
+                        if (owned.purchasesList.any { plan.productId in it.products }) {
+                            message = "Your Google Play subscription belongs to another greenhouse account."
+                            return@launch
+                        }
                         val product = QueryProductDetailsParams.Product.newBuilder().setProductId(plan.productId)
                             .setProductType(BillingClient.ProductType.SUBS).build()
                         val products = billing.queryProductDetails(QueryProductDetailsParams.newBuilder()
                             .setProductList(listOf(product)).build())
+                        if (products.billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
+                            message = "Could not load the price from Google Play. Try again."
+                            return@launch
+                        }
                         val item = products.productDetailsList?.singleOrNull { it.productId == plan.productId }
                         val base = item?.subscriptionOfferDetails?.firstOrNull {
                             it.basePlanId == plan.basePlanId && it.offerId == null &&
@@ -122,19 +150,39 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHous
                         }
                         details = item
                         offer = base
-                        message = if (base == null) "The test subscription is unavailable in Google Play."
-                            else "Renews monthly until canceled in Google Play. For testing, select a Google Play test payment method."
+                        message = when {
+                            base == null -> "This subscription is unavailable for this Google Play account."
+                            plan.licenseTest -> "For this test purchase, select a Google Play test payment method."
+                            else -> "Renews monthly until you cancel in Google Play."
+                        }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { message = "Google Play is unavailable. Try Restore purchase." }
                     finally { if (!closed) busy = false }
                 }
             }
         })
-        onDispose { closed = true; work.coroutineContext[kotlinx.coroutines.Job]?.cancel(); billing.endConnection(); client = null }
+        var paused = false
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) paused = true
+            if (event == Lifecycle.Event.ON_RESUME && paused && !verified) {
+                // Requery owned purchases when returning from Play, including delayed payments.
+                reconnect++
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            closed = true
+            lifecycle.removeObserver(observer)
+            work.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+            billing.endConnection()
+            client = null
+        }
     }
 
     VideoPurchaseSheet(message, offer?.pricingPhases?.pricingPhaseList?.singleOrNull()?.formattedPrice,
-        busy, verified, catalog != null, onDismiss, { reconnect++ }, title = if (archiveHouse == null) "Premium Live View" else "Cloud recording") {
+        busy, verified, catalog != null, onDismiss, { reconnect++ },
+        title = if (archiveHouse == null) "Premium Live View" else "Cloud recording",
+        description = archiveHouse?.let { "Save up to 24 one-minute clips per day across your greenhouses. Each clip stays available for seven days." }) {
         val item = details ?: return@VideoPurchaseSheet
         val selected = offer ?: return@VideoPurchaseSheet
         val plan = catalog ?: return@VideoPurchaseSheet
@@ -143,8 +191,11 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHous
         val flow = BillingFlowParams.newBuilder().setProductDetailsParamsList(listOf(params))
             .setObfuscatedAccountId(plan.accountBinding).build()
         busy = true
+        archiveHouse?.let { ArchivePurchaseWorker.schedule(activity, it, plan.accountBinding) }
         val result = client?.launchBillingFlow(activity, flow)
-        if (result?.responseCode != BillingClient.BillingResponseCode.OK) {
+        if (result?.responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
+            reconnect++
+        } else if (result?.responseCode != BillingClient.BillingResponseCode.OK) {
             busy = false
             message = "Could not open Google Play. Try Restore purchase."
         }
@@ -153,12 +204,14 @@ internal fun VideoSubscriptionDialog(api: AuthenticatedCloudGateway, archiveHous
 
 @Composable
 internal fun VideoPurchaseSheet(message: String, price: String?, busy: Boolean, verified: Boolean,
-                               canRestore: Boolean, onDismiss: () -> Unit, onRestore: () -> Unit, title: String = "Premium Live View", onBuy: () -> Unit) {
+                               canRestore: Boolean, onDismiss: () -> Unit, onRestore: () -> Unit,
+                               title: String = "Premium Live View", description: String? = null, onBuy: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, containerColor = DashboardTokens.Panel,
         title = { Text(title, color = Color.White) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (price != null && !verified) Text("$price / month", color = DashboardTokens.Amber)
+                if (description != null && !verified) Text(description, color = Color.White)
                 Text(message, color = DashboardTokens.Muted)
                 if (canRestore && !verified) TextButton(onClick = onRestore, enabled = !busy) { Text("Restore purchase") }
             }

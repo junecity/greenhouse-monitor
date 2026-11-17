@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.43.0 (91) · Paid cloud recording release candidate
+
+- Cameras → Playback → Cloud library offers the account-bound Google Play monthly plan. Keep short clips and timelapses local and live-stream access independent. CameraLibraryScreen, VideoSubscriptionDialog and ArchivePurchaseWorker show the Play offer, recover interrupted payment and retain the same recording ID when an upload is retried.
+- camera_archive.py bounds authorization to verified payment, recording age and registered server identity. A DynamoDB transaction associates a recording ID with one daily quota reservation. play_notifications.py reconciles Google-authenticated Pub/Sub deliveries against the Android Publisher subscription, including purchases completed while the viewer is closed. Binding lookup, revision checks and duplicate-message handling use the existing table. No migration.
+- The SAM template provisions private seven-day storage and a Google JWT notification route; the bootstrap scopes bucket permissions by environment. Retail deployment needs the selected Play account, regional price, publisher credentials, signed release and Google push configuration. The tested AAB was built against development outputs. See docs/AWS_DEPLOYMENT.md for activation and rollback.
+- Passed 200 Android JVM tests, 138 backend tests, five Android checkout/UI cases and a two-emulator, one-minute upload/retry/decode/delete test using the release bundle and simulated billing/storage. Android lint had zero errors. The AWS session expired and the visible Play account opened registration. Development and production sales, real purchases, live S3 recording and physical phone validation remain pending.
+
 ## 2026-11-17 · Greenhouse Studio 2.42.2 (90) · Current greenhouse average
 
 - Dashboard, Climate details and whole-greenhouse widgets use SpatialInterpolator.currentContributors for the same ten-minute window and floor-plan weighting. Normalize stored greenhouse assignments before selection. Sensor polling cadence and connection failures determine the badge independently of which current measurements contribute. A sensor-specific pin keeps its own reading.

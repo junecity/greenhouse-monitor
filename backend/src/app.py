@@ -26,6 +26,7 @@ from sensor_temperature import (
 from domain import AccessDenied, Principal, account_bootstrap_records, authorize_stream, pairing_code_hash, require_active_session_lease, require_device_id, require_resource_id
 from kinesis_session import connection_config, ensure_channel
 from google_play_verifier import GooglePlayVerificationError, verify_google_play_purchase
+from play_notifications import handle as play_notification
 
 
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
@@ -1572,6 +1573,8 @@ def handler(event, _context):
     try:
         method = event.get("requestContext", {}).get("http", {}).get("method")
         parts = route_parts(event)
+        if method == "POST" and parts == ["v1", "billing", "google-play", "notifications"]:
+            return play_notification(event, table=table, catalog_for=play_catalog, response=response)
         if method == "POST" and parts == ["v1", "public-server-pairing", "requests"]:
             return request_server_pairing(event)
         if method == "POST" and parts == ["v1", "public-server-pairing", "status"]:
@@ -1591,7 +1594,8 @@ def handler(event, _context):
             return current_device(principal)
         if len(parts) == 5 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "recordings":
             return archive(event, principal, require_resource_id(parts[2]), parts[4], method,
-                           table=table, get_owned=get_owned, checkout_for=play_test_checkout, catalog_for=play_catalog, response=response)
+                           device_authenticated=device_authenticated, table=table, get_owned=get_owned,
+                           checkout_for=play_test_checkout, catalog_for=play_catalog, response=response)
         if device_authenticated and not (
             (method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] in {"stream-sessions", "update-package"}) or
             (method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat") or

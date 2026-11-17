@@ -1,6 +1,8 @@
 package studio.junecity.greenhouse.ui
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.MediaController
@@ -147,8 +149,8 @@ internal fun CameraWorkspace(
         }
     var catalog by remember { mutableStateOf(false) }
     var accessStatus by remember { mutableStateOf("") }
-    LaunchedEffect(tab, accessRevision) {
-        if ((tab != 3 && !(tab == 0 && server)) || api == null || house.isBlank())
+    LaunchedEffect(tab, cloud, accessRevision) {
+        if ((tab != 3 && !(tab == 0 && server) && !(tab == 1 && cloud)) || api == null || house.isBlank())
             return@LaunchedEffect
         paid = false
         catalog = false
@@ -171,7 +173,7 @@ internal fun CameraWorkspace(
     }
     suspend fun upload(file: File) {
         checkNotNull(api).uploadMovie(house, file)
-        withContext(Dispatchers.IO) { movies.delete(file) }
+        check(withContext(Dispatchers.IO) { movies.delete(file) }) { "Could not clear the saved upload" }
         revision++
     }
     fun capture(kind: MovieKind) {
@@ -196,6 +198,9 @@ internal fun CameraWorkspace(
                     } else message = "Saved to Playback on this phone."
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: CloudApiException) {
+                    message = if (e.statusCode == 429) "Daily cloud upload limit reached. Retry the saved clip tomorrow in Playback."
+                    else "Cloud recording is unavailable. Check your subscription and pending clips in Playback."
                 } catch (_: Exception) {
                     message =
                         if (kind == MovieKind.Cloud)
@@ -207,8 +212,11 @@ internal fun CameraWorkspace(
             }
     }
     DisposableEffect(lifecycle) {
+        var paused = false
         val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && paused) accessRevision++
             if (event == Lifecycle.Event.ON_PAUSE) {
+                paused = true
                 job?.cancel()
                 playback = null
             }
@@ -245,8 +253,20 @@ internal fun CameraWorkspace(
                         CameraAction("On this phone", !cloud) { cloud = false }
                         CameraAction("Cloud library", cloud) { cloud = true }
                     }
-                    if (cloud) CloudMovies(api, house, revision, { playback = it }, { tab = 3 })
-                    else {
+                    if (cloud) {
+                        if (paid) CloudMovies(api, house, revision, { playback = it }, { tab = 3 })
+                        else {
+                            CameraNote(accessStatus.ifBlank {
+                                if (api == null || house.isBlank()) "Cloud recording requires a paired account."
+                                else "Checking cloud storage…"
+                            })
+                            if (catalog && !server) {
+                                CameraNote("Store one-minute greenhouse clips for seven days and play them on either phone.")
+                                CameraAction("View subscription", true) { checkout = true }
+                            }
+                            if (api != null) CameraAction("Check access") { accessRevision++ }
+                        }
+                    } else {
                         if (files.isEmpty())
                             CameraNote("Your saved clips and timelapses will appear here.")
                         files.forEach { file ->
@@ -278,9 +298,10 @@ internal fun CameraWorkspace(
                                                         message = "Saved to cloud playback."
                                                     } catch (e: CancellationException) {
                                                         throw e
-                                                    } catch (_: Exception) {
-                                                        message =
-                                                            "Upload unavailable. The clip is still on this phone."
+                                                    } catch (e: Exception) {
+                                                        message = if (e is CloudApiException && e.statusCode == 429)
+                                                            "Daily cloud upload limit reached. Retry tomorrow."
+                                                        else "Upload unavailable. The clip is still on this phone."
                                                     }
                                                 }
                                     }
@@ -324,6 +345,19 @@ internal fun CameraWorkspace(
                     )
                     if (!paid && catalog && !server)
                         CameraAction("View subscription", true) { checkout = true }
+                    if (paid && !server) {
+                        CameraAction("Manage subscription") {
+                            val uri = Uri.parse("https://play.google.com/store/account/subscriptions").buildUpon()
+                                .appendQueryParameter("sku", ArchivePurchaseWorker.PRODUCT)
+                                .appendQueryParameter("package", context.packageName).build()
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            } catch (_: ActivityNotFoundException) {
+                                message = "Open Google Play → Payments & subscriptions → Subscriptions."
+                            }
+                        }
+                    }
+                    if (message.isNotBlank()) CameraNote(message)
                     if (api != null) CameraAction("Check access") { accessRevision++ }
                     if (paid && server) CameraAction("Open camera", true) { tab = 0 }
                 }

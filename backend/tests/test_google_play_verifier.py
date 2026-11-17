@@ -59,6 +59,23 @@ class GooglePlayVerifierTests(unittest.TestCase):
                 "lineItems": [{"productId": "other", "expiryTime": "2030-01-01T00:00:00Z"}],
             }, "premium_monthly")
 
+    def test_expired_monthly_line_cannot_borrow_a_different_plans_paid_period(self):
+        payload = {"subscriptionState": "SUBSCRIPTION_STATE_ACTIVE", "lineItems": [
+            {"productId": "camera_storage_monthly", "offerDetails": {"basePlanId": "monthly"},
+             "expiryTime": "2020-01-01T00:00:00Z"},
+            {"productId": "camera_storage_monthly", "offerDetails": {"basePlanId": "another-plan"},
+             "expiryTime": "2099-01-01T00:00:00Z"}]}
+        self.assertFalse(parse_subscription(payload, "camera_storage_monthly", base_plan="monthly")["active"])
+
+    def test_pending_purchase_can_be_reconciled_without_a_paid_expiry(self):
+        payload = {"lineItems": [{"productId": "camera_storage_monthly"}], "linkedPurchaseToken": "former",
+                   "startTime": "2024-01-01T00:00:00Z"}
+        for stage in ("SUBSCRIPTION_STATE_PENDING", "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"):
+            with self.subTest(stage=stage):
+                result = parse_subscription({**payload, "subscriptionState": stage}, "camera_storage_monthly")
+                self.assertEqual((False, 0, 1704067200, "former"),
+                                 (result["active"], result["expiresAt"], result["startedAt"], result["linkedPurchaseToken"]))
+
 
 if __name__ == "__main__":
     unittest.main()

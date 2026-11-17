@@ -11,7 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-data class PlayCatalog(val productId: String, val basePlanId: String, val accountBinding: String)
+data class PlayCatalog(val productId: String, val basePlanId: String, val accountBinding: String, val licenseTest: Boolean)
 data class VideoCheckout(val disabled: Boolean, val catalog: PlayCatalog?)
 
 data class CloudApiConfig(val baseUrl: String, val deviceId: String) {
@@ -118,11 +118,18 @@ class AuthenticatedCloudGateway(
             }
         }
         val md5 = android.util.Base64.encodeToString(digest.digest(), android.util.Base64.NO_WRAP)
-        val permit = archiveRequest(house, "upload", JSONObject().put("bytes", file.length()).put("md5", md5))
+        val requestId = UUID.fromString(file.nameWithoutExtension.substringAfter("-Cloud-")).toString()
+        val permit = archiveRequest(house, "upload", JSONObject().put("bytes", file.length())
+            .put("md5", md5).put("requestId", requestId))
+        if (permit.optBoolean("alreadyUploaded")) return@withContext
         val upload = Request.Builder().url(permit.getString("url")).header("Content-MD5", md5)
             .put(file.asRequestBody("video/mp4".toMediaType())).build()
         check(upload.url.isHttps)
         client.newCall(upload).execute().use { check(it.isSuccessful) { "Upload failed. Retry in Playback." } }
+    }
+
+    suspend fun verifyArchivePurchase(house: String, token: String) {
+        check(archiveRequest(house, "verify", JSONObject().put("purchaseToken", token)).getBoolean("active"))
     }
 
     suspend fun videoCheckout(): VideoCheckout {
@@ -130,7 +137,7 @@ class AuthenticatedCloudGateway(
         val offer = result.optJSONObject("checkout")
         return VideoCheckout(
             result.optString("videoAccessMode") == "DISABLED",
-            offer?.let { PlayCatalog(it.getString("productId"), it.getString("basePlanId"), it.getString("accountBinding")) }
+            offer?.let { PlayCatalog(it.getString("productId"), it.getString("basePlanId"), it.getString("accountBinding"), licenseTest = true) }
         )
     }
 

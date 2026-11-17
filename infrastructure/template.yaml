@@ -15,6 +15,11 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["false", "true"]
+  CameraArchiveBucketName:
+    Type: String
+    Default: ''
+    Description: Optional private bucket to provision and retain when recording is switched off.
+    AllowedPattern: '^$|^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'
   EnvironmentName:
     Type: String
     Default: dev
@@ -39,10 +44,26 @@ Parameters:
   GooglePlayPackageName:
     Type: String
     Default: studio.junecity.greenhouse
+  GooglePlayPushServiceAccount:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9._+-]+@[a-z0-9.-]+\.gserviceaccount\.com$'
+    Description: Google service account authorized to deliver authenticated Play Pub/Sub push messages.
+
+Rules:
+  RequireProductionRecordingBilling:
+    RuleCondition: !And [!Equals [!Ref EnableCameraArchive, 'true'], !Equals [!Ref CameraArchiveSalesMode, Production]]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref GooglePlayCredentialsSecretArn, '']]
+        AssertDescription: Paid recording requires an Android Publisher credential.
+      - Assert: !Not [!Equals [!Ref GooglePlayPushServiceAccount, '']]
+        AssertDescription: Paid recording requires a verified Google Play notification sender.
 
 Conditions:
   HasReleaseBucket: !Not [!Equals [!Ref ServerReleaseBucketName, '']]
   CameraArchiveEnabled: !Equals [!Ref EnableCameraArchive, "true"]
+  HasCameraArchiveBucketName: !Not [!Equals [!Ref CameraArchiveBucketName, '']]
+  ProvisionCameraArchive: !Or [!Condition CameraArchiveEnabled, !Condition HasCameraArchiveBucketName]
   HasGooglePlaySecret: !Not [!Equals [!Ref GooglePlayCredentialsSecretArn, '']]
 
 Globals:
@@ -64,10 +85,11 @@ Globals:
 Resources:
   CameraArchiveBucket:
     Type: AWS::S3::Bucket
-    Condition: CameraArchiveEnabled
+    Condition: ProvisionCameraArchive
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
+      BucketName: !If [HasCameraArchiveBucketName, !Ref CameraArchiveBucketName, !Ref AWS::NoValue]
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
@@ -86,7 +108,7 @@ Resources:
             ExpirationInDays: 7
   CameraArchiveTransportPolicy:
     Type: AWS::S3::BucketPolicy
-    Condition: CameraArchiveEnabled
+    Condition: ProvisionCameraArchive
     Properties:
       Bucket: !Ref CameraArchiveBucket
       PolicyDocument:
@@ -217,6 +239,11 @@ Resources:
             JwtConfiguration:
               issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
               audience: [!Ref AndroidUserPoolClient]
+          GooglePlayPush:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              issuer: https://accounts.google.com
+              audience: [!Sub 'https://greenhouse-monitor-${EnvironmentName}-${AWS::AccountId}.${AWS::Region}.invalid/play-archive']
       AccessLogSettings:
         DestinationArn: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/greenhouse-monitor/${EnvironmentName}/api
         Format: '{"requestId":"$context.requestId","status":"$context.status","routeKey":"$context.routeKey","responseLength":"$context.responseLength"}'
@@ -245,6 +272,8 @@ Resources:
       FunctionName: !Sub greenhouse-monitor-${EnvironmentName}-api
       CodeUri: ../backend/src/
       Handler: app.handler
+      # A Play notification can need both a subscription lookup and an acknowledgement.
+      Timeout: 28
       ReservedConcurrentExecutions: 20
       Environment:
         Variables:
@@ -254,6 +283,8 @@ Resources:
           CAMERA_ARCHIVE_BUCKET: !If [CameraArchiveEnabled, !Ref CameraArchiveBucket, ""]
           PLAY_TEST_ACCOUNT_IDS: !Ref PlayTestAccountIds
           GOOGLE_PLAY_PACKAGE_NAME: !Ref GooglePlayPackageName
+          GOOGLE_PLAY_RTDN_SERVICE_ACCOUNT: !Ref GooglePlayPushServiceAccount
+          GOOGLE_PLAY_RTDN_AUDIENCE: !Sub 'https://greenhouse-monitor-${EnvironmentName}-${AWS::AccountId}.${AWS::Region}.invalid/play-archive'
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ApplicationTable
@@ -308,6 +339,14 @@ Resources:
                 Resource: !Ref GooglePlayCredentialsSecretArn
           - !Ref AWS::NoValue
       Events:
+        GooglePlayNotifications:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /v1/billing/google-play/notifications
+            Method: POST
+            Auth:
+              Authorizer: GooglePlayPush
         Proxy:
           Type: HttpApi
           Properties:
@@ -543,6 +582,9 @@ Resources:
       AlarmActions: [!Ref OperationsAlertTopic]
 
 Outputs:
+  GooglePlayPushAudience:
+    Description: Set the Pub/Sub push subscription's custom OIDC audience to this value.
+    Value: !Sub 'https://greenhouse-monitor-${EnvironmentName}-${AWS::AccountId}.${AWS::Region}.invalid/play-archive'
   AwsRegion:
     Value: !Ref AWS::Region
   ApiUrl:

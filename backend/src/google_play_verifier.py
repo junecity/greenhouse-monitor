@@ -14,25 +14,32 @@ class GooglePlayVerificationError(RuntimeError):
         self.safe_code = safe_code
 
 
-def _expiry_epoch(value: str) -> int:
+def _epoch_seconds(value: str) -> int:
     return int(datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp())
 
 
-def parse_subscription(payload: dict, expected_product_id: str) -> dict:
+def parse_subscription(payload: dict, expected_product_id: str, *, base_plan: str | None = None) -> dict:
     line_items = payload.get("lineItems") or []
     matching = [item for item in line_items if item.get("productId") == expected_product_id]
     if not matching:
         raise GooglePlayVerificationError("google_play_product_mismatch")
-    expirations = [_expiry_epoch(item["expiryTime"]) for item in matching if item.get("expiryTime")]
-    if not expirations:
-        raise GooglePlayVerificationError("google_play_expiration_missing")
+    if base_plan:
+        matching = [item for item in matching if (item.get("offerDetails") or {}).get("basePlanId") == base_plan]
+        if not matching:
+            raise GooglePlayVerificationError("purchase_not_eligible")
     state = payload.get("subscriptionState", "")
-    active = state in {"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "SUBSCRIPTION_STATE_CANCELED"} and max(expirations) > datetime.now(timezone.utc).timestamp()
+    expirations = [_epoch_seconds(item["expiryTime"]) for item in matching if item.get("expiryTime")]
+    if not expirations and state not in {"SUBSCRIPTION_STATE_PENDING", "SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED"}:
+        raise GooglePlayVerificationError("google_play_expiration_missing")
+    expires_at = max(expirations, default=0)
+    active = state in {"SUBSCRIPTION_STATE_ACTIVE", "SUBSCRIPTION_STATE_IN_GRACE_PERIOD", "SUBSCRIPTION_STATE_CANCELED"} and expires_at > datetime.now(timezone.utc).timestamp()
     return {
         "active": active,
         "testPurchase": isinstance(payload.get("testPurchase"), dict),
         "accountBinding": (payload.get("externalAccountIdentifiers") or {}).get("obfuscatedExternalAccountId"),
-        "expiresAt": max(expirations),
+        "expiresAt": expires_at,
+        "startedAt": _epoch_seconds(payload["startTime"]) if payload.get("startTime") else None,
+        "linkedPurchaseToken": payload.get("linkedPurchaseToken"),
         "subscriptionState": state,
         "acknowledgementState": payload.get("acknowledgementState"),
         "latestOrderId": payload.get("latestOrderId"),
@@ -63,16 +70,17 @@ def verify_google_play_purchase(product_id: str, purchase_token: str, *, test_ac
             f"{quote(package_name, safe='')}/purchases/subscriptionsv2/tokens/{quote(purchase_token, safe='')}"
         )
         result = session.get(url, timeout=10)
+        if result.status_code in {400, 404, 410}:
+            raise GooglePlayVerificationError("google_play_purchase_invalid")
+        if result.status_code == 429 or result.status_code >= 500:
+            raise GooglePlayVerificationError("google_play_unavailable")
         if result.status_code != 200:
             raise GooglePlayVerificationError("google_play_verification_failed")
         payload = result.json()
-        verified = parse_subscription(payload, product_id)
         bound_account = test_account_binding or account_binding
+        verified = parse_subscription(payload, product_id, base_plan="monthly" if bound_account is not None else None)
         if bound_account is not None and verified["active"]:
-            monthly = any(item.get("productId") == product_id and
-                          (item.get("offerDetails") or {}).get("basePlanId") == "monthly"
-                          for item in payload.get("lineItems", []))
-            if not monthly or verified["testPurchase"] != require_test_purchase or verified["accountBinding"] != bound_account:
+            if verified["testPurchase"] != require_test_purchase or verified["accountBinding"] != bound_account:
                 raise GooglePlayVerificationError("purchase_not_eligible")
             if verified["acknowledgementState"] == "ACKNOWLEDGEMENT_STATE_PENDING":
                 ack_url = (
