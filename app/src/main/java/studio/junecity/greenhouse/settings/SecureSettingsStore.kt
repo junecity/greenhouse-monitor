@@ -3,6 +3,7 @@ package studio.junecity.greenhouse.settings
 import android.content.Context
 import studio.junecity.greenhouse.widget.widgetScope
 import studio.junecity.greenhouse.widget.ClimateWidget
+import studio.junecity.greenhouse.widget.LockScreenClimate
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -92,12 +93,19 @@ class SecureSettingsStore(private val context: Context) {
         val previous = cloudEnrollment()
         if (previous?.role == CloudDeviceRole.GreenhouseServer && previous != value)
             ManagedServerUpdate.forgetEnrollment(context)
-        if (previous?.widgetScope() != value.widgetScope())
+        val sourceChanged = previous?.widgetScope() != value.widgetScope()
+        if (sourceChanged)
             context.getSharedPreferences("widget_sync", 0).edit().clear().apply()
-        if (previous?.tenantId != value.tenantId || previous.deviceId != value.deviceId || previous.role != value.role)
+        val ownerChanged = previous?.tenantId != value.tenantId || previous.deviceId != value.deviceId || previous.role != value.role
+        if (ownerChanged)
             GreenhousePlanWorker.clearNotices(context)
+        val updateLockScreen = sourceChanged && LockScreenClimate.configured(context)
+        if (updateLockScreen) {
+            if (ownerChanged) LockScreenClimate.forget(context) else LockScreenClimate.clear(context)
+        }
         saveEncrypted("cloud_enrollment", value.toJson())
         ClientTemperatureAlarms.forgetIfOwnerChanged(context, previous, value)
+        if (updateLockScreen) ClimateWidget.lockScreenChanged(context)
         ClimateWidget.changed(context)
     }
     fun cloudEnrollment(): CloudEnrollment? = loadEncrypted("cloud_enrollment")?.let { runCatching { CloudEnrollment.parse(it) }.getOrNull() }
@@ -112,6 +120,10 @@ class SecureSettingsStore(private val context: Context) {
         ManagedServerUpdate.forgetEnrollment(context)
         // Delayed widget or monitor work can start in a new process immediately after sign-out.
         check(prefs.edit().remove("cloud_enrollment").commit())
+        if (LockScreenClimate.configured(context)) {
+            LockScreenClimate.forget(context)
+            ClimateWidget.lockScreenChanged(context)
+        }
         ClientTemperatureAlarms.forget(context)
         GreenhousePlanWorker.clearNotices(context)
         context.getSharedPreferences("widget_sync", 0).edit().clear().apply()

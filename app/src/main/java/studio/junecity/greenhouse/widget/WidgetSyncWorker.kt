@@ -1,7 +1,5 @@
 package studio.junecity.greenhouse.widget
 
-import android.appwidget.AppWidgetManager
-import android.content.ComponentName
 import android.content.Context
 import androidx.work.*
 import kotlinx.coroutines.CancellationException
@@ -68,16 +66,11 @@ class WidgetSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
     }
 
     companion object {
-        private fun hasPin(context: Context, owner: CloudEnrollment): Boolean {
-            val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
-            return ids.any { ClimateWidget.canDisplay(owner, ClimateWidget.settings(context, it)) }
-        }
-
         internal suspend fun refresh(context: Context, expectedScope: String?, upload: String?,
                                      fetch: suspend (CloudEnrollment) -> JSONObject?): Result {
             val owner = SecureSettingsStore(context).cloudEnrollment() ?: return Result.success()
             if (owner.widgetScope() != expectedScope || owner.role != CloudDeviceRole.ViewerClient ||
-                owner.isStandaloneClient() || !hasPin(context, owner)) return Result.success()
+                owner.isStandaloneClient() || !ClimateWidget.hasReadingDisplay(context, owner)) return Result.success()
             return try {
                 syncViewerReadings(context, owner, skipRecent = true, upload = upload) { fetch(owner) }
                 Result.success()
@@ -97,12 +90,12 @@ class WidgetSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 WidgetCollectorRefresh.enqueue(context)
                 return
             }
-            if (hasPin(context, owner)) request(context, owner, null)
+            if (ClimateWidget.hasReadingDisplay(context, owner)) request(context, owner, null)
         }
 
         /** Reuse the alarm monitor's authenticated device list. Widget downloads run outside the alarm poll. */
         internal fun serverUploads(context: Context, owner: CloudEnrollment, devices: List<AccountDevice>) {
-            if (owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient() || !hasPin(context, owner)) return
+            if (owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient() || !ClimateWidget.hasReadingDisplay(context, owner)) return
             val server = devices.singleOrNull {
                 val device = it.device
                 device.tenantId == owner.tenantId && device.greenhouseId == owner.greenhouseId &&

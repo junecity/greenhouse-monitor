@@ -36,7 +36,7 @@ internal class ClimateCardRepository(context: Context) {
     private val metadata = app.getSharedPreferences(STORE, Context.MODE_PRIVATE)
 
     fun load(owner: CloudEnrollment, houseId: String? = null, sensorId: String? = null,
-             celsius: Boolean? = null, now: Long = System.currentTimeMillis()): GreenhouseWidgetUiState {
+             celsius: Boolean? = null, now: Long = System.currentTimeMillis(), readingsOnly: Boolean = false): GreenhouseWidgetUiState {
         fun unavailable(status: WidgetFeedStatus, message: String) =
             GreenhouseWidgetUiState(status = status, statusMessage = message, now = now, celsius = celsius ?: false)
         fun signedOut() = unavailable(WidgetFeedStatus.Empty, "Open Greenhouse Studio to set up")
@@ -50,7 +50,7 @@ internal class ClimateCardRepository(context: Context) {
                     else unavailable(WidgetFeedStatus.Loading, "Waiting for server readings")
                 // There is no trusted local floor-plan inventory yet. An incident itself identifies
                 // its cloud greenhouse and, on current servers, the individual sensor.
-                active = pairedAlarm(owner, sensorId, includeUnknown = houseId.isNullOrBlank() ||
+                active = !readingsOnly && pairedAlarm(owner, sensorId, includeUnknown = houseId.isNullOrBlank() ||
                     houseId == owner.greenhouseId || !sensorId.isNullOrBlank())
                 return if (secure.cloudEnrollment() == owner) pending.copy(alarmActive = active) else signedOut()
             }
@@ -63,7 +63,7 @@ internal class ClimateCardRepository(context: Context) {
             val all = inventory.filter { it.greenhouseId == house.id }
             val selected = all.filter { sensorId.isNullOrBlank() || it.id == sensorId }
             val rules = prefs.forAlertsIn(house.id)
-            active = if (paired) {
+            active = if (readingsOnly) false else if (paired) {
                 val assignments = prefs.sensorGreenhouseIds + inventory.associate { it.id to it.greenhouseId }
                 pairedAlarm(owner, sensorId, house.id, assignments, house.id == prefs.activeGreenhouse.id)
             } else AlertNotifier.hasClimateAlarm(app, owner, house.id, selected, rules, now)
@@ -74,18 +74,22 @@ internal class ClimateCardRepository(context: Context) {
                 paired || selected.none { it.isLocalRadio() } || SensorBluetooth.allowed(app),
                 metadata.getBoolean(failureKey(owner), false))
             val archive = if (paired) viewerHistorySuffix(owner) else suffix
-            val trend = if (selected.isEmpty()) emptyList() else HistoryStore(app, archive).use {
+            val trend = if (readingsOnly || selected.isEmpty()) emptyList() else HistoryStore(app, archive).use {
                 it.widgetTrend(selected, house, now)
             }
-            val training = HeatingStore(app, owner, house.id)
-            val target = training.widgetTarget(prefs.zipCode, all.map { it.id }.toSet(), now)
+            val target = if (readingsOnly) null else
+                HeatingStore(app, owner, house.id).widgetTarget(prefs.zipCode, all.map { it.id }.toSet(), now)
+            val outside = if (readingsOnly) null else readWeather(prefs.zipCode)
             val cadence = if (paired) house.refreshMinutes else 1
             val value = climateCardState(
                 selected.singleOrNull()?.name?.takeUnless { sensorId.isNullOrBlank() } ?: house.name, selected,
-                trend, now, cadence, celsius ?: !prefs.temperatureFahrenheit, target, readWeather(prefs.zipCode),
+                trend, now, cadence, celsius ?: !prefs.temperatureFahrenheit, target, outside,
                 rules, sources, sensorId?.takeIf(String::isNotBlank), house
             ).copy(alarmActive = active)
-            if (secure.cloudEnrollment() != owner || (paired && !ClimateWidget.viewerReady(app, owner))) signedOut() else value
+            val expires = house.monitoringUntilEpochMs
+            val current = if (expires != null && (value.nextStatusAt == null || expires < value.nextStatusAt))
+                value.copy(nextStatusAt = expires) else value
+            if (secure.cloudEnrollment() != owner || (paired && !ClimateWidget.viewerReady(app, owner))) signedOut() else current
         } catch (_: Exception) {
             if (secure.cloudEnrollment() != owner) signedOut()
             else unavailable(WidgetFeedStatus.Error, "Could not read greenhouse data").copy(alarmActive = active)

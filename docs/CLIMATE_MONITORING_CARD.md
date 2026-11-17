@@ -16,6 +16,14 @@ The widget asks the launcher for five columns and two rows. At normal text size 
 - Local observations and authenticated server snapshots trigger a launcher redraw. A paired phone’s existing background monitor checks the server’s upload timestamp and schedules a fetch when it changes. It retries transient failures. A widget configured for a specific remote greenhouse or sensor waits when another source is selected. The unconfigured current-greenhouse selection follows the active source.
 - Placing or configuring a widget also requests current data. The widget can refresh the outside temperature for its configured ZIP without opening the weather screen. Reading age, weather age and sync time are distinct. [Android schedules widget updates](https://developer.android.com/develop/ui/views/appwidgets/advanced#update-frequency) and can defer background work while the phone sleeps; a disconnected or force-stopped phone cannot guarantee live delivery. A redraw does not by itself poll Govee or create a new observation.
 
+## Lock-screen averages
+
+Under **Settings → Display**, turn on **Lock screen readings** on the phone that should show them. Grant the notification permission if Android requests it. The silent notification shows the selected greenhouse’s average temperature and relative humidity in the same units as the Dashboard. Its time comes from the oldest observation contributing to those averages. An old observation is labeled as cached. With no eligible readings, the notification shows the reason instead of numbers.
+
+The setting is off by default. Enabling it makes those readings visible to someone looking at the locked phone. It works with a standalone collector, a server phone, or a paired viewer, even without a home-screen widget. The paired viewer uses its authenticated server snapshot. Switching accounts or signing out clears the public readings. To remove them at any time, turn the setting off.
+
+Android controls when background work runs and how it presents notifications. If only an icon appears, choose a detailed or full-list lock-screen notification style in Android Settings and allow silent notifications on the lock screen. Phones that provide a lock-screen widget picker can also offer the existing climate widget.
+
 ## Alarm colors
 
 A red widget with an **ALARM** badge means a sensor it monitors has an active alert. A greenhouse widget stays red until its last relevant alert clears. A widget pinned to one sensor responds to that sensor alone.

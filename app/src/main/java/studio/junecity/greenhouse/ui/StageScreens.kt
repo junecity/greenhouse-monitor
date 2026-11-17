@@ -701,7 +701,7 @@ private fun DisplaySettings(state: GreenhouseUiState, d: (Float) -> androidx.com
     t: (Float) -> androidx.compose.ui.unit.TextUnit, onPrefs: ((AppPreferences) -> AppPreferences) -> Unit) {
     val context = LocalContext.current
     var showPickerHelp by remember { mutableStateOf(false) }
-    Column(Modifier.padding(d(22f)), verticalArrangement = Arrangement.spacedBy(d(8f))) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(d(22f)), verticalArrangement = Arrangement.spacedBy(d(8f))) {
         Text("Display", color = Color.White, fontSize = t(25f), fontWeight = FontWeight.Bold)
         ToggleRow("Keep Screen On", state.preferences.keepScreenOn, d, t) { onPrefs { it.copy(keepScreenOn = !it.keepScreenOn) } }
         ToggleRow("Auto Start (Run at Boot)", state.preferences.autoStart, d, t) { onPrefs { it.copy(autoStart = !it.autoStart) } }
@@ -710,6 +710,7 @@ private fun DisplaySettings(state: GreenhouseUiState, d: (Float) -> androidx.com
         }
         if (showPickerHelp) Text("Press and hold your home screen, open Widgets, and choose Greenhouse Studio.",
             color = DashboardTokens.Muted, fontSize = t(15f))
+        LockScreenReadingsSetting(t)
     }
 }
 @Composable private fun SettingsRow(label:String,modifier:Modifier=Modifier,content:@Composable ()->Unit){BoxWithConstraints(modifier.fillMaxWidth().background(Color(0x55082A2E),RoundedCornerShape(16.dp)).border(1.dp,Color(0xFF397A82),RoundedCornerShape(16.dp)).padding(14.dp)){if(maxWidth<520.dp)Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)){Text(label,color=Color.White,fontSize=18.sp,fontWeight=FontWeight.ExtraBold);FlowRow(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){content()}}else Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(label,color=Color.White,fontSize=17.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(.7f));FlowRow(Modifier.weight(1.3f),verticalArrangement=Arrangement.spacedBy(8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){content()}}}}

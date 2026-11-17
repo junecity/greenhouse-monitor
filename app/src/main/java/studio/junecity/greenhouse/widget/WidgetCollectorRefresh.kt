@@ -1,7 +1,5 @@
 package studio.junecity.greenhouse.widget
 
-import android.appwidget.AppWidgetManager
-import android.content.ComponentName
 import android.content.Context
 import androidx.work.*
 import kotlinx.coroutines.CancellationException
@@ -40,8 +38,7 @@ class WidgetCollectorRefresh(context: Context, params: WorkerParameters) : Corou
     companion object {
         private fun eligible(app: Context, owner: CloudEnrollment): Boolean {
             if (!owner.isStandaloneClient() && owner.role != CloudDeviceRole.GreenhouseServer) return false
-            return AppWidgetManager.getInstance(app).getAppWidgetIds(ComponentName(app, ClimateWidget::class.java))
-                .any { ClimateWidget.canDisplay(owner, ClimateWidget.settings(app, it)) }
+            return ClimateWidget.hasReadingDisplay(app, owner)
         }
 
         /** The existing enrolled-phone monitoring service stays active when the app leaves the screen. */

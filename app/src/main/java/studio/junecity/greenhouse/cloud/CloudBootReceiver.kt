@@ -5,11 +5,14 @@ import android.content.Context
 import android.content.Intent
 import studio.junecity.greenhouse.settings.AppPreferencesStore
 import studio.junecity.greenhouse.settings.SecureSettingsStore
+import studio.junecity.greenhouse.widget.ClimateWidget
+import studio.junecity.greenhouse.widget.LockScreenClimate
 
 class CloudBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val updated = intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
         if (!updated && intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        if (LockScreenClimate.configured(context)) ClimateWidget.lockScreenChanged(context)
         val shouldRestart = if (updated) ManagedServerUpdate.consumeRestart(context)
             else AppPreferencesStore(context).load().autoStart
         val configured = runCatching { CloudRuntime.configurationOrNull() != null }.getOrDefault(false)

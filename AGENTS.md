@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Greenhouse Studio 2.45.0 (95) · Lock-screen greenhouse averages
+
+- Settings → Display → Lock screen readings opts this phone into a silent public notification with the active greenhouse’s spatial average temperature and RH. LockScreenClimate requests the readings-only projection from ClimateCardRepository. Use the measurement time for cached data and exclude charts, Energy, weather and alarm queries from this path.
+- Sensor writes, selected-house and unit changes, server uploads and reading expiry update the notice even with zero widgets pinned. Source changes clear previous readings and sign-out also removes the opt-in. Boot/package replacement restore an opted-in notice. Android retains control of lock-screen style, timing and hidden silent notifications.
+- 209 JVM tests and 13 instrumentation cases on each of Android 10 and 15 passed. Both keyguards visibly displayed the simulated 67°F / 75% RH result. Lint returned zero errors. See CHANGELOG for the signed development APK and physical phone limits.
+
 ## 2026-11-17 · Greenhouse Studio 2.44.2 (94) · Home widget alarm colors
 
 - ClimateCardRepository scopes alarmActive to the pin, selected greenhouse and current enrollment. A paired critical temperature incident uses ClientTemperatureAlarms and stays red through recovery until Stop. Standalone and server temperature/humidity alarms use the posted condition in AlertNotifier, matched by collector, greenhouse and sensor. A legacy greenhouse-wide incident belongs on the greenhouse pin.

@@ -5,6 +5,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.produceIn
+import studio.junecity.greenhouse.cloud.CloudDeviceRole
 import studio.junecity.greenhouse.data.AlertNotifier
 import studio.junecity.greenhouse.data.HistoryStore
 import studio.junecity.greenhouse.model.GoveeSensor
@@ -35,17 +36,22 @@ internal fun CurrentSensorStore.applyShellyPackets(
 
 private val radioGate = Mutex()
 
-/** Briefly use the normal collector when a standalone phone only has its home screen open. */
+/** The normal collector takes precedence over a brief background sample for a climate display. */
 internal suspend fun sampleWidgetRadios(context: Context, owner: CloudEnrollment, authenticatedAs: CloudEnrollment = owner) {
-    if (!owner.isStandaloneClient() || !SensorBluetooth.allowed(context) || !radioGate.tryLock()) return
+    val suffix = when {
+        owner.isStandaloneClient() -> "_standalone"
+        owner.role == CloudDeviceRole.GreenhouseServer -> ""
+        else -> return
+    }
+    if (!SensorBluetooth.allowed(context) || !radioGate.tryLock()) return
     try {
         val access = CollectorEnrollment(context, owner, authenticatedAs)
         if (!access.isCurrent()) return
         val now = System.currentTimeMillis()
-        if (CurrentSensorStore(context, "_standalone").load().none {
+        if (CurrentSensorStore(context, suffix).load().none {
             it.isLocalRadio() && (!it.online || now - it.updatedAtEpochMs !in 0 until 60_000L)
         }) return
-        withTimeoutOrNull(30_000L) { collectRadioLoop(context, access, "_standalone") }
+        withTimeoutOrNull(30_000L) { collectRadioLoop(context, access, suffix) }
     } finally { radioGate.unlock() }
 }
 

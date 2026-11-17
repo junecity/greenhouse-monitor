@@ -30,11 +30,21 @@ internal fun CloudEnrollment.ownsWidget(savedScope: String?): Boolean {
 
 internal enum class WidgetMetric(val title: String) { Both("Temperature and humidity"), Temperature("Temperature"), Humidity("Humidity") }
 class ClimateWidget : AppWidgetProvider() {
-    private fun deliver(context: Context, ids: IntArray, coalesce: Boolean = false) {
+    private fun deliver(context: Context, ids: IntArray, coalesce: Boolean = false, lockScreen: Boolean = false) {
         val pendingResult = goAsync()
         val draw = Runnable {
             if (coalesce) synchronized(Companion) { pending = false }
-            try { ids.forEach { render(context, it) } }
+            try {
+                if (lockScreen) {
+                    try {
+                        val next = LockScreenClimate.refresh(context)
+                        scheduleFreshnessCheck(context, AppWidgetManager.INVALID_APPWIDGET_ID, next)
+                    } catch (failure: RuntimeException) {
+                        Log.w("ClimateWidget", "Could not refresh lock screen climate", failure)
+                    }
+                }
+                ids.forEach { render(context, it) }
+            }
             finally { pendingResult?.finish() }
         }
         if (coalesce) handler.postDelayed({ worker.execute(draw) }, 250) else worker.execute(draw)
@@ -63,12 +73,19 @@ class ClimateWidget : AppWidgetProvider() {
         }
         if (intent.action == READINGS_CHANGED) {
             val ids = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
-            deliver(context, ids, coalesce = true)
+            deliver(context, ids, coalesce = true, lockScreen = LockScreenClimate.configured(context))
+            return
+        }
+        if (intent.action == LOCK_SCREEN_CHANGED) {
+            deliver(context, intArrayOf(), lockScreen = true)
+            if (LockScreenClimate.configured(context)) WidgetSyncWorker.enqueue(context)
             return
         }
         if (intent.action == CHECK_AGE) {
             val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
-            if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id)?.provider == ComponentName(context, ClimateWidget::class.java))
+            if (id == AppWidgetManager.INVALID_APPWIDGET_ID) {
+                deliver(context, intArrayOf(), lockScreen = true)
+            } else if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id)?.provider == ComponentName(context, ClimateWidget::class.java))
                 deliver(context, intArrayOf(id))
             return
         }
@@ -90,9 +107,9 @@ class ClimateWidget : AppWidgetProvider() {
     companion object {
         private const val READINGS_CHANGED = "studio.junecity.greenhouse.widget.READINGS_CHANGED"
         private const val CHECK_AGE = "studio.junecity.greenhouse.widget.CHECK_AGE"
+        private const val LOCK_SCREEN_CHANGED = "studio.junecity.greenhouse.widget.LOCK_SCREEN_CHANGED"
 
-        // A sleeping phone need not wake to recolor the launcher. Android may batch this
-        // local redraw. Keep the real reading time visible even while delivery is deferred.
+        // Android can batch this non-waking update. Both surfaces show the actual observation time.
         private fun scheduleFreshnessCheck(context: Context, id: Int, next: Long?) {
             val manager = context.getSystemService(AlarmManager::class.java)
             val intent = Intent(context, ClimateWidget::class.java).setAction(CHECK_AGE)
@@ -124,6 +141,18 @@ class ClimateWidget : AppWidgetProvider() {
                 options.getString("house", "").isNullOrBlank() && options.getString("sensor", "").isNullOrBlank())
         }
 
+        internal fun hasReadingDisplay(context: Context, owner: CloudEnrollment): Boolean {
+            if (LockScreenClimate.enabled(context, owner)) return true
+            val pins = AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ClimateWidget::class.java))
+            return pins.any { canDisplay(owner, settings(context, it)) }
+        }
+
+        internal fun lockScreenChanged(context: Context) {
+            val intent = Intent(context, ClimateWidget::class.java).setAction(LOCK_SCREEN_CHANGED)
+                .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+            context.sendBroadcast(intent)
+        }
+
         internal fun viewerReady(context: Context, owner: CloudEnrollment): Boolean =
             owner.role != CloudDeviceRole.ViewerClient || owner.isStandaloneClient() ||
                 context.getSharedPreferences("widget_sync", 0).getString("scope", "") == owner.widgetScope()
@@ -149,7 +178,7 @@ class ClimateWidget : AppWidgetProvider() {
             if (pending) return
             val component = ComponentName(context, ClimateWidget::class.java)
             try {
-                if (AppWidgetManager.getInstance(context).getAppWidgetIds(component).isEmpty()) return
+                if (!LockScreenClimate.configured(context) && AppWidgetManager.getInstance(context).getAppWidgetIds(component).isEmpty()) return
                 // Hand the update to Android before the sensor or alarm worker finishes.
                 context.sendBroadcast(Intent(READINGS_CHANGED).setComponent(component).addFlags(Intent.FLAG_RECEIVER_FOREGROUND))
                 pending = true

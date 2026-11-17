@@ -16,6 +16,7 @@ import studio.junecity.greenhouse.sensors.sampleWidgetRadios
 import studio.junecity.greenhouse.settings.GreenhousePlanCache
 import studio.junecity.greenhouse.settings.SecureSettingsStore
 import studio.junecity.greenhouse.settings.isStandaloneClient
+import studio.junecity.greenhouse.widget.LockScreenClimate
 
 class SensorSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -25,7 +26,9 @@ class SensorSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
             GreenhousePlanCache.localCollector(context, current) ?: return Result.success()
         else current
         return coroutineScope {
-            if (source.isStandaloneClient()) launch { sampleWidgetRadios(context, source, authenticatedAs = current) }
+            if (source.isStandaloneClient() || LockScreenClimate.enabled(context, current)) {
+                launch { sampleWidgetRadios(context, source, authenticatedAs = current) }
+            }
             try {
                 CurrentGoveeReadings.refresh(context, source, authenticatedAs = current)
                 Result.success()
