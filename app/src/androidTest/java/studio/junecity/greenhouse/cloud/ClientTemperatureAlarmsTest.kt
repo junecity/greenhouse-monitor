@@ -53,6 +53,33 @@ class ClientTemperatureAlarmsTest {
         previousEnrollment?.let(secure::saveCloudEnrollment)
     }
 
+    @Test fun namedSensorOutageRingsAtAlarmVolumeUntilStopped() {
+        val outage = MonitoringAlert("bench-offline", owner.greenhouseId,
+            MonitoringAlertType.SensorCommunicationFailure, MonitoringAlertPriority.High,
+            "Bench sensor stopped reporting.", System.currentTimeMillis(), true, sensorId = "bench")
+        val legacy = outage.copy(id = "legacy-connection", requiresAcknowledgement = false, sensorId = null)
+        audio.setStreamVolume(AudioManager.STREAM_ALARM, audio.getStreamMinVolume(AudioManager.STREAM_ALARM), 0)
+        val quietVolume = audio.getStreamVolume(AudioManager.STREAM_ALARM)
+        ClientTemperatureAlarms.deliver(context, owner, inbox(legacy))
+        assertFalse(CriticalAlarm.isIncidentPlaying())
+        ClientTemperatureAlarms.deliver(context, owner, inbox(outage, legacy))
+        assertEquals(listOf(outage), active())
+        assertTrue(CriticalAlarm.isIncidentPlaying())
+        assertEquals(audio.getStreamMaxVolume(AudioManager.STREAM_ALARM), audio.getStreamVolume(AudioManager.STREAM_ALARM))
+        ClientTemperatureAlarms.deliver(context, owner, inbox())
+        assertTrue(CriticalAlarm.isIncidentPlaying())
+        waitUntil("offline notification with Stop alarm") {
+            notifications.activeNotifications.any { it.id == outage.id.hashCode() &&
+                it.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) == "Greenhouse sensor offline" }
+        }
+        notifications.activeNotifications.single { it.id == outage.id.hashCode() }
+            .notification.actions.single().actionIntent.send()
+        waitUntil("stop action stops the offline alarm") { active().isEmpty() && !CriticalAlarm.isIncidentPlaying() }
+        assertEquals(quietVolume, audio.getStreamVolume(AudioManager.STREAM_ALARM))
+        ClientTemperatureAlarms.deliver(context, owner, inbox(outage))
+        assertFalse(CriticalAlarm.isIncidentPlaying())
+    }
+
     @Test fun swipeRecoveryAndServiceRestartPreserveTheLocalAlarmUntilExplicitStop() {
         val alarm = alert("qa-incident-first", owner.greenhouseId)
         ClientTemperatureAlarms.deliver(context, owner, inbox(alarm))

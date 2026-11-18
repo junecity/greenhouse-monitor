@@ -23,7 +23,11 @@ data class MonitoringAlert(
     val serverId: String? = null,
     val sensorId: String? = null,
     val resolvedAtEpochMs: Long? = null
-)
+) {
+    // The server marks verified sensor outages as actionable. Older aggregate notices stay informational.
+    val isViewerAlarm get() = type.isClimateAlarm ||
+        (type == MonitoringAlertType.SensorCommunicationFailure && requiresAcknowledgement)
+}
 
 data class AlertInbox(
     val alerts: List<MonitoringAlert>,

@@ -232,7 +232,7 @@ class AuthenticatedCloudGateway(
     }
 
     suspend fun pendingAlerts(viewer: Boolean): AlertInbox {
-        val json = request("GET", if (viewer) "/v1/alerts?includeRecovered=true&includeHumidity=true" else "/v1/alerts")
+        val json = request("GET", if (viewer) "/v1/alerts?includeRecovered=true&includeHumidity=true&includeSensorOutageAlarms=true" else "/v1/alerts")
         val values = json.getJSONArray("alerts")
         val alerts = (0 until values.length()).map { CloudJsonCodec.alert(values.getJSONObject(it)) }
         val inventory = if (viewer && !json.optBoolean("offlineIncidentsVerified") &&

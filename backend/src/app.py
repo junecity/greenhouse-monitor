@@ -1233,7 +1233,7 @@ def verify_google_play_subscription(event, principal: Principal):
     })
 
 
-def pending_alerts(principal: Principal, include_recovered=False, include_humidity=False):
+def pending_alerts(principal: Principal, include_recovered=False, include_humidity=False, include_sensor_outage_alarms=False):
     device = get_owned("DEVICE", principal.device_id, principal.tenant_id)
     if not device.get("enabled") or device.get("accountId") != principal.account_id:
         raise AccessDenied("device_disabled")
@@ -1283,7 +1283,10 @@ def pending_alerts(principal: Principal, include_recovered=False, include_humidi
             "id": item["id"], "greenhouseId": item.get("greenhouseId"), "deviceId": item.get("deviceId"),
             "type": item["type"], "priority": item["priority"], "message": message,
             "createdAtEpochMs": int(item["createdAt"]) * 1000,
-            "requiresAcknowledgement": bool(item.get("requiresAcknowledgement")),
+            "requiresAcknowledgement": bool(item.get("requiresAcknowledgement")) or (
+                include_sensor_outage_alarms and device.get("role") == "VIEWER_CLIENT"
+                and item["type"] == "SENSOR_COMMUNICATION_FAILURE" and bool(item.get("sourceGeneration"))
+            ),
             **({"sensorId": item["sensorId"]} if item.get("sensorId") else {}),
         }
 
@@ -1749,7 +1752,8 @@ def handler(event, _context):
         if method == "GET" and parts == ["v1", "alerts"]:
             params = event.get("queryStringParameters") or {}
             return pending_alerts(principal, include_recovered=params.get("includeRecovered") == "true",
-                                  include_humidity=params.get("includeHumidity") == "true")
+                                  include_humidity=params.get("includeHumidity") == "true",
+                                  include_sensor_outage_alarms=params.get("includeSensorOutageAlarms") == "true")
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "alerts"] and parts[3] == "acknowledge":
             return acknowledge_alert(principal, parts[2])
         if method == "POST" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "heartbeat":

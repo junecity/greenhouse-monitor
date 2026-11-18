@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-18 · Greenhouse Studio 2.45.2 (97) · Loud sensor offline alarms
+
+- The alert API flags named sensor outages for viewers that request includeSensorOutageAlarms. Older viewers and generic communication notices retain the equipment channel. The opted-in viewer stores a named outage in the existing persistent alarm store and uses the chosen alarm sound and Stop action. The climate widget continues to use temperature and humidity incidents for its alarm state.
+- With Override low or muted volume on, the viewer plays on the Android alarm stream and restores the previous volume after the final Stop. The normal notification permission, selected sound channel and system Do Not Disturb policy apply.
+- Deployed the compatible API change and published the signed 2.45.2 APK to the existing Drive file and private server update catalog. Passed 212 JVM tests, 161 backend tests, 13 live API checks and seven targeted Android cases each on API 29 and 35. Lint had zero errors. The signed app played alarm audio for a live sensor outage on a screen-off Android 15 emulator after removal from Recents. Stop silenced it and the cloud received the acknowledgement. Physical sound and delivery remain unverified.
+
 ## 2026-11-18 · Individual offline sensor alerts
 
 - The existing heartbeat only detects a total sensor connection loss. The development backend also evaluates current authenticated sensor backups. An offline or expired previously reporting sensor opens a named equipment alert even when another sensor is online. Simultaneous new outages share a notice. Check the active floor plan and the greenhouse's Sensor offline rule. An uninitialized sensor is excluded.

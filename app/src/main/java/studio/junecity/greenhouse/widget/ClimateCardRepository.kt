@@ -132,7 +132,8 @@ internal class ClimateCardRepository(context: Context) {
     private fun pairedAlarm(owner: CloudEnrollment, sensorId: String?, includeUnknown: Boolean,
                             onFloor: (String) -> Boolean? = { null }): Boolean =
         ClientTemperatureAlarms.active(app, owner).any { incident ->
-            if (incident.greenhouseId != owner.greenhouseId || (!sensorId.isNullOrBlank() && incident.sensorId != sensorId)) false
+            if (!incident.type.isClimateAlarm || incident.greenhouseId != owner.greenhouseId ||
+                (!sensorId.isNullOrBlank() && incident.sensorId != sensorId)) false
             else incident.sensorId?.let(onFloor) ?: includeUnknown
         }
 

@@ -89,10 +89,13 @@ internal object ClientTemperatureAlarms {
     private fun incidents(prefs: SharedPreferences): List<MonitoringAlert> = prefs.all.mapNotNull { (key, value) ->
         if (!key.startsWith(LIVE) || value !is String) return@mapNotNull null
         val entry = JSONObject(value)
-        val type = if (entry.optString("type") == MonitoringAlertType.CriticalHumidity.name)
-            MonitoringAlertType.CriticalHumidity else MonitoringAlertType.CriticalTemperature
+        val type = when (entry.optString("type")) {
+            MonitoringAlertType.CriticalHumidity.name -> MonitoringAlertType.CriticalHumidity
+            MonitoringAlertType.SensorCommunicationFailure.name -> MonitoringAlertType.SensorCommunicationFailure
+            else -> MonitoringAlertType.CriticalTemperature
+        }
         MonitoringAlert(key.removePrefix(LIVE), entry.getString("house"), type,
-            MonitoringAlertPriority.Critical, entry.getString("message"), entry.getLong("time"), true,
+            MonitoringAlertPolicy.priority(type), entry.getString("message"), entry.getLong("time"), true,
             entry.optString("server").ifBlank { null }, entry.optString("sensor").ifBlank { null },
             entry.optLong("resolvedAt").takeIf { it > 0 })
     }.sortedWith(compareBy({ it.occurredAtEpochMs }, { it.id }))
@@ -140,20 +143,22 @@ internal object ClientTemperatureAlarms {
         val stopped = prefs.getStringSet(STOPPED, emptySet()).orEmpty()
         if (inbox != null || readings.isNotEmpty()) {
             val now = System.currentTimeMillis()
-            val critical = inbox?.alerts.orEmpty().filter { it.type.isClimateAlarm }
+            val alarms = inbox?.alerts.orEmpty().filter { it.isViewerAlarm }
+            val climate = alarms.filter { it.type.isClimateAlarm }
+            val outages = alarms.filter { it.type == MonitoringAlertType.SensorCommunicationFailure }
             val edit = prefs.edit().putString(OWNER, owner)
             if (inbox != null) edit.putLong(LAST_CHECK, now)
             for (batch in readings) batch.uploadTime?.let {
                 edit.putLong(uploadKey(batch.house, batch.server, batch.generation), it)
             }
             val ledger = ReadingAlarmLedger(prefs.getString(READINGS, null))
-            val update = ledger.update(readings, critical, incidents(prefs), stopped, now)
+            val update = ledger.update(readings, climate, incidents(prefs).filter { it.type.isClimateAlarm }, stopped, now)
             val pending = prefs.getStringSet(ACK_QUEUE, emptySet()).orEmpty() + update.acknowledge
             val encoded = ledger.encode()
             if (encoded != prefs.getString(READINGS, null)) edit.putString(READINGS, encoded)
             if (update.acknowledge.isNotEmpty()) edit.putStringSet(ACK_QUEUE, pending)
             var incidentsChanged = false
-            for (alert in update.deliver) {
+            for (alert in update.deliver + outages) {
                 if (alert.id in stopped) continue
                 val entry = JSONObject().put("house", alert.greenhouseId).put("time", alert.occurredAtEpochMs)
                     .put("type", alert.type.name).put("message", alert.message).put("server", alert.serverId).put("sensor", alert.sensorId)
@@ -165,7 +170,7 @@ internal object ClientTemperatureAlarms {
             }
             val suppressed = stopped + update.acknowledge
             if (inbox?.complete == true && inbox.criticalIncidentsVerified) {
-                edit.putStringSet(STOPPED, suppressed.intersect(critical.map { it.id }.toSet() + pending))
+                edit.putStringSet(STOPPED, suppressed.intersect(alarms.map { it.id }.toSet() + pending))
             } else if (suppressed != stopped) edit.putStringSet(STOPPED, suppressed)
             edit.commit()
             if (incidentsChanged) ClimateWidget.changed(context)
@@ -186,10 +191,16 @@ internal object ClientTemperatureAlarms {
             if (old?.channelId == channel.id &&
                 old.extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() == alarm.message &&
                 old.actions?.any { it.title.toString() == STOP_ALARM_LABEL } == true) continue
-            // Replace the old notification action when upgrading during an already active breach.
-            if (posted.any { it.tag == null && it.id == id && it.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE) == "Critical greenhouse temperature" }) {
-                notifications.cancel(id)
+            // Replace the prior notification when upgrading with an unacknowledged incident.
+            val previousTitle = when (alarm.type) {
+                MonitoringAlertType.CriticalTemperature -> "Critical greenhouse temperature"
+                MonitoringAlertType.SensorCommunicationFailure -> "Greenhouse sensor connection"
+                else -> null
             }
+            if (previousTitle != null && posted.any {
+                    it.tag == null && it.id == id &&
+                        it.notification.extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString() == previousTitle
+                }) notifications.cancel(id)
             postCloudAlert(context, alarm, enrollment.role, tag, sounding)
         }
     }

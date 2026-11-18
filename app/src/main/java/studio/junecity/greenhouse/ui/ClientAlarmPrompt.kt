@@ -74,7 +74,9 @@ internal fun ClientAlarmPrompt(
                 val title = when {
                     alarms.all { it.type == MonitoringAlertType.CriticalHumidity } -> "Critical humidity alarm"
                     alarms.all { it.type == MonitoringAlertType.CriticalTemperature } -> "Critical temperature alarm"
-                    else -> "Critical greenhouse alarms"
+                    alarms.all { it.type == MonitoringAlertType.SensorCommunicationFailure } -> "Sensor offline alarm"
+                    alarms.all { it.type.isClimateAlarm } -> "Critical greenhouse alarms"
+                    else -> "Greenhouse alarms"
                 }
                 Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }

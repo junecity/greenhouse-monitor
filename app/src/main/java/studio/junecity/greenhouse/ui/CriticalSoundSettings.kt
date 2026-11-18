@@ -98,8 +98,8 @@ internal fun CriticalSoundSettings(enrollment: CloudEnrollment) {
                 Text("Override low or muted volume", Modifier.weight(1f), color = DashboardTokens.White)
                 Switch(checked = loud, onCheckedChange = null)
             }
-            Text(if (loud) "Each sensor rings at alarm volume until you tap Stop alarm. Silent and vibrate modes use the same alarm sound."
-                else "Each sensor rings at notification volume until you tap Stop alarm.", color = DashboardTokens.Muted)
+            Text(if (loud) "Temperature, humidity, and sensor offline alarms ring at alarm volume until you tap Stop alarm."
+                else "Temperature, humidity, and sensor offline alarms ring at notification volume until you tap Stop alarm.", color = DashboardTokens.Muted)
             soundIssue?.let { Text(it, color = DashboardTokens.Amber) }
             if (soundIssue?.contains("Do Not Disturb") == true) {
                 TextButton(onClick = {
