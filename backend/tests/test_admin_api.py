@@ -236,6 +236,30 @@ class AdminDataTests(unittest.TestCase):
         self.assertEqual([100, 2], [len(batch["Keys"]) for batch in self.fake.meta.client.batch_reads])
         self.assertNotIn("purchaseToken", self.fake.meta.client.batch_reads[0]["ProjectionExpression"])
 
+    def test_subscription_endpoint_projects_current_and_ended_plans_without_tokens(self):
+        now = int(time.time())
+        accounts = [
+            {"accountId": "customer", "tenantId": "tenant", "cognitoSubject": "subject"},
+            {"accountId": "orphan", "tenantId": "tenant"},
+        ]
+        greenhouse = {"pk": "ACCOUNT#customer", "sk": "GREENHOUSE_PLAN", "tenantId": "tenant",
+                      "productId": "greenhouse_extra_2", "paidThroughEpochMs": (now + 3600) * 1000,
+                      "renews": False, "testPurchase": False, "checkedAt": now, "purchaseToken": "secret"}
+        recording = {"pk": "ACCOUNT#customer", "sk": "CAMERA_STORAGE", "paidThrough": 0,
+                     "testPurchase": True, "checkedAt": now - 1, "purchaseToken": "secret"}
+        for item in (greenhouse, recording, dict(recording, pk="ACCOUNT#orphan")):
+            self.fake.items[item["pk"], item["sk"]] = item
+        with patch.object(admin_api, "entity_items", side_effect=lambda kind: accounts if kind == "ACCOUNT" else []), \
+             patch.object(admin_api, "customer_identities", return_value=[{"subject": "subject", "displayName": "North Farm"}]):
+            result = admin_api.handler(event("/admin/v1/subscriptions", role="ReadOnly"), SimpleNamespace())
+        self.assertEqual(200, result["statusCode"])
+        self.assertNotIn("secret", result["body"])
+        data = json.loads(result["body"])
+        self.assertEqual(["Ending", "Ended"], [item["state"] for item in data["addOns"]])
+        self.assertEqual(["North Farm", "North Farm"], [item["customerName"] for item in data["addOns"]])
+        self.assertEqual(2, data["billing"]["production"]["extraSlots"])
+        self.assertEqual(0, data["billing"]["licenseTest"]["recordingAccounts"])
+
     def test_unprocessed_billing_rows_are_retried_and_partial_totals_never_display(self):
         customers = [{"tenantId": "tenant", "accountId": "a"}]
         pending = {self.fake.name: {"Keys": [{"pk": "ACCOUNT#a", "sk": "CAMERA_STORAGE"}]}}

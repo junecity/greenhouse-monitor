@@ -6,7 +6,19 @@ export type Customer = { accountId: string; tenantId?: string; displayName?: str
 export type Device = { deviceId: string; accountId: string; greenhouseId?: string; role: string; clientRole?: string; enabled: boolean; communicationSuspended?: boolean; authorizationStatus?: string; online: boolean; lastHeartbeat?: number; appVersion?: string; sensorCount: number; sensorProvider?: string; cameraStatus?: string; sensorConnectionHealthy?: boolean; criticalTemperature?: boolean; connectionError?: string; batteryPercent?: number; charging?: boolean; networkType?: string; wifiSignalStrength?: number; lastSensorSync?: number; lastDataUpload?: number };
 export type Entitlement = { accountId: string; plan: string; state: string; source: string; features: string[]; verifiedAt?: number; expiresAt?: number; renewalAt?: number; productId?: string; verificationStatus: string; verificationError?: string; complimentary: boolean; videoAccessMode: string; videoAccessOverrideExpiresAt?: number };
 export type BillingCounts = { greenhouseAccounts: number; extraSlots: number; endingGreenhousePlans: number; recordingAccounts: number };
-export type Dashboard = { generatedAt: number; metrics: Record<string, number>; billing?: { production: BillingCounts; licenseTest: BillingCounts } | null; trends: { customerGrowth: TrendPoint[]; subscriptions: TrendPoint[]; reliability: TrendPoint[] }; costs: CostSnapshot; alerts: Alarm[] };
+export type BillingSummary = { production: BillingCounts; licenseTest: BillingCounts };
+export type AddOnKind = "GREENHOUSE_PLAN" | "CAMERA_STORAGE";
+export type AddOn = {
+  accountId: string;
+  customerName: string | null;
+  kind: AddOnKind;
+  state: "Active" | "Ending" | "Ended";
+  paidThrough: number | null;
+  verifiedAt: number;
+  testPurchase: boolean;
+  extraSlots: number | null;
+};
+export type Dashboard = { generatedAt: number; metrics: Record<string, number>; billing?: BillingSummary | null; trends: { customerGrowth: TrendPoint[]; subscriptions: TrendPoint[]; reliability: TrendPoint[] }; costs: CostSnapshot; alerts: Alarm[] };
 export type Alarm = { name: string; state: string; reason?: string; updatedAt?: string };
 export type Operations = { generatedAt: number; streaming: { active: number; direct: number; turnRelayed: number; failures: number; reconnections: number; durationSeconds: number; relayBytes: number }; costs: CostSnapshot; alarms: Alarm[] };
 export type AuditEvent = { id: string; actorSubject: string; actorRole: string; action: string; resourceType: string; resourceId: string; outcome: string; createdAt: number; requestId: string };

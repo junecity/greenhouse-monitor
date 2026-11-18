@@ -300,6 +300,7 @@ def customer_detail(account_id: str) -> dict:
         customer["devices"] = []
         customer["greenhouses"] = []
         customer["alerts"] = []
+        customer["addOns"] = []
         customer["entitlement"] = _safe_entitlement({
             "accountId": account_id,
             "plan": "NOT_STARTED",
@@ -357,6 +358,10 @@ def customer_detail(account_id: str) -> dict:
                 "networkType": server.get("networkType"),
                 "createdAt": int(greenhouse.get("createdAt", 0)),
             })
+    customer["addOns"] = [
+        addon for item in inventory
+        if (addon := _safe_add_on(item, record, int(time.time() * 1000))) is not None
+    ]
     customer["devices"] = devices
     customer["greenhouses"] = greenhouses
     customer["alerts"] = sorted(alerts, key=lambda value: value["createdAt"], reverse=True)[:25]
@@ -394,7 +399,20 @@ def list_devices(query: str = "") -> dict:
 
 def list_subscriptions() -> dict:
     values = [_safe_entitlement(item) for item in entity_items("ENTITLEMENT")]
-    return {"subscriptions": values, "count": len(values)}
+    identities = {str(item["subject"]): item for item in customer_identities()}
+    accounts = [
+        _merge_customer_identity(item, identities[str(item["cognitoSubject"])])
+        for item in entity_items("ACCOUNT")
+        if str(item.get("cognitoSubject") or "") in identities
+    ]
+    add_ons = _read_add_ons(accounts, int(time.time() * 1000))
+    return {
+        "subscriptions": values,
+        "count": len(values),
+        "addOns": add_ons,
+        "billing": _add_on_counts(add_ons),
+        "playVerificationConfigured": bool(os.environ.get("GOOGLE_PLAY_CREDENTIALS_SECRET_ID")),
+    }
 
 
 def _day(epoch: int) -> str:
@@ -410,11 +428,42 @@ def _trend(items: Iterable[dict], predicate=lambda _item: True) -> list[dict]:
     return [{"date": key, "value": counts[key]} for key in sorted(counts)]
 
 
-def billing_counts(accounts: list[dict], now_ms: int) -> dict | None:
-    totals = {kind: {"greenhouseAccounts": 0, "extraSlots": 0, "endingGreenhousePlans": 0, "recordingAccounts": 0}
-              for kind in ("production", "licenseTest")}
-    owners = {"ACCOUNT#" + item["accountId"]: item.get("tenantId") for item in accounts}
+def _safe_add_on(row: dict, owner: dict, now_ms: int) -> dict | None:
+    kind = row.get("sk")
+    if kind not in ("GREENHOUSE_PLAN", "CAMERA_STORAGE"):
+        return None
+    if not isinstance(row.get("testPurchase"), bool) or not row.get("checkedAt"):
+        return None
+    if kind == "GREENHOUSE_PLAN":
+        if not owner.get("tenantId") or row.get("tenantId") != owner["tenantId"]:
+            return None
+        product = row.get("productId")
+        sku = GREENHOUSE_SKU.fullmatch(product or "")
+        if product and not sku:
+            return None
+        slots = int(sku[1]) if sku else None
+        paid_through_ms = int(row.get("paidThroughEpochMs") or 0) if slots else 0
+    else:
+        slots = None
+        paid_through_ms = int(row.get("paidThrough") or 0) * 1000
+    renews = row.get("renews") if kind == "GREENHOUSE_PLAN" else None
+    state = "Ended" if paid_through_ms <= now_ms else "Ending" if renews is False else "Active"
+    return {
+        "accountId": owner["accountId"],
+        "customerName": owner.get("displayName") or owner.get("email"),
+        "kind": kind,
+        "state": state,
+        "paidThrough": paid_through_ms // 1000 or None,
+        "verifiedAt": int(row["checkedAt"]),
+        "testPurchase": row["testPurchase"],
+        "extraSlots": slots,
+    }
+
+
+def _read_add_ons(accounts: list[dict], now_ms: int) -> list[dict] | None:
+    owners = {"ACCOUNT#" + item["accountId"]: item for item in accounts}
     keys = [{"pk": owner, "sk": product} for owner in owners for product in ("GREENHOUSE_PLAN", "CAMERA_STORAGE")]
+    add_ons = []
     for start in range(0, len(keys), 100):
         pending = {table.name: {"Keys": keys[start:start + 100],
                    "ProjectionExpression": "pk, sk, tenantId, productId, testPurchase, checkedAt, paidThroughEpochMs, paidThrough, renews"}}
@@ -422,22 +471,11 @@ def billing_counts(accounts: list[dict], now_ms: int) -> dict | None:
             try:
                 page = table.meta.client.batch_get_item(RequestItems=pending)
             except ClientError:
-                # The operator can still view operational metrics during a billing-read outage.
                 return None
             for row in page.get("Responses", {}).get(table.name, []):
-                key = row["pk"]
-                if key not in owners or not isinstance(row.get("testPurchase"), bool) or not row.get("checkedAt"):
-                    continue
-                counts = totals["licenseTest" if row["testPurchase"] else "production"]
-                if row["sk"] == "CAMERA_STORAGE" and int(row.get("paidThrough", 0)) * 1000 > now_ms:
-                    counts["recordingAccounts"] += 1
-                elif (row["sk"] == "GREENHOUSE_PLAN" and row.get("tenantId") == owners[key]
-                      and int(row.get("paidThroughEpochMs", 0)) > now_ms):
-                    sku = GREENHOUSE_SKU.fullmatch(row.get("productId") or "")
-                    if sku:
-                        counts["greenhouseAccounts"] += 1
-                        counts["extraSlots"] += int(sku[1])
-                        counts["endingGreenhousePlans"] += int(row.get("renews") is False)
+                owner = owners.get(row["pk"])
+                if owner and (add_on := _safe_add_on(row, owner, now_ms)) is not None:
+                    add_ons.append(add_on)
             pending = page.get("UnprocessedKeys")
             if not pending:
                 break
@@ -445,7 +483,29 @@ def billing_counts(accounts: list[dict], now_ms: int) -> dict | None:
                 time.sleep(0.05 * 2 ** attempt)
         else:
             return None
+    return sorted(add_ons, key=lambda item: item["verifiedAt"], reverse=True)
+
+
+def _add_on_counts(add_ons: list[dict] | None) -> dict | None:
+    if add_ons is None:
+        return None
+    totals = {kind: {"greenhouseAccounts": 0, "extraSlots": 0, "endingGreenhousePlans": 0, "recordingAccounts": 0}
+              for kind in ("production", "licenseTest")}
+    for item in add_ons:
+        if item["state"] == "Ended":
+            continue
+        counts = totals["licenseTest" if item["testPurchase"] else "production"]
+        if item["kind"] == "CAMERA_STORAGE":
+            counts["recordingAccounts"] += 1
+        else:
+            counts["greenhouseAccounts"] += 1
+            counts["extraSlots"] += item["extraSlots"]
+            counts["endingGreenhousePlans"] += int(item["state"] == "Ending")
     return totals
+
+
+def billing_counts(accounts: list[dict], now_ms: int) -> dict | None:
+    return _add_on_counts(_read_add_ons(accounts, now_ms))
 
 
 def dashboard() -> dict:

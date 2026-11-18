@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Simplified development admin and subscription views
+
+- Overview leads with Customers, Subscriptions and Devices. Account trends and operating details open on demand. Subscriptions leads with Extra greenhouses and Cloud recording, including paid-through dates, ending plans and license-test labels. The customer profile shows verified add-ons. Premium live-view records and permitted reverification are available under a disclosure.
+- admin_api.py returns safe add-on records through the existing authenticated routes. Dashboard and Subscriptions share the same billing calculations and retry policy. The page reports when admin Play verification needs setup. Development sales are off pending Google Play setup.
+- Deployed the admin stack and published the portal to the existing CloudFront distribution. Passed 160 backend and 16 portal tests, portal lint and configured build. Verified the live signed-in routes, product switching, the menu at 390 px, API authentication and the deployed asset readback. Real purchases remain untested. Live screenshots are under build-out/admin-simplification/.
+
 ## 2026-11-17 · Development AWS deployment · Greenhouse Studio 2.45.1 (96)
 
 - Renewed the greenhouse development session and deployed source `a020b4a` to `greenhouse-monitor-dev` and `greenhouse-monitor-admin-dev` with the existing CloudFormation execution role. Both reached UPDATE_COMPLETE. Data and identity resources retained their identifiers; the table and customer pool changes were build metadata only. Keep the dual-format snapshot reader when preparing a rollback.

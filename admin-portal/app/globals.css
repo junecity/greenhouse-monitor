@@ -241,3 +241,69 @@ dd { margin: 6px 0 0; font-size: 12px; overflow-wrap: anywhere; }
   .main-content:has(.customer-workspace.profile-open) > .page-header { display: none; }
   .profile-open .back-to-directory { display: inline-flex; align-items: center; justify-self: start; gap: .45rem; min-height: 44px; border: 0; padding: .5rem 0; color: var(--amber); background: transparent; font: inherit; cursor: pointer; }
 }
+
+.admin-task-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.admin-task {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.admin-task:hover, .admin-task[aria-pressed="true"] {
+  border-color: var(--amber);
+  background: var(--surface-2);
+}
+.admin-task-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  color: var(--amber);
+  font-weight: 700;
+}
+.admin-task-label svg:last-child:not(:first-child) { margin-left: auto; }
+.admin-task > strong { font-size: clamp(17px, 1.8vw, 25px); line-height: 1.25; }
+.admin-task > small { color: var(--muted); line-height: 1.45; }
+.subscription-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.billing-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+.alert-notice { color: var(--red); background: var(--surface); }
+.text-link { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--amber); }
+.subscription-search { margin-bottom: 14px; }
+.subscription-row { flex-wrap: wrap; }
+.subscription-row > div { min-width: 0; overflow-wrap: anywhere; }
+.subscription-row details { margin-top: 7px; color: var(--muted); font-size: 12px; }
+.subscription-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+@media (max-width: 920px) {
+  .admin-task-grid:not(.subscription-options) { grid-template-columns: 1fr; }
+}
+@media (max-width: 540px) {
+  .admin-task { padding: 14px; }
+  .subscription-options { gap: 9px; }
+  .subscription-options .admin-task-label { align-items: flex-start; font-size: 14px; }
+  .subscription-options svg { flex: 0 0 17px; }
+}

@@ -1,13 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, RefreshCw, House, Smartphone, Video } from "lucide-react";
+import { ArrowLeft, ArrowRight, BadgeDollarSign, RefreshCw, House, Server, Smartphone, Users, Video } from "lucide-react";
 import { AppShell } from "./app-shell";
 import { ConfirmButton, EmptyState, ErrorPanel, LoadingPanel, MetricCard, Panel, SearchField, StatusBadge, TrendChart } from "./ui";
 import { useAdminMutation, useAdminQuery } from "@/hooks/use-admin-api";
 import { can } from "@/lib/permissions";
 import { formatDate, formatMoney, formatNumber, humanDuration } from "@/lib/format";
-import type { AdminRole, AuditEvent, Customer, Dashboard, Device, Entitlement, Operations, Session } from "@/lib/types";
+import type { AddOn, AddOnKind, BillingSummary, AdminRole, AuditEvent, Customer, Dashboard, Device, Entitlement, Operations, Session } from "@/lib/types";
 
 function QueryState({ loading, error, reload, children }: { loading: boolean; error: string | null; reload: () => void; children: React.ReactNode }) {
   if (loading) return <LoadingPanel />;
@@ -50,16 +51,35 @@ export function DashboardPage() {
     ["Connected sensors", m.connectedSensors, "Reported by online servers", "info"],
     ["Camera sessions", m.activeCameraSessions, "Currently authorized", "default"],
   ] as const;
-  return <AppShell title="Operational overview" eyebrow="Private administration" actions={<button className="secondary-button" onClick={() => void result.reload()}><RefreshCw size={17} />Refresh</button>}>
+  const billing = result.data?.billing?.production;
+  const tasks = [
+    { label: "Customers", summary: formatNumber(m.totalCustomers), hint: "Find an account or help a customer", href: "/customers/", icon: Users },
+    { label: "Subscriptions", summary: billing ? `${formatNumber(billing.greenhouseAccounts)} greenhouse · ${formatNumber(billing.recordingAccounts)} recording` : "Counts unavailable", hint: "See customer plans and license tests", href: "/subscriptions/", icon: BadgeDollarSign },
+    { label: "Devices", summary: m.activeServers == null ? "Unavailable" : `${formatNumber(m.activeServers)} servers online`, hint: m.offlineServers ? `${formatNumber(m.offlineServers)} offline` : "Check server and sensor connections", href: "/devices/", icon: Server },
+  ];
+  const alarms = result.data?.alerts.filter(alarm => alarm.state === "ALARM") ?? [];
+  return <AppShell title="Overview" actions={<button className="secondary-button" onClick={() => void result.reload()}><RefreshCw size={17} />Refresh</button>}>
     <QueryState {...result}>
       {result.data && <>
-        <div className="metric-grid compact">{[cards[0], cards[5], cards[6], cards[8]].map(([label, value, hint, tone]) => <MetricCard key={label} label={label} value={formatNumber(value)} hint={hint} tone={tone} />)}</div>
-        <BillingPanel billing={result.data.billing} />
-        <details className="disclosure"><summary>Account breakdown & trends</summary>
+        <div className="admin-task-grid" aria-label="Quick links">
+          {tasks.map(({ label, summary, hint, href, icon: Icon }) => <Link className="admin-task" href={href} key={href}>
+            <span className="admin-task-label"><Icon size={19} />{label}<ArrowRight size={17} /></span>
+            <strong>{summary}</strong><small>{hint}</small>
+          </Link>)}
+        </div>
+        {alarms.length > 0 && <Link className="billing-notice alert-notice" href="/operations/">{alarms.length} system {alarms.length === 1 ? "alert needs" : "alerts need"} attention <ArrowRight size={16} /></Link>}
+        <details className="disclosure"><summary>Account totals and trends</summary>
         <div className="metric-grid compact">{[cards[1], cards[2], cards[3], cards[4], cards[7]].map(([label, value, hint, tone]) => <MetricCard key={label} label={label} value={formatNumber(value)} hint={hint} tone={tone} />)}</div>
         <div className="content-grid three"><Panel><TrendChart label="Customer growth" points={result.data.trends.customerGrowth} /></Panel><Panel><TrendChart label="Premium subscriptions" points={result.data.trends.subscriptions} /></Panel><Panel><TrendChart label="Server reliability" points={result.data.trends.reliability} suffix="%" /></Panel></div>
         </details>
-        <div className="content-grid two"><Panel title="Operating cost" description="Actual billed cost is tag-filtered; the forecast is a run-rate estimate."><div className="split-metrics"><MetricCard label="Month to date" value={formatMoney(result.data.costs.actualMonthToDateUsd)} hint={result.data.costs.actualSource} /><MetricCard label="Month-end estimate" value={formatMoney(result.data.costs.estimatedMonthEndUsd)} hint={result.data.costs.estimateMethod || "Unavailable"} /></div></Panel><Panel title="System alerts" description="Current CloudWatch alarm states.">{result.data.alerts.length ? <div className="stack-list">{result.data.alerts.map((alarm) => <div className="list-row" key={alarm.name}><div><strong>{alarm.name}</strong><small>{alarm.reason || "No reason reported"}</small></div><StatusBadge value={alarm.state} /></div>)}</div> : <EmptyState title="No alarm records returned" detail="No alarm data was available from the operations service." />}</Panel></div>
+        <details className="disclosure">
+          <summary>Operating cost and system health</summary>
+          <div className="split-metrics">
+            <MetricCard label="Month to date" value={formatMoney(result.data.costs.actualMonthToDateUsd)} hint={result.data.costs.actualSource} />
+            <MetricCard label="Estimated month-end cost" value={formatMoney(result.data.costs.estimatedMonthEndUsd)} />
+          </div>
+          <Link className="text-link" href="/operations/">View system health <ArrowRight size={16} /></Link>
+        </details>
         <p className="data-note">Last generated {formatDate(result.data.generatedAt)}. All values come from backend records; unavailable data is never estimated silently.</p>
       </>}
     </QueryState>
@@ -67,7 +87,7 @@ export function DashboardPage() {
 }
 
 type CustomerList = { customers: Customer[]; count: number };
-type CustomerDetail = Customer & { devices: Device[]; greenhouses: { greenhouseId: string; name?: string; serverDeviceId?: string; enabled: boolean; authorizationStatus?: string; online?: boolean; lastConnection?: number; lastSensorSync?: number; cameraAvailability?: string; sensorCount?: number; batteryPercent?: number; charging?: boolean; networkType?: string; createdAt: number }[]; alerts: { id: string; type: string; priority: string; message: string; createdAt: number; acknowledgedAt?: number }[]; entitlement: Entitlement };
+type CustomerDetail = Customer & { addOns?: AddOn[]; devices: Device[]; greenhouses: { greenhouseId: string; name?: string; serverDeviceId?: string; enabled: boolean; authorizationStatus?: string; online?: boolean; lastConnection?: number; lastSensorSync?: number; cameraAvailability?: string; sensorCount?: number; batteryPercent?: number; charging?: boolean; networkType?: string; createdAt: number }[]; alerts: { id: string; type: string; priority: string; message: string; createdAt: number; acknowledgedAt?: number }[]; entitlement: Entitlement };
 
 export function CustomersPage() {
   const [search, setSearch] = useState("");
@@ -107,6 +127,13 @@ function CustomerDetailPanel({ accountId, onChanged }: { accountId: string; onCh
   };
   return <Panel className="detail-panel"><QueryState {...detail}>{detail.data && <div className="detail-stack">
     <div className="detail-heading"><div><h2>{detail.data.displayName || detail.data.email || "Customer account"}</h2>{detail.data.displayName && detail.data.email !== detail.data.displayName && <p>{detail.data.email}</p>}</div><StatusBadge value={detail.data.state} /></div>
+    {detail.data.setupComplete !== false && detail.data.addOns && <section className="fleet-section">
+      <h3><BadgeDollarSign size={18} /> Subscriptions</h3>
+      {detail.data.addOns.length ? detail.data.addOns.map(item => <div className="fleet-card" key={item.kind}>
+        <div className="fleet-line"><strong>{addOnNames[item.kind]}</strong><StatusBadge value={item.state} /></div>
+        <small>{addOnSummary(item)}</small>
+      </div>) : <p>No greenhouse or cloud recording subscriptions.</p>}
+    </section>}
     <section className="fleet-section">
       <h3><House size={18} /> Greenhouses <span>{detail.data.greenhouses.length}</span></h3>
       {detail.data.greenhouses.length === 0 && <p>No greenhouse server paired.</p>}
@@ -182,14 +209,98 @@ export function DevicesPage() {
   return <AppShell title="Greenhouses and devices" eyebrow="Connectivity and health" actions={<SearchField value={search} onChange={setSearch} placeholder="Search device, account, greenhouse, or provider" />}><QueryState {...result}>{result.data && (result.data.devices.length ? <Panel className="table-panel"><div className="table-scroll"><table><thead><tr><th>Device</th><th>Role</th><th>Heartbeat</th><th>Sensors</th><th>Camera</th><th>Status</th><th /></tr></thead><tbody>{result.data.devices.map((device) => <tr key={device.deviceId}><td><strong>{deviceLabel(device)}</strong><details><summary>Identifiers</summary><small>{device.deviceId}<br />{device.accountId}<br />{device.greenhouseId}</small></details></td><td>{device.role}</td><td>{formatDate(device.lastHeartbeat)}</td><td>{device.sensorCount} {device.sensorProvider && `· ${device.sensorProvider}`}</td><td>{device.cameraStatus || "Not reported"}</td><td><StatusBadge value={device.online} />{device.connectionError && <small className="error-copy">{device.connectionError}</small>}</td><td>{can(role, "device") && device.enabled && <ConfirmButton danger disabled={mutation.pending} message="Revoke this device session? The customer must pair it again." onConfirm={() => void revoke(device.deviceId)}>Revoke</ConfirmButton>}</td></tr>)}</tbody></table></div></Panel> : <EmptyState title="No devices found" />)}</QueryState></AppShell>;
 }
 
-type SubscriptionList = { subscriptions: Entitlement[]; count: number };
+type SubscriptionList = {
+  subscriptions: Entitlement[];
+  addOns?: AddOn[] | null;
+  billing?: BillingSummary | null;
+  playVerificationConfigured?: boolean;
+};
+
+const addOnNames: Record<AddOnKind, string> = {
+  GREENHOUSE_PLAN: "Extra greenhouses",
+  CAMERA_STORAGE: "Cloud recording",
+};
+
+function addOnSummary(item: AddOn): string {
+  const pieces = [];
+  if (item.extraSlots != null) {
+    pieces.push(`${item.extraSlots} extra ${item.extraSlots === 1 ? "greenhouse" : "greenhouses"}`);
+  }
+  if (item.paidThrough) pieces.push(`Paid through ${formatDate(item.paidThrough)}`);
+  if (item.testPurchase) pieces.push("License test");
+  return pieces.join(" · ") || `Verified ${formatDate(item.verifiedAt)}`;
+}
 
 export function SubscriptionsPage() {
   const result = useAdminQuery<SubscriptionList>("/admin/v1/subscriptions");
   const role = Role();
   const mutation = useAdminMutation();
-  const verify = async (id: string) => { await mutation.run(`/admin/v1/subscriptions/${id}/verify`, { method: "POST" }); await result.reload(); };
-  return <AppShell title="Premium subscriptions" eyebrow="Verified entitlements"><QueryState {...result}>{result.data && (result.data.subscriptions.length ? <Panel className="table-panel"><div className="table-scroll"><table><thead><tr><th>Account</th><th>Plan</th><th>Source</th><th>Verification</th><th>Renewal / expiration</th><th /></tr></thead><tbody>{result.data.subscriptions.map((item) => <tr key={item.accountId}><td><strong>Account · {item.accountId.slice(-6)}</strong><details><summary>Account ID</summary>{item.accountId}</details></td><td><StatusBadge value={item.plan} /></td><td>{item.source}</td><td><StatusBadge value={item.verificationStatus} />{item.verificationError && <small className="error-copy">{item.verificationError}</small>}</td><td>{formatDate(item.renewalAt || item.expiresAt)}</td><td>{can(role, "premium") && item.source === "GOOGLE_PLAY_VERIFIED" && <ConfirmButton disabled={mutation.pending} message="Reverify this purchase with Google Play?" onConfirm={() => void verify(item.accountId)}>Reverify</ConfirmButton>}</td></tr>)}</tbody></table></div></Panel> : <EmptyState title="No subscription records" />)}</QueryState></AppShell>;
+  const [kind, setKind] = useState<AddOnKind>("GREENHOUSE_PLAN");
+  const [search, setSearch] = useState("");
+  const [verifyError, setVerifyError] = useState("");
+  const rows = result.data?.addOns?.filter(item => item.kind === kind &&
+    `${item.customerName ?? ""} ${item.accountId}`.toLowerCase().includes(search.trim().toLowerCase())) ?? [];
+  const legacy = result.data?.subscriptions.filter(item => item.plan === "PREMIUM" || item.complimentary) ?? [];
+
+  async function verify(id: string) {
+    setVerifyError("");
+    try {
+      await mutation.run(`/admin/v1/subscriptions/${encodeURIComponent(id)}/verify`, { method: "POST" });
+      await result.reload();
+    } catch {
+      setVerifyError("Google Play verification failed. Try again or check the billing setup.");
+    }
+  }
+
+  return <AppShell title="Subscriptions" actions={<button className="secondary-button" onClick={() => void result.reload()}><RefreshCw size={17} />Refresh</button>}>
+    <QueryState {...result}>
+      {result.data && <>
+        {result.data.playVerificationConfigured === false && <p className="billing-notice">Google Play purchase verification needs setup.</p>}
+        <div className="admin-task-grid subscription-options" aria-label="Subscription products">
+          {(Object.keys(addOnNames) as AddOnKind[]).map(value => {
+            const metric = value === "GREENHOUSE_PLAN" ? "greenhouseAccounts" : "recordingAccounts";
+            const billing = result.data?.billing;
+            const Icon = value === "GREENHOUSE_PLAN" ? House : Video;
+            return <button className="admin-task" key={value} aria-pressed={kind === value} onClick={() => { setKind(value); setSearch(""); }}>
+              <span className="admin-task-label"><Icon size={19} />{addOnNames[value]}</span>
+              <strong>{billing ? formatNumber(billing.production[metric]) : "Unavailable"}</strong>
+              <small>{billing ? `Active customer plans · ${formatNumber(billing.licenseTest[metric])} license tests` : "Subscription counts unavailable"}</small>
+            </button>;
+          })}
+        </div>
+        <Panel title={addOnNames[kind]} description={kind === "GREENHOUSE_PLAN" ? "One greenhouse is included. Plans cover additional active greenhouses." : "One plan covers cloud recording for the account."}>
+          {result.data.addOns == null ? <ErrorPanel error="Subscription records are currently unavailable." onRetry={() => void result.reload()} /> :
+            <>
+              {result.data.addOns.some(item => item.kind === kind) && <div className="subscription-search"><SearchField value={search} onChange={setSearch} placeholder="Find a customer or account ID" /></div>}
+              {rows.length ? <div className="stack-list">
+                {rows.map(item => <article className="list-row subscription-row" key={item.accountId}>
+                  <div><strong>{item.customerName || `Account · ${item.accountId.slice(-6)}`}</strong>
+                    <small>{addOnSummary(item)}</small>
+                    <details><summary>Account ID</summary><small>{item.accountId}</small></details>
+                  </div><StatusBadge value={item.state} />
+                </article>)}
+              </div> : <EmptyState title={search ? "No matching customers" : "No subscriptions yet"} detail={search ? "Try a different name or account ID." : "Verified plans will appear here after purchase."} />}
+            </>}
+        </Panel>
+        <details className="disclosure"><summary>Plan totals</summary><BillingPanel billing={result.data.billing} /></details>
+        <details className="disclosure"><summary>Premium live view ({legacy.length})</summary>
+          {verifyError && <p className="error-copy" role="alert">{verifyError}</p>}
+          {legacy.length ? <div className="stack-list">{legacy.map(item => <article className="list-row subscription-row" key={item.accountId}>
+            <div><strong>Account · {item.accountId.slice(-6)}</strong>
+              <small>{item.complimentary ? "Complimentary access" : item.verificationStatus}</small>
+              {item.verificationError && <small className="error-copy">{item.verificationError}</small>}
+              <small>{formatDate(item.renewalAt || item.expiresAt)}</small>
+              <details><summary>Account ID</summary><small>{item.accountId}</small></details>
+            </div>
+            <div className="subscription-actions">
+              <StatusBadge value={item.state} />
+              {can(role, "premium") && item.source === "GOOGLE_PLAY_VERIFIED" && <ConfirmButton disabled={mutation.pending || result.data?.playVerificationConfigured === false} message="Reverify this purchase with Google Play?" onConfirm={() => void verify(item.accountId)}>Reverify</ConfirmButton>}
+            </div>
+          </article>)}</div> : <EmptyState title="No Premium live-view plans" />}
+        </details>
+      </>}
+    </QueryState>
+  </AppShell>;
 }
 
 export function OperationsPage() {
