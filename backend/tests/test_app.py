@@ -989,6 +989,61 @@ class BootstrapApiTests(unittest.TestCase):
         self.assertEqual("BACKUP", backup["sk"])
         self.assertNotIn(secret, backup["backupJson"])
 
+    def test_partial_sensor_outage_backups_alert_once_and_rearm_after_recovery(self):
+        secret = "s" * 48
+        server, house = "server-12345678", "greenhouse-12345678"
+        owner = {"tenantId": "tenant-existing", "accountId": "account-existing"}
+        fake = FakeTable({
+            ("ACCOUNT#account-existing", "METADATA"): {**owner, "state": "ACTIVE"},
+            (f"DEVICE#{server}", "METADATA"): {
+                **owner, "deviceId": server, "greenhouseId": house, "role": "GREENHOUSE_SERVER",
+                "enabled": True, "deviceSecretHash": hashlib.sha256(secret.encode()).hexdigest(),
+            },
+            (f"GREENHOUSE#{house}", "METADATA"): {
+                **owner, "greenhouseId": house, "serverDeviceId": server, "enabled": True,
+            },
+        })
+        app.table = fake
+        now = int(time.time()) * 1000
+        timestamp = now
+
+        def upload(*, kitchen_online, enabled=True, timestamp_override=None):
+            nonlocal timestamp
+            timestamp += 1
+            zones = [
+                {"id": "AA:BB", "name": "Old Green Top", "greenhouseId": "main",
+                 "online": kitchen_online, "updatedAtEpochMs": now - 60_000},
+                {"id": "shelly:001", "name": "Live sensor", "greenhouseId": "main",
+                 "online": True, "updatedAtEpochMs": now - 60_000},
+                {"id": "CC:DD", "name": "Another house", "greenhouseId": "other",
+                 "online": False, "updatedAtEpochMs": now - 60_000},
+            ]
+            backup = {"schema": 2, "preferences": {"active": "main", "notifications": {"offline": enabled}},
+                      "serverHealth": {"serverDeviceId": server, "reportedAt": timestamp_override or timestamp},
+                      "sensors": zones}
+            request = event(f"/v1/device/greenhouses/{house}/backup", device_id=server, body={"backup": backup})
+            request["headers"]["x-greenhouse-device-secret"] = secret
+            outgoing = len(fake.client.transactions)
+            self.assertEqual(204, app.handler(request, None)["statusCode"])
+            if len(fake.client.transactions) == outgoing:
+                return []
+            writes = [operation["Put"]["Item"] for operation in fake.client.transactions[-1] if "Put" in operation]
+            for row in writes:
+                fake.items[row["pk"], row["sk"]] = row
+            return [row for row in writes if row.get("type") == "SENSOR_COMMUNICATION_FAILURE"]
+
+        opened = upload(kitchen_online=False)
+        self.assertEqual(1, len(opened))
+        self.assertEqual("AA:BB", opened[0]["sensorId"])
+        self.assertEqual("Old Green Top stopped reporting to the greenhouse phone.", opened[0]["message"])
+        self.assertEqual("HIGH", opened[0]["priority"])
+        self.assertEqual([], upload(kitchen_online=False))
+        self.assertEqual([], upload(kitchen_online=True, timestamp_override=now))
+        self.assertEqual([], upload(kitchen_online=False))
+        self.assertEqual([], upload(kitchen_online=True))
+        self.assertNotEqual(opened[0]["id"], upload(kitchen_online=False)[0]["id"])
+        self.assertEqual([], upload(kitchen_online=False, enabled=False))
+
     def test_authorized_replacement_server_reads_existing_backup(self):
         secret = "secure-device-secret-12345678901234567890"
         backup = {"schema": 2, "preferences": {"active": "main"}, "zones": {}, "sensors": [], "history": []}

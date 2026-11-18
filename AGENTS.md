@@ -1,5 +1,11 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-18 · Individual offline sensor alerts
+
+- The existing heartbeat only detects a total sensor connection loss. The development backend also evaluates current authenticated sensor backups. An offline or expired previously reporting sensor opens a named equipment alert even when another sensor is online. Simultaneous new outages share a notice. Check the active floor plan and the greenhouse's Sensor offline rule. An uninitialized sensor is excluded.
+- sensor_offline.py saves the last report and offline IDs per current server enrollment. The snapshot, transition and alert commit together. Duplicate or older reports cannot rearm an outage. A newer online report rearms the recovered sensor. A viewer can receive the event for 24 hours through the existing high priority equipment channel, even if the sensor already recovered.
+- Deployed to greenhouse-monitor-dev with the existing backup, identity and table infrastructure. The signed 2.45.1 app supports delivery through its existing alert inbox. Server snapshot and client polling intervals affect timing. Passed 161 backend tests and 12 live API checks. The signed client posted the named outage on an Android 15 emulator with its screen off and app removed from Recents. Physical phone delivery and sound remain unverified.
+
 ## 2026-11-17 · Simplified development admin and subscription views
 
 - Overview leads with Customers, Subscriptions and Devices. Account trends and operating details open on demand. Subscriptions leads with Extra greenhouses and Cloud recording, including paid-through dates, ending plans and license-test labels. The customer profile shows verified add-ons. Premium live-view records and permitted reverification are available under a disclosure.

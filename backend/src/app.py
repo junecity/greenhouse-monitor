@@ -18,9 +18,10 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config
 
-from alert_rules import greenhouse_rules, heartbeat_rules
+from alert_rules import greenhouse_rules, heartbeat_rules, load_rules
 import greenhouse_plan
 import remote_recording
+import sensor_offline
 from camera_archive import archive
 from alerts import LEGACY_TEMPERATURE_MESSAGE, alert_record_key, new_alert, temperature_breach_message
 from sensor_temperature import (
@@ -883,7 +884,7 @@ def server_pairing_status(event):
     return response(200, body)
 
 
-def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bool):
+def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bool, device_authenticated=False):
     greenhouse_id = require_resource_id(greenhouse_id)
     device = require_enabled_requester(principal)
     greenhouse = get_owned("GREENHOUSE", greenhouse_id, principal.tenant_id)
@@ -935,10 +936,23 @@ def greenhouse_backup(event, principal: Principal, greenhouse_id: str, write: bo
         compressed = gzip.compress(raw, compresslevel=3, mtime=0)
         if len(compressed) < len(raw):
             stored = {"backupGzip": compressed}
-    table.put_item(Item={
+    backup_item = {
         **key, "accountId": principal.account_id, "tenantId": principal.tenant_id,
         "greenhouseId": greenhouse_id, **stored, "updatedAt": now,
-    })
+    }
+    sample = (
+        sensor_offline.connection_sample(backup, principal.device_id, now)
+        if device_authenticated and device.get("deviceSecretHash") else None
+    )
+    if sample is None:
+        table.put_item(Item=backup_item)
+    else:
+        revision, rules = load_rules(table, principal, greenhouse_id)
+        if revision and rules:
+            sample = (*sample[:2], rules["offlineAlerts"])
+        writes = sensor_offline.writes_for_sample(table, principal, device, backup_item, sample, now)
+        if writes:
+            table.meta.client.transact_write_items(TransactItems=writes)
     return response(204, {})
 
 
@@ -1309,6 +1323,7 @@ def pending_alerts(principal: Principal, include_recovered=False, include_humidi
     if include_humidity:
         capabilities["sensorHumidityInbox"] = True
     sensor_alert_count = len(alerts)
+    connection_cutoff = int(time.time()) - sensor_offline.MAX_EVENT_AGE_SECONDS
     exclusive_start_key = None
     for _ in range(MAX_ALERT_QUERY_PAGES):
         query = {
@@ -1327,6 +1342,12 @@ def pending_alerts(principal: Principal, include_recovered=False, include_humidi
             if item["type"] == "SERVER_OFFLINE":
                 server = incident_server(item)
                 if not server or server.get("offlineAlertedAt") != item["createdAt"]:
+                    continue
+            elif item["type"] == "SENSOR_COMMUNICATION_FAILURE" and item.get("sourceGeneration"):
+                if item["createdAt"] <= connection_cutoff:
+                    continue
+                server = incident_server(item)
+                if not server or enrollment_key(server, item["deviceId"]) != item["sourceGeneration"]:
                     continue
             elif item["type"] == "CRITICAL_TEMPERATURE":
                 if item.get("sensorId"):
@@ -1712,7 +1733,7 @@ def handler(event, _context):
             return greenhouse_rules(table, principal, require_resource_id(parts[2]), require_enabled_requester(principal),
                                     device_authenticated, method == "POST", event.get("body"), response)
         if method in {"GET", "POST"} and len(parts) == 4 and parts[:2] == ["v1", "greenhouses"] and parts[3] == "backup":
-            return greenhouse_backup(event, principal, parts[2], write=method == "POST")
+            return greenhouse_backup(event, principal, parts[2], write=method == "POST", device_authenticated=device_authenticated)
         if method == "GET" and len(parts) == 4 and parts[:2] == ["v1", "devices"] and parts[3] == "stream-sessions":
             return pending_stream_session(principal, parts[2])
         if method == "DELETE" and len(parts) == 3 and parts[:2] == ["v1", "stream-sessions"]:
