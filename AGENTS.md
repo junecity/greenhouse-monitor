@@ -1,5 +1,12 @@
 # Greenhouse Monitor — Codex project memory (AGENTS.md)
 
+## 2026-11-17 · Development AWS deployment · Greenhouse Studio 2.45.1 (96)
+
+- Renewed the greenhouse development session and deployed source `a020b4a` to `greenhouse-monitor-dev` and `greenhouse-monitor-admin-dev` with the existing CloudFormation execution role. Both reached UPDATE_COMPLETE. Data and identity resources retained their identifiers; the table and customer pool changes were build metadata only. Keep the dual-format snapshot reader when preparing a rollback.
+- Published the configured administrator portal and completed its CloudFront invalidation. The live index and ten referenced assets match the build. The admin reports version 2.45.1. Cloud recording and greenhouse plan sales remain disabled; Google Play merchant setup and real purchase/recording validation are still outstanding.
+- Published the existing signed 2.45.1 APK to the private development server-update catalog. An authenticated test client saw build 96; a disposable server received its requested update and downloaded an APK matching the local digest. Real customer phones were not installed or restarted during deployment. Clients can request the update through Settings → Connectivity; the server's enrolled Android installation mode still applies.
+- Live verification passed 29 humidity/temperature checks, 25 compatibility checks, 27 operational/admin checks and three authenticated update/download checks. Test accounts and their records were removed and absence verified. All seven monitored CloudWatch alarms were OK. Physical sensor delivery, audible output and customer launcher timing remain unverified. Sanitized evidence is under build-out/2.45.1-humidity-alerts/aws-verification/. See CHANGELOG for the initial sign-in and test-expectation corrections.
+
 ## 2026-11-17 · Greenhouse Studio 2.45.1 (96) · Humidity alarms and red widgets
 
 - AlertNotifier independently tracks fresh temperature and RH observations per sensor. Both limits include equality. A missing reading leaves that measurement’s condition open. Existing local alert records migrate when the collector next evaluates the sensor.
